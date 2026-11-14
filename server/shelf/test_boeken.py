@@ -189,6 +189,20 @@ class ImportTests(TestCase):
         self.assertEqual([(r['date'], r['rating'], r['text'][:16]) for r in self.book('dune')['reviews']],
                          [('2010-03-31', 9, 'My better words.'), ('2024-05-02', 9, ''), ('2025-01-01', 7, 'Listened to it t')])
 
+    def test_how_progress_is_said_lasts_as_long_as_the_read(self):
+        self.run_import()
+        row = Book.objects.get(uid='boeken-katabasis')
+        row.data = {**row.data, 'progressUnit': 'percent', 'percentRead': 17}
+        row.save()
+        self.run_import()
+        self.assertEqual((self.book('katabasis')['progressUnit'], self.book('katabasis')['percentRead']), ('percent', 17))
+        # Finished in the booklog: the choice was for that read.
+        done = POSTS['katabasis'].replace('pagesRead: 95\n', '').replace('status: "reading"\n', 'rating: 8\n')
+        make_repo(self.tmp.name, {**POSTS, 'katabasis': done})
+        self.run_import()
+        self.assertNotIn('progressUnit', self.book('katabasis'))
+        self.assertNotIn('percentRead', self.book('katabasis'))
+
     def test_running_it_again_changes_nothing(self):
         self.run_import()
         before = {b.uid: b.changed for b in Book.objects.all()}

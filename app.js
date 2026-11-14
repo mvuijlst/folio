@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.16.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.17.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -159,6 +159,8 @@ async function addBook(data) {
 }
 
 async function saveBook(book) {
+  // How progress is said (page or percentage) is chosen per read: it ends with the read.
+  if (!shelves(book).reading) { delete book.progressUnit; delete book.percentRead; }
   touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
@@ -702,7 +704,8 @@ const yearOf = (date) => (String(date || '').match(/\b(1[4-9]\d\d|20\d\d)\b/) ||
 
 function metaLine(b) {
   // Rating (0–10) and how far along come with books from the booklog at boeken.tsuk.org.
-  const progress = b.pagesRead && b.pages ? t('{n}% read', { n: Math.min(100, Math.round((b.pagesRead / b.pages) * 100)) }) : '';
+  const { percent } = progressOf(b);
+  const progress = percent ? t('{n}% read', { n: percent }) : '';
   return [b.publisher, yearOf(b.date) || b.date, b.pages && t('{n} pp', { n: b.pages }), progress, b.rating != null && `★ ${b.rating}`]
     .filter(Boolean).join(' · ');
 }
@@ -1968,13 +1971,18 @@ function openBooklogForm(book, back) {
 function bookActions(book, again) {
   const on = shelves(book);
   const move = async (id, message) => {
-    const before = book.lists;
+    const before = book.lists, said = { progressUnit: book.progressUnit, percentRead: book.percentRead };
     book.lists = place({ ...shelves(book) }, id);
     await saveBook(book);
     again();
     toast(message, {
       action: t('Undo'),
-      onAction: async () => { if (before) book.lists = before; else delete book.lists; await saveBook(book); if (sheet.isOpen) again(); },
+      onAction: async () => {
+        if (before) book.lists = before; else delete book.lists;
+        for (const key in said) if (said[key] != null) book[key] = said[key];
+        await saveBook(book);
+        if (sheet.isOpen) again();
+      },
     });
   };
   if (on.reading) {
@@ -2008,37 +2016,107 @@ function confirmDrop(book) {
       }, icon('trash'), t('Drop')))));
 }
 
-/** How far along a book on the Reading list is: the page reached, or for an audiobook the time left. */
+/* How far along a book on the Reading list is. The booklog keeps the page reached (for an
+   audiobook: the time left), and that is what a book holds in `pagesRead` / `durationLeft`.
+   It can be said as a percentage as well; the two are kept in step through the book's
+   length. Which of the two was typed in is the one this read goes by from then on
+   (`progressUnit: 'percent'`, with the figure itself in `percentRead`; nothing for the
+   other), until the other one is typed in. */
+
+/** Minutes in the booklog's "3u 12m" ("3h 12m" is fine too); null if it isn't a length of time. */
+function minutesOf(text) {
+  const m = String(text || '').trim().toLowerCase().match(/^(?:(\d+)\s*(?:u|h|uur|uren))?\s*(?:(\d+)\s*(?:m|min))?$/);
+  return m && (m[1] || m[2]) ? Number(m[1] || 0) * 60 + Number(m[2] || 0) : null;
+}
+const spanOf = (minutes) => { const hours = Math.floor(minutes / 60), rest = minutes % 60; return hours && rest ? `${hours}u ${rest}m` : hours ? `${hours}u` : `${rest}m`; };
+
+/** Pages read (audiobook: minutes listened) at `percent` of `total`. */
+const doneAt = (percent, total) => Math.round((total * percent) / 100);
+
+/** → { audio, total, done, percent, byPercent }: pages (audiobook: minutes) in all and so far; null where unknown. */
+function progressOf(book) {
+  const audio = !!book.duration;
+  const total = audio ? minutesOf(book.duration) : (book.pages > 0 ? book.pages : null);
+  const left = audio ? minutesOf(book.durationLeft) : null;
+  const done = audio ? (total != null && left != null ? Math.max(0, total - left) : null)
+    : (Number.isFinite(book.pagesRead) ? book.pagesRead : null);
+  const byPercent = book.progressUnit === 'percent';
+  const said = byPercent && Number.isFinite(book.percentRead) ? book.percentRead : null;
+  let percent = total && done != null ? Math.min(100, Math.round((done / total) * 100)) : null;
+  // The percentage as it was typed, as long as it still is what the booklog has in pages.
+  if (said != null && (!total || done == null || doneAt(said, total) === done)) percent = said;
+  return { audio, total, done, percent, byPercent };
+}
+
 function progressBox(book, again) {
   if (!shelves(book).reading) return null;
-  const audio = !!book.duration;
-  const input = audio
+  const { audio, total, percent, byPercent } = progressOf(book);
+  const amount = audio
     ? h('input', { name: 'left', value: book.durationLeft || '', placeholder: '3u 12m', autocomplete: 'off' })
-    : h('input', { name: 'page', type: 'number', min: 0, max: book.pages || null, inputmode: 'numeric', value: book.pagesRead ?? '' });
+    : h('input', { name: 'page', type: 'number', min: 0, max: total, inputmode: 'numeric', value: book.pagesRead ?? '' });
+  const share = h('input', { name: 'percent', type: 'number', min: 0, max: 100, inputmode: 'numeric', value: percent ?? '', 'aria-label': t('Percentage read') });
   const error = h('p', { class: 'field-error', hidden: true });
-  const fail = (message) => { error.textContent = message; error.hidden = false; input.focus(); };
+  const fail = (input, message) => { error.textContent = message; error.hidden = false; input.focus(); };
+
+  const pageOf = () => (amount.value.trim() === '' ? NaN : Math.round(Number(amount.value)));
+  const shareOf = () => (share.value.trim() === '' ? NaN : Math.round(Number(share.value)));
+
+  // Each field follows the other while it is typed in; the one typed in last is the one that counts.
+  let typed = null;
+  amount.addEventListener('input', () => {
+    typed = 'amount';
+    error.hidden = true;
+    if (!total) return;
+    const done = audio ? (minutesOf(amount.value) == null ? NaN : total - minutesOf(amount.value)) : pageOf();
+    share.value = done >= 0 && done <= total ? Math.round((done / total) * 100) : '';
+  });
+  share.addEventListener('input', () => {
+    typed = 'percent';
+    error.hidden = true;
+    if (!total) return;
+    const p = shareOf();
+    if (!(p >= 0 && p <= 100)) amount.value = '';
+    else amount.value = audio ? spanOf(total - doneAt(p, total)) : doneAt(p, total);
+  });
+
+  const fields = [
+    h('label', { class: 'field progress-amount' },
+      h('span', { text: audio ? t('Time left') : total ? t('Page (of {n})', { n: total }) : t('Page') }), amount),
+    h('label', { class: 'field progress-percent' }, h('span', { text: '%' }), share),
+  ];
   return h('form', {
     class: 'progress-form', novalidate: true,
     onsubmit: async (e) => {
       e.preventDefault();
-      if (audio) {
-        // The booklog writes durations as "3u 12m"; an h for hours is fine too.
-        const left = input.value.trim().toLowerCase().replace(/h/g, 'u').replace(/\s+/g, ' ');
-        if (!/^(?:\d+u)? ?(?:\d+m)?$/.test(left) || !left) return fail(t('Give the time left like 3u 12m.'));
-        book.durationLeft = left;
+      const unit = typed || (byPercent ? 'percent' : 'amount');
+      if (unit === 'percent') {
+        const p = shareOf();
+        if (!(p >= 0 && p <= 100)) return fail(share, t('Give a percentage from 0 to 100.'));
+        book.progressUnit = 'percent';
+        book.percentRead = p;
+        if (total && audio) book.durationLeft = spanOf(total - doneAt(p, total));
+        else if (total) book.pagesRead = doneAt(p, total);
       } else {
-        const page = Math.round(Number(input.value));
-        if (input.value.trim() === '' || !(page >= 0)) return fail(t('Which page are you on?'));
-        if (book.pages && page > book.pages) return fail(t('That is past the last page ({n}).', { n: book.pages }));
-        book.pagesRead = page;
+        if (audio) {
+          const left = minutesOf(amount.value);
+          if (left == null) return fail(amount, t('Give the time left like 3u 12m.'));
+          if (total && left > total) return fail(amount, t('That is more than the whole book ({n}).', { n: book.duration }));
+          book.durationLeft = spanOf(left);
+        } else {
+          const page = pageOf();
+          if (!(page >= 0)) return fail(amount, t('Which page are you on?'));
+          if (total && page > total) return fail(amount, t('That is past the last page ({n}).', { n: total }));
+          book.pagesRead = page;
+        }
+        delete book.progressUnit;
+        delete book.percentRead;
       }
       await saveBook(book);
       toast(t('Progress saved'));
       again();
     },
   },
-  h('label', { class: 'field' },
-    h('span', { text: audio ? t('Time left') : book.pages ? t('Page (of {n})', { n: book.pages }) : t('Page') }), input),
+  ...(byPercent ? fields.reverse() : fields),   // what this read goes by comes first
   h('button', { class: 'btn btn-outline', type: 'submit' }, icon('check'), t('Save')),
   error);
 }

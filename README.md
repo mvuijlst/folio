@@ -30,8 +30,12 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   moved). That is what lets a book offer what comes next, on its page:
   - on *To read*: **Start reading**, or **Drop** it. Dropping removes the book for good and is
     asked first; for a book in the booklog its page there is deleted too;
-  - on *Reading*: the page reached, **Mark as read** (which asks for the reading date, a rating
-    and a review, all optional) or **Did not finish**.
+  - on *Reading*: how far along you are, **Mark as read** (which asks for the reading date, a
+    rating and a review, all optional) or **Did not finish**. Progress is the page reached (for
+    an audiobook: the time left) or a percentage. The two fields follow each other through the
+    book's length, and the one you typed in is the one that read goes by from then on: it comes
+    first, and its figure is kept exactly as typed. The booklog always gets pages or time left;
+    a percentage for a book without a page count stays in Folio.
 
 - **Either-or sets.** Lists in the same set exclude each other: putting a book on *Read* takes
   it off *To read* and *Reading*. A list on its own (*Library*, *Lent out*) can hold any book,

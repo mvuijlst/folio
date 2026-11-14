@@ -434,10 +434,12 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .book-actions { margin-top: 16px; }
 .book-actions .btn { min-height: 46px; }
 .drop-note { font-size: 1rem; color: var(--text); margin: -4px 0 8px; }
-.progress-form { display: grid; grid-template-columns: minmax(0, 160px) auto; gap: 0 10px; align-items: end; margin-top: 16px; }
-.progress-form .field { margin-bottom: 0; }
-.progress-form .btn { min-height: 46px; justify-self: start; }
-.progress-form .field-error { grid-column: 1 / -1; margin: 8px 0 0; }
+.progress-form { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: flex-end; margin-top: 16px; }
+.progress-form .field { margin-bottom: 0; min-width: 0; }
+.progress-amount { flex: 1 1 110px; max-width: 150px; }
+.progress-percent { flex: 1 1 64px; max-width: 84px; }
+.progress-form .btn { min-height: 46px; flex: none; }
+.progress-form .field-error { flex-basis: 100%; margin: 8px 0 0; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 
 /* The assistant's proposals */

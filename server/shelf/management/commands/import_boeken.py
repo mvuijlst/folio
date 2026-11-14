@@ -168,6 +168,10 @@ class Command(BaseCommand):
                         data[name] = old[name]
             if 'list' in waiting:
                 data['lists'] = old.get('lists') or {}
+            # How progress is said (page or percentage) is chosen in the app, per read.
+            if 'reading' not in data['lists']:
+                data.pop('progressUnit', None)
+                data.pop('percentRead', None)
             if waiting:
                 counts['waiting to be published'] += 1
                 data['boekenState'] = old['boekenState']
