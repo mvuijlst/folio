@@ -109,3 +109,66 @@ class IntakeTests(TestCase):
     def test_names_match_in_any_order(self):
         self.assertEqual(intake.name_key('Hamilton, Peter F.'.split()), intake.name_key('Peter F. Hamilton'.split()))
         self.assertEqual(intake.name_key('hamilton-peter-f'.split('-')), intake.name_key('Peter F. Hamilton'.split()))
+
+
+@override_settings(OPENAI_API_KEY='')
+class SharedTests(TestCase):
+    """What is shared from another app: an ISBN settles it, without a language model."""
+
+    EDITION = {'title': 'Katabasis', 'publishers': ['Harper Voyager'], 'publish_date': 'August 26, 2025', 'number_of_pages': 560,
+               'works': [{'key': '/works/OL42397860W'}], 'authors': [{'key': '/authors/OL1A'}], 'covers': [99],
+               'languages': [{'key': '/languages/eng'}]}
+
+    def setUp(self):
+        cache.clear()
+        self.client.force_login(get_user_model().objects.create_user('reader', password='x'))
+
+    def open_library(self, url):
+        if '/isbn/' in url:
+            return self.EDITION
+        return {'name': 'R.F. Kuang'} if '/authors/' in url else {}
+
+    def ask(self, **said):
+        return self.client.post('/api/suggest', json.dumps(said), content_type='application/json')
+
+    def test_an_isbn_in_what_was_shared_is_looked_up(self):
+        with mock.patch.object(intake, 'get_json', side_effect=self.open_library), mock.patch.object(intake, 'post_json') as model:
+            res = self.ask(text='Katabasis (ISBN 978-0-06-302147-1) looks good')
+        model.assert_not_called()
+        self.assertEqual(res.json()['books'], [{
+            'title': 'Katabasis', 'author': 'R.F. Kuang', 'publisher': 'Harper Voyager', 'date': '2025', 'pages': 560,
+            'language': 'en', 'isbn': '9780063021471', 'olid': 'OL42397860W',
+            'cover': 'https://covers.openlibrary.org/b/id/99-L.jpg'}])
+
+    def test_a_shared_page_is_searched_for_its_isbn(self):
+        page = '<script type="application/ld+json">{"@type": "Book", "isbn": "9780063021471"}</script>'
+        with mock.patch.object(intake, 'public_page', return_value=page) as fetched, \
+                mock.patch.object(intake, 'get_json', side_effect=self.open_library):
+            res = self.ask(text='Katabasis by R.F. Kuang', url='https://www.goodreads.com/book/show/1-katabasis')
+        fetched.assert_called_once_with('https://www.goodreads.com/book/show/1-katabasis')
+        self.assertEqual(res.json()['books'][0]['isbn'], '9780063021471')
+
+    def test_an_amazon_address_names_the_book_itself(self):
+        with mock.patch.object(intake, 'public_page') as fetched:
+            self.assertEqual(intake.isbn_from_url('https://www.amazon.com/Dune-Frank-Herbert/dp/0441172717/ref=x'), '9780441172719')
+        fetched.assert_not_called()
+
+    def test_without_an_isbn_and_without_a_model_it_says_so(self):
+        with mock.patch.object(intake, 'public_page', return_value='<html>nothing here</html>'):
+            res = self.ask(text='that new Kuang', url='https://example.org/a-page')
+        self.assertEqual(res.status_code, 503)
+
+    def test_only_public_https_pages_are_fetched(self):
+        with self.assertRaises(ValueError):
+            intake.public_page('http://example.org/')
+        for address in ('127.0.0.1', '10.0.0.5', '192.168.1.10', '169.254.169.254', '::1'):
+            with mock.patch('socket.getaddrinfo', return_value=[(0, 0, 0, '', (address, 443))]), \
+                    mock.patch.object(intake.urllib.request, 'build_opener') as opened:
+                with self.assertRaises(ValueError):
+                    intake.public_page('https://looks-harmless.example/')
+                opened.assert_not_called()
+
+    def test_isbn_checks(self):
+        self.assertEqual(intake.isbn13('0-441-17271-7'), '9780441172719')
+        self.assertEqual(intake.isbn13('9780441172718'), '')        # wrong check digit
+        self.assertEqual(intake.find_isbn('order 9781234567890 or 978-0-441-17271-9'), '9780441172719')

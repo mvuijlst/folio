@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.12.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.13.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1596,9 +1596,11 @@ function onShelfAlready(p) {
     || (fold(b.title) === fold(p.title) && fold(b.author).split(',')[0].trim() === fold(p.author || '').split(',')[0].trim()));
 }
 
-function openDescribe() {
+/** `shared`: {text, url} from another app; the search then starts by itself. */
+function openDescribe(shared) {
   const host = booklogHost();
   const words = h('textarea', { name: 'text', rows: 3, autocapitalize: 'sentences', enterkeyhint: 'search' });
+  words.value = [shared?.text, shared?.url].filter(Boolean).join('\n');
   const on = placed((view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById));
   const error = h('p', { class: 'field-error', hidden: true });
   const find = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('sparkles'), t('Find'));
@@ -1638,7 +1640,18 @@ function openDescribe() {
     find.disabled = true;
     results.replaceChildren(h('div', { class: 'card-busy' }, h('div', { class: 'spinner' }), h('div', { text: t('Looking…') })));
     try {
-      const res = await api('suggest', { text });
+      // A web address in it is the page the book was seen on: the server looks there for its ISBN.
+      const url = (text.match(/https:\/\/\S+/) || [])[0] || '';
+      const said = text.replace(url, '').trim();
+      let res;
+      if (sync.user) res = await api('suggest', { text: said, url });
+      else {
+        // Without an account there is no assistant, but an ISBN can still be looked up from here.
+        const isbn = (text.match(/97[89](?:[-\s]?\d){10}/g) || []).map(toIsbn13).find(Boolean);
+        const found = isbn && await lookupIsbn(isbn);
+        if (!found || found.status !== 'found') throw Object.assign(new Error(t('Sign in to add books from a description.')), { status: 1 });
+        res = { books: [{ ...found.book, isbn }] };
+      }
       proposals = (res.books || []).map((p) => ({ ...p, picked: !onShelfAlready(p) }));
       drawResults();
       if (!proposals.length) results.replaceChildren(h('p', { class: 'sheet-note', text: t('No books recognised in that.') }));
@@ -1665,15 +1678,98 @@ function openDescribe() {
     toast(t('{n} added', { n: plural(picked.length, 'book') }));
   }
 
-  sheet.open(h('div', null,
-    h('form', { novalidate: true, onsubmit: search },
-      sheetHead(t('Add by description'), t('A title, an author, a series, in your own words. One book or several.')),
-      h('label', { class: 'field' }, words),
-      error,
-      h('div', { class: 'sheet-section describe-lists' }, h('h3', { text: t('Put them on') }), listPicker(on, { notes: false })),
-      find),
+  const form = h('form', { novalidate: true, onsubmit: search },
+    sheetHead(shared ? t('Add what was shared') : t('Add by description'), t('A title, an author, a series, in your own words. One book or several.')),
+    h('label', { class: 'field' }, words),
+    error,
+    h('div', { class: 'sheet-section describe-lists' }, h('h3', { text: t('Put them on') }), listPicker(on, { notes: false })),
+    find);
+  sheet.open(h('div', null, form,
     results));
-  words.focus();
+  if (shared) form.requestSubmit(); else words.focus();
+}
+
+/* What another app shares to this one (see share_target in the manifest and sw.js) */
+
+/** Picks up what the service worker kept. → {title, text, url, picture} or null */
+async function takeShare() {
+  if (!new URLSearchParams(location.search).has('shared') || !('caches' in window)) return null;
+  history.replaceState(history.state, '', location.pathname + location.hash);
+  try {
+    const cache = await caches.open('bookscan-share-v1');
+    const said = await cache.match('shared');
+    if (!said) return null;
+    const share = await said.json();
+    const picture = await cache.match('shared-picture');
+    if (picture) share.picture = await picture.blob();
+    await Promise.all([cache.delete('shared'), cache.delete('shared-picture')]);
+    return Date.now() - share.at < 10 * 60 * 1000 ? share : null;   // not something left over from another day
+  } catch { return null; }
+}
+
+/**
+ * A picture becomes the cover of a book you pick. A page of the booklog opens that book.
+ * Anything else (a bookshop's page, a line of text) is looked up and proposed for adding.
+ */
+function handleShare(share) {
+  if (share.picture) { openCoverFor(share.picture); return; }
+  const url = share.url || (String(share.text).match(/https?:\/\/\S+/) || [])[0] || '';
+  const host = booklogHost();
+  if (url && host) {
+    try {
+      const page = new URL(url);
+      const slug = page.host === host && (page.pathname.match(/^\/\d{4}\/\d{2}\/([^/]+)\/?$/) || [])[1];
+      const book = slug && books.find((b) => b.boeken === slug || (b.reviews || []).some((r) => r.boeken === slug));
+      if (book) { openBook(book); return; }
+    } catch {}
+  }
+  const text = [share.title, share.text].filter(Boolean).join('\n').replace(url, '').trim();
+  if (text || url) openDescribe({ text, url: url.startsWith('https://') ? url : '' });
+}
+
+/** A shared picture: choose the book, and for a book read in several editions the read, it is the cover of. */
+async function openCoverFor(blob) {
+  const picture = await readCover(blob);
+  if (!picture) { toast(t('That picture couldn’t be opened')); return; }
+  const search = h('input', { type: 'search', placeholder: t('Search your shelf'), autocomplete: 'off', enterkeyhint: 'search' });
+  const results = h('div', { class: 'cand-list' });
+
+  async function put(book, review) {
+    const fields = { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '' };
+    if (review) review.edition = { ...(review.edition || {}), ...fields };
+    else Object.assign(book, fields, { coverSource: '' });
+    await saveBook(book);
+    uploadCover(review ? review.edition : book, picture, book);
+    sheet.close();
+    toast(t('Cover replaced'));
+  }
+  function choose(book) {
+    const reads = sortedReviews(book).filter((r) => r.date);
+    if (reads.length < 2) { put(book, null); return; }
+    // Read in more than one edition: whose cover is it?
+    results.replaceChildren(
+      h('p', { class: 'sheet-note', text: t('This book was read more than once. Which edition is this the cover of?') }),
+      ...reads.map((r) => h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => put(book, r) },
+        [longDate(r.date), r.edition && editionLine(r.edition)].filter(Boolean).join(' — '))));
+    search.hidden = true;
+  }
+  function draw() {
+    const query = fold(search.value.trim());
+    // Searching also reads reviews, so a book whose title or author has the words comes before
+    // one that merely mentions them.
+    const rank = (b) => (fold(b.title).includes(query) ? 0 : fold(`${b.author} ${b.series || ''}`).includes(query) ? 1 : 2);
+    const found = (query
+      ? books.filter((b) => searchText(b).includes(query)).sort((a, b) => rank(a) - rank(b))
+      : [...books].sort((a, b) => ((a.modified || a.added) < (b.modified || b.added) ? 1 : -1))).slice(0, 30);
+    results.replaceChildren(...found.map((b) => { const row = bookRow(b, choose); row.classList.add('cand'); return row; }),
+      !found.length && h('p', { class: 'no-results', text: t('No books match that search.') }));
+  }
+  search.addEventListener('input', draw);
+  draw();
+  sheet.open(h('div', null,
+    sheetHead(t('Whose cover is this?'), t('Pick the book this picture is the cover of.'), coverEl({ title: '', thumb: picture.thumb, coverRatio: picture.ratio }, true)),
+    h('label', { class: 'field' }, search),
+    results));
 }
 
 /* Adding a book to the booklog */
@@ -2997,6 +3093,7 @@ async function init() {
   runSync();
 
   // Home-screen shortcut: jump straight into the scanner.
+  takeShare().then((share) => { if (share) handleShare(share); });
   if (new URLSearchParams(location.search).has('scan')) {
     history.replaceState(null, '', location.pathname + location.hash);
     openScanner();

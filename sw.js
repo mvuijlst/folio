@@ -3,6 +3,7 @@
 // app's first name: renaming them would only throw away what installed copies have cached.)
 const SHELL = 'bookscan-shell-v2';   // only renamed when the cache layout changes; updates are detected by content
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
+const SHARE = 'bookscan-share-v1';   // what another app just shared to this one, until the page picks it up
 
 const SHELL_FILES = [
   './',
@@ -28,7 +29,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
-    await Promise.all(names.filter((n) => n.startsWith('bookscan-') && n !== SHELL && n !== VENDOR).map((n) => caches.delete(n)));
+    await Promise.all(names.filter((n) => n.startsWith('bookscan-') && n !== SHELL && n !== VENDOR && n !== SHARE).map((n) => caches.delete(n)));
     await self.clients.claim();
   })());
 });
@@ -37,6 +38,12 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
   // Book lookups and cover images go straight to the network.
+  // Sharing a page, some text or a picture to the app (share_target in the manifest) arrives
+  // as a form posted to an address no server answers. It is kept here and the app is opened.
+  if (request.method === 'POST' && url.origin === self.location.origin && url.pathname === new URL('share', self.registration.scope).pathname) {
+    event.respondWith(receiveShare(request));
+    return;
+  }
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
   // The sync server (API, admin and its assets) is never cached. Nor are cover thumbnails:
   // there can be thousands, and the browser's own cache keeps the ones it has seen.
@@ -54,6 +61,21 @@ self.addEventListener('message', (event) => {
   if (event.data?.type !== 'bookscan-check') return;
   event.waitUntil(caches.open(SHELL).then((cache) => Promise.all(SHELL_FILES.map((url) => revalidate(cache, url, url).catch(() => {})))));
 });
+
+async function receiveShare(request) {
+  try {
+    const form = await request.formData();
+    const cache = await caches.open(SHARE);
+    const said = { title: form.get('title') || '', text: form.get('text') || '', url: form.get('url') || '', at: Date.now() };
+    await cache.put('shared', new Response(JSON.stringify(said), { headers: { 'Content-Type': 'application/json' } }));
+    const picture = form.getAll('picture').find((file) => file && file.size && String(file.type).startsWith('image/'));
+    if (picture) await cache.put('shared-picture', new Response(picture, { headers: { 'Content-Type': picture.type } }));
+    else await cache.delete('shared-picture');
+  } catch (err) {
+    console.warn('Folio: could not keep what was shared', err);
+  }
+  return Response.redirect(new URL('./?shared', self.registration.scope).href, 303);
+}
 
 async function cacheFirst(request) {
   const cache = await caches.open(VENDOR);

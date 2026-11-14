@@ -86,6 +86,14 @@ export default {
   'Suggest': 'Voorstel',
   'Optional. One sentence about the book: the text of its page until you review it.': 'Optioneel. Eén zin over het boek: de tekst van zijn pagina tot je het bespreekt.',
 
+  // Shared from another app
+  'Add what was shared': 'Toevoegen wat gedeeld werd',
+  'Sign in to add books from a description.': 'Meld je aan om boeken toe te voegen via een beschrijving.',
+  'Whose cover is this?': 'Van welk boek is dit de cover?',
+  'Pick the book this picture is the cover of.': 'Kies het boek waarvan deze afbeelding de cover is.',
+  'This book was read more than once. Which edition is this the cover of?': 'Dit boek is meer dan eens gelezen. Van welke editie is dit de cover?',
+  'Cover replaced': 'Cover vervangen',
+
   // Changing a cover
   'Change the cover': 'Cover wijzigen',
   'Tap the cover to choose a picture, or paste or drop one here.': 'Tik op de cover om een afbeelding te kiezen, of plak of sleep er hier een.',

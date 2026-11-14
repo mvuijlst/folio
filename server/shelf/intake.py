@@ -11,9 +11,15 @@ answer format; then, for each book it names:
 
 The model is told the booklog's categories and may only choose from those. What comes back
 is a proposal: nothing is added until the user says so in the app.
+
+What is shared to the app from another app (a page of a bookshop, a line of text) comes
+here too. An ISBN in the text, or on the shared page, settles which book it is without
+asking the model: Open Library is asked for that edition.
 """
+import ipaddress
 import json
 import re
+import socket
 import unicodedata
 import urllib.error
 import urllib.parse
@@ -30,6 +36,10 @@ TIMEOUT = 90
 
 class IntakeError(Exception):
     """The assistant couldn't answer; str() can be shown to the user."""
+
+
+class NotSetUp(IntakeError):
+    """There is no language model to ask on this server."""
 
 
 SCHEMA = {
@@ -120,7 +130,7 @@ def get_json(url):
 def analyse(text, categories):
     """What the model makes of `text`: a list of proposed books, as SCHEMA describes them."""
     if not settings.OPENAI_API_KEY:
-        raise IntakeError('The assistant is not set up on this server.')
+        raise NotSetUp('The assistant is not set up on this server.')
     try:
         answer = post_json('https://api.openai.com/v1/chat/completions', {
             'model': settings.OPENAI_MODEL,
@@ -184,6 +194,130 @@ def enrich(proposal):
     return proposal
 
 
+# ───────────────────────── An ISBN: in the text, or on a shared page ─────────────────────────
+
+ISBN13 = re.compile(r'97[89](?:[-\s]?\d){10}')
+LABELLED = re.compile(r'"isbn(?:13)?"\s*[:=]\s*"?(97[89]\d{10})', re.I)
+OPEN_LIBRARY = re.compile(r'openlibrary\.org/(?:isbn/(\d{10,13})|books/(OL\d+M))')
+AMAZON = re.compile(r'/(?:dp|gp/product)/(\d{9}[\dXx])(?:[/?]|$)')
+
+
+def isbn13(raw):
+    """A 10- or 13-digit ISBN as 13 digits, or '' if it isn't one."""
+    digits = re.sub(r'[^0-9Xx]', '', str(raw or '')).upper()
+    if len(digits) == 10 and re.fullmatch(r'\d{9}[\dX]', digits):
+        if sum((10 if c == 'X' else int(c)) * (10 - i) for i, c in enumerate(digits)) % 11:
+            return ''
+        digits = '978' + digits[:9]
+        digits += str((10 - sum(int(c) * (3 if i % 2 else 1) for i, c in enumerate(digits)) % 10) % 10)
+    if len(digits) != 13 or not digits.isdigit() or not digits.startswith(('978', '979')):
+        return ''
+    check = (10 - sum(int(c) * (3 if i % 2 else 1) for i, c in enumerate(digits[:12])) % 10) % 10
+    return digits if check == int(digits[12]) else ''
+
+
+def find_isbn(text):
+    """The first ISBN-13 in a text (hyphens and spaces allowed), or ''."""
+    for match in ISBN13.finditer(text or ''):
+        found = isbn13(match.group(0))
+        if found:
+            return found
+    return ''
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None   # each hop is checked before it is followed (public_page)
+
+
+def public_page(url, limit=1_000_000):
+    """The start of a page someone shared, as text.
+
+    The address comes from outside, so it is only fetched over https from a host on the
+    public internet, and every redirect is held to the same rule: this server must not be
+    made to fetch things on its own network.
+    """
+    for _ in range(4):
+        parts = urllib.parse.urlsplit(url)
+        if parts.scheme != 'https' or not parts.hostname:
+            raise ValueError('only https pages are fetched')
+        for info in socket.getaddrinfo(parts.hostname, parts.port or 443, proto=socket.IPPROTO_TCP):
+            if not ipaddress.ip_address(info[4][0]).is_global:
+                raise ValueError('not a public address')
+        request = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (compatible; Folio book lookup)'})
+        try:
+            with urllib.request.build_opener(NoRedirect).open(request, timeout=10) as response:
+                return response.read(limit).decode('utf-8', errors='replace')
+        except urllib.error.HTTPError as err:
+            if err.code in (301, 302, 303, 307, 308) and err.headers.get('Location'):
+                url = urllib.parse.urljoin(url, err.headers['Location'])
+                continue
+            raise
+    raise ValueError('too many redirects')
+
+
+def isbn_from_url(url):
+    """The ISBN a shared page is about, or ''. Open Library and Amazon addresses say it
+    themselves; other pages (Goodreads, a bookshop) are fetched and searched."""
+    match = OPEN_LIBRARY.search(url)
+    if match:
+        if match.group(1):
+            return isbn13(match.group(1))
+        try:
+            edition = get_json(f'https://openlibrary.org/books/{match.group(2)}.json')
+        except Exception:
+            return ''
+        return next((isbn13(i) for i in edition.get('isbn_13', []) + edition.get('isbn_10', []) if isbn13(i)), '')
+    match = AMAZON.search(urllib.parse.urlsplit(url).path)
+    if match and isbn13(match.group(1)):
+        return isbn13(match.group(1))   # a book's Amazon number is its ISBN-10
+    try:
+        page = public_page(url)
+    except Exception:
+        return ''
+    match = LABELLED.search(page)
+    return (isbn13(match.group(1)) if match else '') or find_isbn(page)
+
+
+def lookup_isbn(isbn):
+    """Open Library's edition with this ISBN, as the model would have proposed it; None if it has none."""
+    try:
+        edition = get_json(f'https://openlibrary.org/isbn/{isbn}.json')
+    except Exception:
+        return None
+    olid, work = '', {}
+    for entry in edition.get('works') or []:
+        key = re.match(r'^/works/(OL\d+W)$', entry.get('key', ''))
+        if key:
+            olid = key.group(1)
+            try:
+                work = get_json(f'https://openlibrary.org/works/{olid}.json')
+            except Exception:
+                work = {}
+            break
+    keys = [a.get('key') for a in edition.get('authors') or []] or [a.get('author', {}).get('key') for a in work.get('authors') or []]
+    authors = []
+    for key in filter(None, keys):
+        try:
+            name = get_json(f'https://openlibrary.org{key}.json').get('name')
+        except Exception:
+            name = None
+        if name:
+            authors.append({'name': name, 'role': None})
+    year = re.search(r'\b(1[5-9]\d\d|20\d\d)\b', edition.get('publish_date', '') or '')
+    language = (((edition.get('languages') or [{}])[0].get('key') or '').rsplit('/', 1)[-1])
+    proposal = {
+        'title': edition.get('title', ''), 'authors': authors,
+        'publisher': (edition.get('publishers') or [''])[0], 'year': int(year.group(0)) if year else None,
+        'pages': edition.get('number_of_pages'), 'duration': None, 'series': None, 'series_number': None,
+        'language': {'eng': 'en', 'dut': 'nl', 'fre': 'fr', 'ger': 'de', 'spa': 'es', 'ita': 'it'}.get(language),
+        'categories': [], 'tags': [], 'note': '', 'isbn': isbn, 'olid': olid,
+    }
+    if edition.get('covers'):
+        proposal['cover'] = f'https://covers.openlibrary.org/b/id/{edition["covers"][0]}-L.jpg'
+    return proposal if proposal['title'] else None
+
+
 # ───────────────────────── What the booklog already has ─────────────────────────
 
 def name_key(parts):
@@ -225,12 +359,20 @@ class Booklog:
         return next((known for known in self.tags if known.replace('-', '') == slug.replace('-', '')), slug)
 
 
-def propose(text, booklog=None, categories=()):
-    """`text` → books as the app keeps them, ready to be shown as proposals."""
+def propose(text, booklog=None, categories=(), url=''):
+    """`text` (and a shared `url`) → books as the app keeps them, ready to be shown as proposals."""
     categories = set(booklog.categories if booklog else categories)
+    # An ISBN says exactly which book and which edition; only without one is the model asked.
+    isbn = find_isbn(text) or (isbn_from_url(url) if url else '')
+    known = lookup_isbn(isbn) if isbn else None
+    if known:
+        proposals = [known]
+    else:
+        proposals = analyse('\n'.join(filter(None, [text, url])), categories)
+        for proposal in proposals:
+            enrich(proposal)
     out = []
-    for proposal in analyse(text, categories):
-        enrich(proposal)
+    for proposal in proposals:
         writers = [a.get('name', '') for a in proposal.get('authors') or [] if a.get('name') and not a.get('role')]
         writers = writers or [a.get('name', '') for a in proposal.get('authors') or [] if a.get('name')]
         series = str(proposal.get('series') or '').strip()

@@ -86,6 +86,24 @@ The same assistant sits behind *Suggest* in *Add to boeken.tsuk.org*: it fills i
 categories, tags and the sentence for a book you already have. Nothing it proposes is saved
 or published until you say so. This is boeggn's intake, with its prompt.
 
+## Sharing to the app
+
+Installed, the app is in the phone's share menu:
+
+- **A picture** becomes a cover: you pick the book it belongs to, and for a book read in
+  several editions which read.
+- **A page of the booklog** opens that book.
+- **Anything else** (a bookshop's page, a Goodreads link, a line of text) is looked up and
+  proposed for adding, like a description. An ISBN in the text or on the shared page settles
+  which book and edition it is, with Open Library and without the assistant; only without an
+  ISBN is the assistant asked. The server fetches a shared page only over https from the
+  public internet.
+
+The service worker receives what is shared (`share_target` in the manifest posts it to
+`share`, which no server answers) and opens the app with it, so sharing works offline up to
+the point where something has to be looked up. A phone may need the app reinstalled, or a
+day, before it shows up in the share menu.
+
 ## Export
 
 **Export** (the download icon) saves, shares or copies the whole shelf as JSON:

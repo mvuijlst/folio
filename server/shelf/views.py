@@ -4,7 +4,8 @@
   POST /api/login    {"username", "password"} → {"user": name}
   POST /api/logout
   POST /api/cover    an image as the request body → {"cover", "coverFull", "coverRatio"}
-  POST /api/suggest  {"text"} → {"books": [proposal…]}: the assistant's reading of a description
+  POST /api/suggest  {"text", "url"} → {"books": [proposal…]}: the book(s) a description or a
+                     shared page is about (by ISBN where there is one, else the assistant)
   POST /api/sync     {"since": cursor | null, "changes": [change…],
                       "listsSince": cursor | null, "lists": [change…]}
                      → {"cursor", "changes": [change…], "lists": [change…]}
@@ -137,11 +138,12 @@ def suggest(request):
     """A few words about a book, a few books or a series → proposals for the app to show."""
     if not request.user.is_authenticated:
         return error('Not signed in', 401)
-    if not settings.OPENAI_API_KEY:
-        return error('The assistant is not set up on this server.', 503)
-    data = body(request)
-    text = str((data or {}).get('text') or '').strip()
-    if not text or len(text) > 2000:
+    data = body(request) or {}
+    text = str(data.get('text') or '').strip()
+    url = str(data.get('url') or '').strip()
+    if not url.startswith('https://') or len(url) > 2000:
+        url = ''
+    if (not text and not url) or len(text) > 2000:
         return error('Describe the book in a few words.')
 
     key = f'suggest:{request.user.pk}'
@@ -154,10 +156,12 @@ def suggest(request):
 
     try:
         if settings.BOEKEN_REPO:
-            books = intake.propose(text, booklog=intake.Booklog(settings.BOEKEN_REPO))
+            books = intake.propose(text, booklog=intake.Booklog(settings.BOEKEN_REPO), url=url)
         else:
             used = {c for b in Book.objects.filter(user=request.user, deleted=False) for c in b.data.get('categories') or []}
-            books = intake.propose(text, categories=used)
+            books = intake.propose(text, categories=used, url=url)
+    except intake.NotSetUp as err:
+        return error(str(err), 503)
     except intake.IntakeError as err:
         return error(str(err), 502)
     return JsonResponse({'books': books})
