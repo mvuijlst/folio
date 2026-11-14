@@ -54,11 +54,11 @@
    under it. --accent is for text and lines; --accent-fill, the pages' own gradient, for what
    is filled (the main button, the list you are on), always with --on-accent on top. */
 :root {
-  --bg: #1e1945;
-  --glow: #2b2563;
-  --surface: #282357;
-  --surface-2: #332d6a;
-  --border: #3f3879;
+  --bg: #17133a;
+  --glow: #221d54;
+  --surface: #221d50;
+  --surface-2: #2d2763;
+  --border: #393272;
   --text: #f3f0fb;
   --muted: #b4add6;
   --faint: #8982b8;
@@ -794,7 +794,12 @@ div.list-name { cursor: default; }
     border: none; border-radius: var(--radius-sm); background: none; font-size: .98rem;
   }
   .nav-item:hover { background: var(--surface); }
-  .nav-item[aria-current="page"] { background: var(--surface-2); color: var(--text); box-shadow: inset 3px 0 0 var(--accent); }
+  /* The list you are on: a straight coloured edge on the left, rounded only on the right. */
+  .nav-item[aria-current="page"] {
+    background: var(--surface-2); color: var(--text);
+    border-left: 3px solid var(--accent); padding-left: 9px;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
   .nav-item[aria-current="page"] span::before { background: var(--mark); }
   .nav-item[aria-current="page"] b { color: var(--accent); opacity: 1; }
   .nav-edit { justify-content: flex-start; color: var(--faint); font-size: .9rem; }

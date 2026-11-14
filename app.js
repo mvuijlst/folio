@@ -98,7 +98,7 @@ if (!settings.langs.length) settings.langs = ['eng'];
 function initTheme() {
   const apply = (t) => {
     document.documentElement.setAttribute('data-theme', t);
-    document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f4fc' : '#1e1945';
+    document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f4fc' : '#17133a';
   };
   let theme = 'dark';
   try { theme = localStorage.getItem('bookscan.theme') || 'dark'; } catch {}
