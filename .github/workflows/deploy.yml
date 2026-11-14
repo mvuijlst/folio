@@ -1,6 +1,8 @@
 # Copies the site to the VPS whenever the app changes.
 #
-# Needs these repository secrets (Settings → Secrets and variables → Actions):
+# Needs these under Settings → Secrets and variables → Actions, as *repository* secrets
+# (not inside an environment). Host, user and path may be repository variables instead;
+# the key must be a secret.
 #   DEPLOY_HOST     server name or IP, e.g. bookscan.example.org
 #   DEPLOY_USER     SSH user that may write to the web root
 #   DEPLOY_SSH_KEY  private key of a key pair made for this job (public half in
@@ -29,11 +31,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
-      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER || vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || vars.DEPLOY_PATH }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || vars.DEPLOY_PORT || '22' }}
       DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      KEY_SAVED_AS_VARIABLE: ${{ vars.DEPLOY_SSH_KEY != '' }}
       DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
     steps:
       - name: Check that the deploy secrets are set
@@ -43,8 +46,11 @@ jobs:
           for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_SSH_KEY; do
             [ -n "${!name}" ] || missing="$missing $name"
           done
+          if [ "$KEY_SAVED_AS_VARIABLE" = "true" ]; then
+            echo "::warning::DEPLOY_SSH_KEY is saved as a variable, which is readable in plain text. Delete it there and add it under the Secrets tab."
+          fi
           if [ -n "$missing" ]; then
-            echo "::warning::Not deployed. Missing repository secrets:$missing"
+            echo "::warning::Not deployed. Not found as repository secrets or variables:$missing (secrets saved inside an environment are not visible to this job)"
             echo "go=false" >> "$GITHUB_OUTPUT"
           else
             echo "go=true" >> "$GITHUB_OUTPUT"
