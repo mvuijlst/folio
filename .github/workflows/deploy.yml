@@ -1,0 +1,90 @@
+# Copies the site to the VPS whenever the app changes.
+#
+# Needs these repository secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST     server name or IP, e.g. bookscan.example.org
+#   DEPLOY_USER     SSH user that may write to the web root
+#   DEPLOY_SSH_KEY  private key of a key pair made for this job (public half in
+#                   that user's ~/.ssh/authorized_keys on the server)
+#   DEPLOY_PATH     absolute path of the directory nginx serves, e.g. /var/www/bookscan
+# Optional:
+#   DEPLOY_PORT         SSH port when it is not 22
+#   DEPLOY_KNOWN_HOSTS  the server's known_hosts line(s); without it the host key
+#                       is taken on trust at each run
+name: Deploy
+
+on:
+  push:
+    branches: [ccr-b1603c1e-whqmno, main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Check that the deploy secrets are set
+        id: ready
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_SSH_KEY; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ -n "$missing" ]; then
+            echo "::warning::Not deployed. Missing repository secrets:$missing"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.go == 'true'
+
+      - name: Set up SSH
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$DEPLOY_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+
+      - name: Refuse to write anywhere but an existing Bookscan site
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "::error::DEPLOY_PATH must be an absolute path"; exit 1 ;;
+          esac
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "grep -q '\"name\": \"Bookscan\"' '$DEPLOY_PATH/manifest.webmanifest'" \
+            || { echo "::error::$DEPLOY_PATH on the server does not hold a Bookscan site (or cannot be read). Nothing was copied."; exit 1; }
+
+      - name: Copy the site
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          # --checksum leaves unchanged files (and so their ETags) alone; nothing is deleted on the server.
+          rsync --recursive --links --times --compress --checksum --chmod=D755,F644 --itemize-changes \
+            --exclude '.git*' --exclude 'README.md' --exclude '.nojekyll' \
+            -e "ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Remove the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

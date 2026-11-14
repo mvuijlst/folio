@@ -46,7 +46,8 @@ camera and for installing.
 
 ## Updating
 
-Replace the files on the server; nothing else is needed. An installed copy compares its cached
+Pushing to the repository deploys to the server (`.github/workflows/deploy.yml`, which lists the
+secrets it needs). Otherwise replace the files on the server by hand; nothing else is needed. An installed copy compares its cached
 files with the server each time it is opened (and when it returns to the foreground), and
 restarts itself into the new version within a few seconds. If you are in the middle of
 something it shows *A new version is ready · Reload* instead. The running version is shown at
