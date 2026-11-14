@@ -15,7 +15,13 @@ is a proposal: nothing is added until the user says so in the app.
 What is shared to the app from another app (a page of a bookshop, a line of text) comes
 here too. An ISBN in the text, or on the shared page, settles which book it is without
 asking the model: Open Library is asked for that edition.
+
+A photograph of a cover comes here as well (the scanner's "no barcode" path): the model
+looks at it and names the book, which reads stylised cover lettering far better than
+character recognition does. The rest is the same.
 """
+import base64
+import io
 import ipaddress
 import json
 import re
@@ -32,6 +38,8 @@ from django.conf import settings
 from . import boeken
 
 TIMEOUT = 90
+PHOTO_SIDE = 1024     # px: a cover photo is sent no larger than this
+PHOTO_BYTES = 6_000_000
 
 
 class IntakeError(Exception):
@@ -114,6 +122,31 @@ def system_prompt(categories):
     )
 
 
+PHOTO_PROMPT = (
+    'Op de foto staat de voorkant van een boek, zoals iemand het in de hand of op tafel '
+    'fotografeerde (soms meerdere boeken). Lees titel, auteur en eventuele reeks van de cover '
+    'af en geef per boek één entry; vul de rest aan uit je boekenkennis. De taal is die van '
+    'de editie op de foto. Kun je op de foto geen boek herkennen, of titel noch auteur lezen, '
+    'geef dan een lege lijst: verzin niets.'
+)
+
+
+def photo_url(image):
+    """A photograph from the app (bytes) → a data: address the model accepts, no larger than needed."""
+    from PIL import Image, ImageOps
+    if not image or len(image) > PHOTO_BYTES:
+        raise IntakeError('That photograph is too large.')
+    try:
+        picture = ImageOps.exif_transpose(Image.open(io.BytesIO(image)))
+        picture = picture.convert('RGB')
+        picture.thumbnail((PHOTO_SIDE, PHOTO_SIDE))
+        out = io.BytesIO()
+        picture.save(out, 'JPEG', quality=85)
+    except Exception as err:
+        raise IntakeError(f'That photograph could not be read: {err}')
+    return 'data:image/jpeg;base64,' + base64.b64encode(out.getvalue()).decode()
+
+
 def post_json(url, payload, headers):
     request = urllib.request.Request(url, data=json.dumps(payload).encode(), method='POST',
                                      headers={'Content-Type': 'application/json', **headers})
@@ -127,27 +160,43 @@ def get_json(url):
         return json.load(response)
 
 
-def analyse(text, categories):
-    """What the model makes of `text`: a list of proposed books, as SCHEMA describes them."""
+def analyse(text, categories, image=None):
+    """What the model makes of `text` (and of a photographed cover): proposed books, as SCHEMA describes them."""
+    # Reading a cover takes no deep thought: with little of it the answer is as good and comes
+    # three times sooner (try_covers, 30 covers: 27 right either way, 2.6 s against 7.7 s).
+    return ask(text, categories, image, effort=settings.OPENAI_COVER_EFFORT if image else None)[0]
+
+
+def ask(text, categories, image=None, model=None, effort=None):
+    """→ (books, usage): the model's proposals, and what the question cost in tokens.
+    `effort`: how long the model may think ('low', 'medium', …), where it takes that."""
     if not settings.OPENAI_API_KEY:
         raise NotSetUp('The assistant is not set up on this server.')
+    said = text
+    if image:
+        said = [{'type': 'text', 'text': '\n'.join(filter(None, [PHOTO_PROMPT, text]))},
+                {'type': 'image_url', 'image_url': {'url': photo_url(image), 'detail': 'high'}}]
+    question = {
+        'model': model or settings.OPENAI_MODEL,
+        'messages': [{'role': 'system', 'content': system_prompt(categories)},
+                     {'role': 'user', 'content': said}],
+        'response_format': {'type': 'json_schema', 'json_schema': {'name': 'books', 'strict': True, 'schema': SCHEMA}},
+        **({'reasoning_effort': effort} if effort else {}),
+    }
     try:
-        answer = post_json('https://api.openai.com/v1/chat/completions', {
-            'model': settings.OPENAI_MODEL,
-            'messages': [{'role': 'system', 'content': system_prompt(categories)},
-                         {'role': 'user', 'content': text}],
-            'response_format': {'type': 'json_schema', 'json_schema': {'name': 'books', 'strict': True, 'schema': SCHEMA}},
-        }, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
+        answer = post_json('https://api.openai.com/v1/chat/completions', question, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
     except urllib.error.HTTPError as err:
         try:
             detail = json.load(err)['error']['message']
         except Exception:
             detail = err.reason
+        if effort and err.code == 400 and 'reasoning_effort' in str(detail):
+            return ask(text, categories, image, model)   # a model that doesn't take the setting: ask without it
         raise IntakeError(f'The assistant answered with an error ({err.code}): {detail}')
     except (urllib.error.URLError, OSError, ValueError) as err:
         raise IntakeError(f'The assistant could not be reached: {err}')
     try:
-        return json.loads(answer['choices'][0]['message']['content'])['books']
+        return json.loads(answer['choices'][0]['message']['content'])['books'], answer.get('usage') or {}
     except (ValueError, KeyError, IndexError, TypeError) as err:
         raise IntakeError(f'The assistant gave an answer that could not be read: {err}')
 
@@ -359,8 +408,8 @@ class Booklog:
         return next((known for known in self.tags if known.replace('-', '') == slug.replace('-', '')), slug)
 
 
-def propose(text, booklog=None, categories=(), url=''):
-    """`text` (and a shared `url`) → books as the app keeps them, ready to be shown as proposals."""
+def propose(text, booklog=None, categories=(), url='', image=None):
+    """`text` (and a shared `url`, or a photographed cover) → books as the app keeps them, ready to be shown as proposals."""
     categories = set(booklog.categories if booklog else categories)
     # An ISBN says exactly which book and which edition; only without one is the model asked.
     isbn = find_isbn(text) or (isbn_from_url(url) if url else '')
@@ -368,7 +417,7 @@ def propose(text, booklog=None, categories=(), url=''):
     if known:
         proposals = [known]
     else:
-        proposals = analyse('\n'.join(filter(None, [text, url])), categories)
+        proposals = analyse('\n'.join(filter(None, [text, url])), categories, image)
         for proposal in proposals:
             enrich(proposal)
     out = []

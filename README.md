@@ -8,8 +8,10 @@ is why the repository and a few internal names are still called that.
 1. **Scan** the ISBN barcode on the back cover. The book is looked up in Open Library and
    Google Books and added to your shelf with title, author, publication date, publisher and
    page count. Keep scanning — each hit is added straight away, with *Undo* and *Edit* on the card.
-2. **No match?** Photograph the front cover. The text on it is read on the phone and searched
-   for in the same catalogues; tap the right result to add it.
+2. **No match?** Photograph the front cover. Where the server has an assistant (see below) it
+   looks at the photograph and names the book, for you to confirm. Without one, or when it
+   cannot tell, the text on the cover is read on the phone and searched for in the same
+   catalogues; tap the right result to add it.
 3. **Still nothing?** The title and author read from the cover are put in a form for you to
    correct. Every line of text found on the cover is a chip you can tap to fill a field.
 
@@ -62,6 +64,12 @@ Books scanned before lists existed count as being in the *Library*.
   *Edit details* leads to the form with its fields and lists. From there, swiping left or
   right (on a desktop: the arrow keys, or the two arrows on the page) goes to the next or previous book
   of the list it was opened from.
+- **A book's page takes a little of its cover's colour**, as its page in the booklog does: the
+  first of the cover's main colours that is neither nearly white nor nearly black. Only that
+  sheet is tinted.
+- **Authors.** An author's name on a book's page leads to all of their books (`#/author/<name>`).
+- **A book without a cover** offers *Search for a cover*: a picture search for its title and
+  author, large pictures only, in a new tab. Copy one and paste it in the book's details.
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
 - **Reviews.** A book can have any number, each with an optional reading date and an optional
@@ -101,6 +109,15 @@ asked for the ISBN and cover, and only believed when title and author really mat
 tags and authors are matched with what the booklog already has. You tick the ones you want,
 choose the lists they go on, and they are added like any scanned book; with a reading status
 they can go to the booklog in the same move.
+
+A photographed cover goes the same way: the photograph (made no larger than 1024 pixels) is
+shown to the assistant, which names the book or books on it, and its proposals open as *Is
+this the book?*, with a field to say it in words if it got it wrong. `manage.py try_covers
+/path/to/boeken` tries this on covers of books the booklog knows and reports how many it got
+right, how long it took and what it cost in tokens, per model (`--models a,b`) and per
+thinking effort (`--effort low`). On 30 covers made to look like phone photographs, the
+server's model named 27 exactly and none wrongly, whether it thought long (7.7 s a cover) or
+briefly (2.6 s); so covers are read with little thinking (`OPENAI_COVER_EFFORT`, default `low`).
 
 The same assistant sits behind *Suggest* in *Add to boeken.tsuk.org*: it fills in language,
 categories, tags and the sentence for a book you already have. Nothing it proposes is saved
@@ -341,4 +358,5 @@ after replacing the picture), and the colour tokens at the top of `styles.css` a
 it: the indigo ground, the amber of the book's pages for the main button and the list you are
 on, and for the three reading lists a dot each: the blue of the book's left-hand pages for
 *To read*, the gold of the middle mark for *Reading*, the mint of the first for *Read*.
-Corners are barely rounded, and only the one main button of a screen is filled.
+Corners are barely rounded, and only the one main button of a screen is filled. *Add a book*
+alone has a gradient: the mint to blue of the book's left-hand pages.

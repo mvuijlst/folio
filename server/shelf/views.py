@@ -15,6 +15,7 @@ Books travel in "changes" and the user's lists in "lists". A change is {"id", "m
 "modified") and answers with everything stored after the cursor that the device doesn't
 already have, so every device converges on the same shelf.
 """
+import base64
 import json
 import logging
 from datetime import timezone as dt_timezone
@@ -135,7 +136,7 @@ def cover(request):
 
 @require_POST
 def suggest(request):
-    """A few words about a book, a few books or a series → proposals for the app to show."""
+    """A few words about a book, a few books or a series, or a photographed cover → proposals for the app to show."""
     if not request.user.is_authenticated:
         return error('Not signed in', 401)
     data = body(request) or {}
@@ -143,7 +144,16 @@ def suggest(request):
     url = str(data.get('url') or '').strip()
     if not url.startswith('https://') or len(url) > 2000:
         url = ''
-    if (not text and not url) or len(text) > 2000:
+    image = None
+    if isinstance(data.get('image'), str) and data['image']:
+        # A photograph of a cover, as base64 (with or without the data: prefix).
+        try:
+            image = base64.b64decode(data['image'].split(',')[-1], validate=True)
+        except ValueError:
+            return error('That photograph could not be read.')
+        if len(image) > intake.PHOTO_BYTES:
+            return error('That photograph is too large.', 413)
+    if (not text and not url and not image) or len(text) > 2000:
         return error('Describe the book in a few words.')
 
     key = f'suggest:{request.user.pk}'
@@ -156,10 +166,10 @@ def suggest(request):
 
     try:
         if settings.BOEKEN_REPO:
-            books = intake.propose(text, booklog=intake.Booklog(settings.BOEKEN_REPO), url=url)
+            books = intake.propose(text, booklog=intake.Booklog(settings.BOEKEN_REPO), url=url, image=image)
         else:
             used = {c for b in Book.objects.filter(user=request.user, deleted=False) for c in b.data.get('categories') or []}
-            books = intake.propose(text, categories=used, url=url)
+            books = intake.propose(text, categories=used, url=url, image=image)
     except intake.NotSetUp as err:
         return error(str(err), 503)
     except intake.IntakeError as err:

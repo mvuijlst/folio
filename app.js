@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.19.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.20.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -219,8 +219,9 @@ const FIXED = new Map(STANDARD_LISTS.filter((l) => l.group === READING).map((l) 
 let lists = [];
 /** What the library shows: one list, or every book when `list` is null. */
 const VIEWS = ['list', 'covers', 'cards'];
-// One of: every book, a list (`list`), all series (`seriesIndex`) or one series (`series`, its name).
-const view = { list: null, series: null, seriesIndex: false, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
+// One of: every book, a list (`list`), all series (`seriesIndex`), one series (`series`, its
+// name) or one author's books (`author`, the name).
+const view = { list: null, series: null, seriesIndex: false, author: null, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
 
 // The standard lists (and their group and note) are stored under their English names, so
 // they are the same list on a Dutch and an English device. Until they are renamed, they
@@ -317,6 +318,9 @@ async function seedLists() {
 
 /** What a book's place in its series is called: its label ("4/5") if it has one, else its number. */
 const seriesNo = (b) => String(b.seriesLabel || (b.seriesNumber ?? ''));
+
+/** A book's authors, one by one ("John Scalzi, Wil Wheaton" is two). */
+const authorsOf = (b) => String(b.author || '').split(',').map((name) => name.trim()).filter(Boolean);
 const seriesOrder = (b) => { const n = parseFloat(b.seriesNumber); return Number.isFinite(n) ? n : Infinity; };
 const bySeriesOrder = (a, b) => (seriesOrder(a) - seriesOrder(b)) || (a.added < b.added ? -1 : 1);
 
@@ -330,24 +334,27 @@ function seriesMap() {
 
 function readRoute() {
   const part = (s) => { try { return decodeURIComponent(s); } catch { return ''; } };
-  Object.assign(view, { list: null, series: null, seriesIndex: false });
+  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null });
   let m;
   if ((m = location.hash.match(/^#\/list\/(.+)$/))) view.list = listById(part(m[1])) ? part(m[1]) : null;
   else if ((m = location.hash.match(/^#\/series\/(.+)$/))) view.series = part(m[1]) || null;
+  else if ((m = location.hash.match(/^#\/author\/(.+)$/))) view.author = part(m[1]) || null;
   else if (/^#\/series\/?$/.test(location.hash)) view.seriesIndex = true;
 }
 
-/** Open every book (null), a list (its id), all series ({seriesIndex: true}) or one ({series: name}). */
+/** Open every book (null), a list (its id), all series ({seriesIndex: true}), one ({series: name}) or an author's books ({author: name}). */
 function setView(target) {
-  const wasSeries = view.seriesIndex || view.series;
-  Object.assign(view, { list: null, series: null, seriesIndex: false });
+  const wasSeries = view.seriesIndex || view.series || view.author;
+  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null });
   if (typeof target === 'string') view.list = listById(target) ? target : null;
   else if (target?.series) view.series = target.series;
   else if (target?.seriesIndex) view.seriesIndex = true;
-  if (wasSeries || view.seriesIndex || view.series) $('search').value = '';   // what you looked for among series isn't what you look for in one
+  else if (target?.author) view.author = target.author;
+  if (wasSeries || view.seriesIndex || view.series || view.author) $('search').value = '';   // what you looked for among series isn't what you look for in one
   const address = view.list ? `#/list/${encodeURIComponent(view.list)}`
     : view.series ? `#/series/${encodeURIComponent(view.series)}`
-      : view.seriesIndex ? '#/series' : location.pathname + location.search;
+      : view.author ? `#/author/${encodeURIComponent(view.author)}`
+        : view.seriesIndex ? '#/series' : location.pathname + location.search;
   // Every view is a step in the browser's history, so Back always returns to the one before
   // (and only leaves the app from where you came in). Opening the view you are on adds nothing.
   if (new URL(address, location.href).href !== location.href) history.pushState({ view: true }, '', address);
@@ -915,6 +922,7 @@ const sheet = {
   onClose: null,
   /** Opens the sheet, or swaps its content if it is already open. */
   open(content, onClose) {
+    $('sheet').classList.remove('tinted');   // a book's page puts its colour back on (tintSheet)
     $('sheetBody').replaceChildren(content);
     $('sheetBody').scrollTop = 0;
     this.onClose = onClose || null;
@@ -1132,7 +1140,7 @@ function renderNav() {
     },
   }, h('span', { text: name }), h('b', { text: String(count) }));
   const item = (id, name, count) => link(id, id ? `#/list/${encodeURIComponent(id)}` : '#/',
-    view.list === id && !view.series && !view.seriesIndex, name, count);
+    view.list === id && !view.series && !view.seriesIndex && !view.author, name, count);
   const seriesCount = new Set(books.map((b) => b.series).filter(Boolean)).size;
   const nav = $('lists');
   nav.replaceChildren(
@@ -1230,6 +1238,7 @@ function renderLibrary() {
   $('count').textContent = books.length ? plural(books.length, 'book') : t('Nothing scanned yet');
   $('search').placeholder = view.seriesIndex ? t('Search series')
     : view.series ? t('Search {list}', { list: view.series })
+      : view.author ? t('Search {list}', { list: view.author })
       : current ? t('Search {list}', { list: listName(current) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
@@ -1242,7 +1251,9 @@ function renderLibrary() {
   // A list shows the book that went on it last first; the whole shelf, the one added last;
   // a series, its books in their order.
   const when = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
+  const writer = view.author && fold(view.author);
   const inView = view.series ? books.filter((b) => b.series === view.series).sort(bySeriesOrder)
+    : writer ? books.filter((b) => authorsOf(b).some((name) => fold(name) === writer))
     : current ? books.filter((b) => shelves(b)[current.id]).sort((a, b) => (when(a) < when(b) ? 1 : -1)) : books;
   $('searchWrap').hidden = inView.length < 8 && !query;
 
@@ -1250,7 +1261,7 @@ function renderLibrary() {
     ? inView.filter((b) => searchText(b).includes(query))
     : inView;
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
-  const key = `${view.list}|${view.series}|${view.mode}|${query}`;
+  const key = `${view.list}|${view.series}|${view.author}|${view.mode}|${query}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
   shown = { rows: found, next: 0, lastDay: '', key, current, query, when, series: view.series };
   $('library').replaceChildren();
@@ -1260,6 +1271,12 @@ function renderLibrary() {
       h('a', { class: 'link-btn', href: '#/series', onclick: (e) => { e.preventDefault(); setView({ seriesIndex: true }); } }, icon('back'), t('All series')),
       h('h2', { text: view.series }),
       h('p', { text: inView.length ? `${plural(inView.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') })));
+  }
+  if (view.author) {
+    const read = inView.filter((b) => shelves(b).read).length;
+    $('library').append(h('div', { class: 'series-head' },
+      h('h2', { text: view.author }),
+      h('p', { text: inView.length ? `${plural(inView.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') })));
   }
   appendRows(rows);
   if (query && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that search.') }));
@@ -1474,7 +1491,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   },
     sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null, cover.button),
     cover.file,
-    h('p', { class: 'sheet-note cover-hint' }, t('Tap the cover to choose a picture, or paste or drop one here.'), ' ', cover.paste),
+    h('p', { class: 'sheet-note cover-hint' }, t('Tap the cover to choose a picture, or paste or drop one here.'), ' ', cover.paste, ' ', coverSearch(book)),
     source,
     ocrBox,
     field(t('Title'), f.title),
@@ -1674,17 +1691,24 @@ function onShelfAlready(p) {
     || (fold(b.title) === fold(p.title) && fold(b.author).split(',')[0].trim() === fold(p.author || '').split(',')[0].trim()));
 }
 
-/** `shared`: {text, url} from another app; the search then starts by itself. */
-function openDescribe(shared) {
+/**
+ * `shared`: {text, url} from another app; the search then starts by itself.
+ * `found`: {books, thumb, isbn, onClose(saved), byHand()} from the scanner, where the assistant
+ * looked at a photographed cover: its proposals are shown at once, to confirm or correct.
+ */
+function openDescribe(shared, found) {
   const host = booklogHost();
-  const words = h('textarea', { name: 'text', rows: 3, autocapitalize: 'sentences', enterkeyhint: 'search' });
-  words.value = [shared?.text, shared?.url].filter(Boolean).join('\n');
-  const on = placed(addTarget());
+  const words = h('textarea', { name: 'text', rows: found ? 2 : 3, autocapitalize: 'sentences', enterkeyhint: 'search' });
+  words.value = found ? [found.books[0].title, found.books[0].author].filter(Boolean).join(', ')
+    : [shared?.text, shared?.url].filter(Boolean).join('\n');
+  const on = found ? targetLists() : placed(addTarget());
   const error = h('p', { class: 'field-error', hidden: true });
-  const find = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('sparkles'), t('Find'));
+  const find = h('button', { class: `btn ${found ? 'btn-outline' : 'btn-primary'} btn-block`, type: 'submit' }, icon('sparkles'), t('Find'));
   const results = h('div', { class: 'proposals' });
   const hasStatus = () => lists.some((l) => l.group === READING && on[l.id]);
-  let proposals = [], toBooklog = true;
+  // One book seen on a photograph: until its catalogue cover is known, the photograph shows it.
+  const photo = found && found.books.length === 1 && !found.books[0].cover ? { thumb: found.thumb } : null;
+  let proposals = (found?.books || []).map((p) => ({ ...p, ...photo, picked: !onShelfAlready(p) })), toBooklog = true, saved = false;
 
   function drawResults() {
     const picked = proposals.filter((p) => p.picked);
@@ -1707,7 +1731,8 @@ function openDescribe(shared) {
       ...proposals.map(row),
       proposals.length > 0 && hasStatus() && booklog,
       proposals.length > 0 && h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: !picked.length, onclick: add },
-        icon('check'), t('Add {n}', { n: plural(picked.length, 'book') })));
+        icon('check'), t('Add {n}', { n: plural(picked.length, 'book') })),
+      found && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: found.byHand }, icon('pencil'), t('None of these — enter it myself')));
   }
 
   async function search(e) {
@@ -1746,25 +1771,34 @@ function openDescribe(shared) {
     const picked = proposals.filter((p) => p.picked && !onShelfAlready(p));
     for (const { picked: _, note, ...p } of picked) {
       const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
+      // From a photograph of one book: that photograph is its cover until a better one is found,
+      // and a barcode that was scanned first but found nowhere is its ISBN.
+      if (found && picked.length === 1) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
       // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
       if (note) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
       // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
       if (host && toBooklog && hasStatus() && p.language && p.categories?.length) book.boekenWanted = true;
       await addBook(book);
     }
+    saved = picked.length > 0;
     sheet.close();
     toast(t('{n} added', { n: plural(picked.length, 'book') }));
   }
 
-  const form = h('form', { novalidate: true, onsubmit: search },
-    sheetHead(shared ? t('Add what was shared') : t('Add by description'), t('A title, an author, a series, in your own words. One book or several.')),
+  const head = found ? sheetHead(t('Is this the book?'), t('This is what the assistant makes of the cover.'))
+    : sheetHead(shared ? t('Add what was shared') : t('Add by description'), t('A title, an author, a series, in your own words. One book or several.'));
+  const onLists = h('div', { class: found ? 'sheet-section' : 'sheet-section describe-lists' }, h('h3', { text: t('Put them on') }), listPicker(on, { notes: false }));
+  const form = h('form', { novalidate: true, onsubmit: search, class: found ? 'sheet-section' : null },
+    found && h('h3', { text: t('Not the right book? Say it in words') }),
     h('label', { class: 'field' }, words),
     error,
-    h('div', { class: 'sheet-section describe-lists' }, h('h3', { text: t('Put them on') }), listPicker(on, { notes: false })),
+    !found && onLists,
     find);
-  sheet.open(h('div', null, form,
-    results));
-  if (shared) form.requestSubmit(); else words.focus();
+  // From a photograph the answer comes first; from words, the question.
+  sheet.open(h('div', null, head, found ? [results, onLists, form] : [form, results]), found && (() => found.onClose(saved)));
+  if (found) drawResults();
+  else if (shared) form.requestSubmit();
+  else words.focus();
 }
 
 /* A book by its address: #/book/<slug>, where the slug is that of its page in the booklog.
@@ -2152,6 +2186,64 @@ function progressBox(book, again) {
   error);
 }
 
+/* A book's page takes a little of its cover's colour, as its page in the booklog does: the
+   first of the cover's main colours that is neither nearly white nor nearly black, or else
+   the darkest. It is worked out here from the picture, once per cover. */
+
+const tints = new Map();   // cover address → '#rrggbb', or '' when it can't be told
+
+function coverTint(src) {
+  if (!tints.has(src)) tints.set(src, new Promise((resolve) => {
+    const img = new Image();
+    if (!src.startsWith('data:')) img.crossOrigin = 'anonymous';   // a catalogue that doesn't allow reading its picture gives no colour
+    img.onerror = () => resolve('');
+    img.onload = () => {
+      try {
+        if (img.naturalWidth < 8) { resolve(''); return; }
+        const w = 40, hgt = Math.max(1, Math.round((w * img.naturalHeight) / img.naturalWidth));
+        const canvas = h('canvas', { width: w, height: hgt });
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, w, hgt);
+        const px = ctx.getImageData(0, 0, w, hgt).data;
+        const bins = new Map();   // colours that look alike are counted together
+        for (let i = 0; i < px.length; i += 4) {
+          if (px[i + 3] < 200) continue;
+          const key = ((px[i] >> 5) << 6) | ((px[i + 1] >> 5) << 3) | (px[i + 2] >> 5);
+          const bin = bins.get(key) || bins.set(key, [0, 0, 0, 0]).get(key);
+          bin[0]++; bin[1] += px[i]; bin[2] += px[i + 1]; bin[3] += px[i + 2];
+        }
+        const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+        const main = [...bins.values()].sort((a, b) => b[0] - a[0]).slice(0, 8).map(([n, r, g, b]) => {
+          const rgb = [r / n, g / n, b / n];
+          return { rgb, lum: 0.2126 * lin(rgb[0]) + 0.7152 * lin(rgb[1]) + 0.0722 * lin(rgb[2]) };
+        });
+        const pick = main.find((c) => c.lum >= 0.10 && c.lum <= 0.50) || main.sort((a, b) => a.lum - b.lum)[0];
+        resolve(pick ? '#' + pick.rgb.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('') : '');
+      } catch { resolve(''); }
+    };
+    img.src = src;
+  }));
+  return tints.get(src);
+}
+
+async function tintSheet(book) {
+  const src = [book.cover, book.thumb].find(Boolean);
+  const colour = src ? await coverTint(src) : '';
+  if (openedBook !== book || !bookPageOpen()) return;   // another book, or another sheet, by now
+  if (colour) $('sheet').style.setProperty('--cover', colour);
+  $('sheet').classList.toggle('tinted', !!colour);
+}
+
+/** A picture search for a book that has no cover: large images of its title and author, in a new tab. */
+function coverSearch(book) {
+  if (book.cover || book.thumb || !book.title) return null;
+  const q = [book.title, (book.author || '').split(',')[0]].filter(Boolean).join(' ');
+  return h('a', {
+    class: 'link-btn cover-search', target: '_blank', rel: 'noopener',
+    href: `https://www.google.com/search?tbm=isch&tbs=isz:l&q=${encodeURIComponent(q)}`,
+  }, icon('search'), t('Search for a cover'));
+}
+
 /* From a book to the one before or after it in the list it was opened from: swipe right or
    left on its page (as on the booklog), the arrow keys, or the two arrows on the page. */
 
@@ -2221,13 +2313,22 @@ function openBook(book, rows) {
       coverEl(book, true),
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
-        book.author && h('p', { class: 'page-author', text: book.author }),
+        // Each author leads to all of their books.
+        book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', h('a', {
+          class: 'author-link', href: `#/author/${encodeURIComponent(name)}`, text: name,
+          onclick: (e) => {
+            if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
+            e.preventDefault();
+            closeLayersThen(() => setView({ author: name }));
+          },
+        })])),
         seriesLine(book) && h('button', {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
           onclick: () => closeLayersThen(() => setView({ series: book.series })),
         }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
-        listTags(book, null)),
+        listTags(book, null),
+        coverSearch(book)),
       h('div', { class: 'page-corner' },
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')),
         (before || after) && h('div', { class: 'page-turn' }, turn(before, 'back', t('Previous book')), turn(after, 'forward', t('Next book'))))),
@@ -2241,6 +2342,7 @@ function openBook(book, rows) {
         h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, sortedReviews(book).find((r) => r.date && !r.text && r.rating == null) || null, again) }, icon('plus'), t('Add review'))),
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
     h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
+  tintSheet(book);
 }
 
 /** Write a review, or change one. `back` shows the book's page again. */
@@ -2862,7 +2964,7 @@ function setMode(mode, isbn = '') {
   scannerEl.dataset.mode = mode;
   showCard(null);
   setHint();
-  if (mode === 'cover') warmOcr();
+  if (mode === 'cover' && !coverByAssistant()) warmOcr();   // the text recogniser is only the fallback then
 }
 
 function updateScanCount() {
@@ -3180,14 +3282,59 @@ async function coverFromFile(file) {
   await processCover(shots);
 }
 
+/** With an account and an assistant on the server, a photographed cover is shown to the assistant. */
+const coverByAssistant = () => !!(sync.user && sync.assistant) && navigator.onLine !== false;
+
+/** The books the assistant sees on a photographed cover (usually one; none if it can't tell). */
+async function booksOnCover(canvas) {
+  const k = Math.min(1, 1024 / Math.max(canvas.width, canvas.height));
+  const small = h('canvas', { width: Math.round(canvas.width * k), height: Math.round(canvas.height * k) });
+  small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height);
+  const res = await api('suggest', { image: small.toDataURL('image/jpeg', 0.82) });
+  return res.books || [];
+}
+
 async function processCover({ canvas, thumb }) {
   const session = scanner.session;
   const isbn = scanner.pendingIsbn;
   scanner.capturing = true;
   $('shutterBtn').disabled = true;
-  const progress = busyCard(t('Reading the cover…'), true);
+  const progress = busyCard(coverByAssistant() ? t('Looking at the cover…') : t('Reading the cover…'), true);
   showCard(progress);
   setHint('');
+
+  const finish = (saved) => {
+    scanner.capturing = false;
+    $('shutterBtn').disabled = false;
+    if (!scanner.open) return;
+    video.play().catch(() => {});
+    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); toast(t('Added to your shelf')); }
+    else setHint();
+  };
+
+  // The assistant looks at the photograph itself, which reads a cover far better than
+  // character recognition does. Where there is none, or it can't tell, the text is read here.
+  if (coverByAssistant()) {
+    let seen = [], waited = 0;
+    const creep = setInterval(() => progress.setProgress(1 - 0.9 ** ++waited), 400);   // it takes a few seconds
+    try { seen = await booksOnCover(canvas); }
+    catch (err) { console.warn('Folio: the assistant could not look at the cover', err); }
+    clearInterval(creep);
+    if (!alive(session)) return;
+    if (seen.length) {
+      showCard(null);
+      openDescribe(null, {
+        books: seen, thumb, isbn, onClose: finish,
+        byHand: () => openBookForm({
+          book: { title: seen[0].title, author: seen[0].author, isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
+          heading: t('Check the details'),
+        }),
+      });
+      return;
+    }
+    progress.setProgress(0);
+    progress.setText(t('Reading the cover…'));
+  }
 
   let lines = [], printedIsbn = null;
   try {
@@ -3225,14 +3372,6 @@ async function processCover({ canvas, thumb }) {
   }
   showCard(null);
 
-  const finish = (saved) => {
-    scanner.capturing = false;
-    $('shutterBtn').disabled = false;
-    if (!scanner.open) return;
-    video.play().catch(() => {});
-    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); toast(t('Added to your shelf')); }
-    else setHint();
-  };
   const draft = { title: guess.title, author: guess.author, isbn, thumb, lists: targetLists() };
   const chipLines = lines.map((l) => tidyCase(l.text)).filter((t) => t.length > 1);
   const editByHand = () => openBookForm({

@@ -9,6 +9,7 @@ Configuration comes from environment variables (see .env.example):
   BOEKEN_PUSH         "1" to push those commits (which publishes them)
   OPENAI_API_KEY      for the assistant that proposes books from a description (optional)
   OPENAI_MODEL        the model it asks
+  OPENAI_COVER_EFFORT how long it may think about a photographed cover ("low" by default; "" for the model's own)
 """
 import os
 from pathlib import Path
@@ -97,6 +98,7 @@ BOEKEN_PUSH = os.environ.get('BOEKEN_PUSH') == '1'
 # a language model, with this key; without one the app doesn't offer it.
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-5.5')
+OPENAI_COVER_EFFORT = os.environ.get('OPENAI_COVER_EFFORT', 'low')
 
 # Cover thumbnails are written next to the app and served from there as plain files.
 COVERS_DIR = BASE_DIR.parent / 'covers'

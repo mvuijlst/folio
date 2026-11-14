@@ -44,6 +44,12 @@ class IntakeTests(TestCase):
     def ask(self, text='the third Dune'):
         return self.client.post('/api/suggest', json.dumps({'text': text}), content_type='application/json')
 
+    def test_words_are_thought_about_as_long_as_the_model_likes(self):
+        with mock.patch.object(intake, 'post_json', return_value=model_says(PIRANESI)) as asked, \
+                mock.patch.object(intake, 'get_json', return_value={'docs': []}):
+            self.ask()
+        self.assertNotIn('reasoning_effort', asked.call_args.args[1])
+
     def test_a_description_becomes_a_proposal_fitted_to_the_booklog(self):
         with override_settings(BOEKEN_REPO=self.tmp.name), \
                 mock.patch.object(intake, 'post_json', return_value=model_says(PIRANESI)) as asked, \
@@ -87,6 +93,47 @@ class IntakeTests(TestCase):
         self.assertIn('could not be reached', res.json()['error'])
         with mock.patch.object(intake, 'post_json', return_value={'unexpected': True}):
             self.assertIn('could not be read', self.ask().json()['error'])
+
+    def test_a_photographed_cover_is_shown_to_the_model(self):
+        import base64, io
+        from PIL import Image
+        photo = io.BytesIO()
+        Image.new('RGB', (3000, 2000), 'navy').save(photo, 'JPEG')
+        sent = base64.b64encode(photo.getvalue()).decode()
+        with override_settings(BOEKEN_REPO=self.tmp.name),                 mock.patch.object(intake, 'post_json', return_value=model_says(PIRANESI)) as asked,                 mock.patch.object(intake, 'get_json', return_value=OPEN_LIBRARY):
+            res = self.client.post('/api/suggest', json.dumps({'image': 'data:image/jpeg;base64,' + sent}), content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()['books'][0]['title'], 'Children of Dune')
+        said = asked.call_args.args[1]['messages'][1]['content']
+        self.assertEqual(asked.call_args.args[1]['reasoning_effort'], 'low')   # a cover needs no long thought
+        self.assertEqual([part['type'] for part in said], ['text', 'image_url'])
+        self.assertIn('voorkant van een boek', said[0]['text'])
+        # What is sent on is a JPEG no larger than it needs to be.
+        again = Image.open(io.BytesIO(base64.b64decode(said[1]['image_url']['url'].split(',')[1])))
+        self.assertEqual((again.format, max(again.size)), ('JPEG', intake.PHOTO_SIDE))
+
+    def test_a_model_that_takes_no_thinking_setting_is_asked_without_it(self):
+        import base64, io, urllib.error
+        from PIL import Image
+        photo = io.BytesIO()
+        Image.new('RGB', (300, 200), 'navy').save(photo, 'JPEG')
+        refusal = urllib.error.HTTPError('https://api.openai.com', 400, 'Bad Request', {},
+                                         io.BytesIO(json.dumps({'error': {'message': "Unsupported parameter: 'reasoning_effort'"}}).encode()))
+        with mock.patch.object(intake, 'post_json', side_effect=[refusal, model_says(PIRANESI)]) as asked, \
+                mock.patch.object(intake, 'get_json', return_value={'docs': []}):
+            res = self.client.post('/api/suggest', json.dumps({'image': base64.b64encode(photo.getvalue()).decode()}), content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertNotIn('reasoning_effort', asked.call_args_list[1].args[1])
+
+    def test_what_is_not_a_photograph_is_refused(self):
+        import base64
+        post = lambda image: self.client.post('/api/suggest', json.dumps({'image': image}), content_type='application/json')
+        with mock.patch.object(intake, 'post_json') as asked:
+            self.assertEqual(post('not base64 at all!').status_code, 400)
+            res = post(base64.b64encode(b'these are not the bytes of a picture').decode())
+            self.assertEqual(res.status_code, 502)
+            self.assertIn('could not be read', res.json()['error'])
+        asked.assert_not_called()
 
     def test_it_needs_an_account_a_key_and_some_words(self):
         self.assertEqual(self.ask('').status_code, 400)
