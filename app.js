@@ -696,7 +696,7 @@ const scanner = {
   open: false, session: 0, mode: 'barcode',
   stream: null, track: null, detector: null,
   busy: false, capturing: false,
-  lastCode: '', lastSeen: 0, lastNag: 0,
+  lastCode: '', lastSeen: 0,
   added: 0, pendingIsbn: '', wakeLock: null, hintTimer: 0,
 };
 const alive = (session) => scanner.open && scanner.session === session;
@@ -792,17 +792,21 @@ document.addEventListener('visibilitychange', () => {
   else if (!scanner.stream) { startCamera(scanner.session); requestWakeLock(); }
 });
 
+// ISBNs are EAN-13. UPC-A is read too: older (mostly American) paperbacks carry a
+// shop barcode instead, with the ISBN only printed next to it.
+const BARCODE_FORMATS = ['ean_13', 'upc_a'];
+
 async function getDetector() {
   if ('BarcodeDetector' in window) {
     try {
-      const formats = await window.BarcodeDetector.getSupportedFormats();
-      if (formats.includes('ean_13')) return new window.BarcodeDetector({ formats: ['ean_13'] });
+      const formats = (await window.BarcodeDetector.getSupportedFormats()).filter((f) => BARCODE_FORMATS.includes(f));
+      if (formats.includes('ean_13')) return new window.BarcodeDetector({ formats });
     } catch {}
   }
   // Browsers without the native detector get a WebAssembly one.
   const zx = await import('./vendor/barcode/ponyfill.js');
   zx.prepareZXingModule({ overrides: { locateFile: (path, prefix) => (path.endsWith('.wasm') ? abs('vendor/barcode/zxing_reader.wasm') : prefix + path) } });
-  return new zx.BarcodeDetector({ formats: ['ean_13'] });
+  return new zx.BarcodeDetector({ formats: BARCODE_FORMATS });
 }
 
 async function scanLoop(session) {
@@ -832,20 +836,121 @@ async function scanLoop(session) {
 function handleCodes(codes) {
   if (!codes.length) return;
   const now = performance.now();
-  for (const code of codes) {
-    const value = String(code.rawValue || '').replace(/\D/g, '');
-    if (!isbn13Valid(value) || !/^97[89]/.test(value)) continue;
-    // Ignore the book that is still lying in front of the lens.
-    if (value === scanner.lastCode && now - scanner.lastSeen < 2500) { scanner.lastSeen = now; return; }
-    scanner.lastCode = value;
-    scanner.lastSeen = now;
-    onIsbn(value);
-    return;
+  const seen = codes.map((code) => ({ value: String(code.rawValue || '').replace(/\D/g, ''), box: code.boundingBox }));
+  const isIsbn = (c) => isbn13Valid(c.value) && /^97[89]/.test(c.value);
+  // An ISBN barcode wins; failing that, any other retail barcode may have the ISBN printed beside it.
+  const hit = seen.find(isIsbn) || seen.find((c) => c.value.length >= 12 && c.box);
+  if (!hit) return;
+  // Ignore the book that is still lying in front of the lens.
+  if (hit.value === scanner.lastCode && now - scanner.lastSeen < 2500) { scanner.lastSeen = now; return; }
+  scanner.lastCode = hit.value;
+  scanner.lastSeen = now;
+  if (isIsbn(hit)) onIsbn(hit.value);
+  else readPrintedIsbn(hit.box);
+}
+
+/* Printed ISBN next to a non-ISBN barcode */
+
+/**
+ * Finds an ISBN in OCR text. The blocky font used beside barcodes is often misread
+ * (its 6 looks like a b, its 0 like an O); the check digit keeps the corrections honest.
+ */
+function findPrintedIsbn(text) {
+  const digits = (str) => str
+    .replace(/[OoQD]/g, '0').replace(/[Il|!]/g, '1').replace(/[Zz]/g, '2').replace(/[Ss]/g, '5')
+    .replace(/[bG]/g, '6').replace(/B/g, '8').replace(/[^0-9Xx]/g, '');
+  for (const line of String(text || '').split('\n')) {
+    const candidates = [];
+    const labelled = line.match(/[I1l|][S5][B8]N(?:[-\s]*1[03]\b)?[\s:.#-]*(.+)/i);
+    if (labelled) candidates.push(labelled[1]);
+    for (const m of line.matchAll(/[0-9OIlSBZbG]{1,5}(?:[- ][0-9OIlSBZbG]{1,7}){2,4}[- ]?[0-9Xx]?/g)) candidates.push(m[0]);
+    for (const candidate of candidates) {
+      // Also try with a zero that was read twice, as "O0" or "0O", collapsed.
+      for (const variant of new Set([candidate, candidate.replace(/O0|0O/g, '0')])) {
+        const d = digits(variant);
+        const isbn = toIsbn13(d.slice(0, 13)) || toIsbn13(d.slice(0, 10));
+        if (isbn) return isbn;
+      }
+    }
   }
-  if (now - scanner.lastNag > 5000) {
-    scanner.lastNag = now;
-    setHint('That’s not an ISBN — look for the barcode starting 978 or 979', 3000);
+  return null;
+}
+
+/** Cuts a region (in camera pixels) out of the live picture, scaled for reading. */
+function cropVideo(region, scale) {
+  const x0 = Math.max(0, region.x), y0 = Math.max(0, region.y);
+  const x1 = Math.min(video.videoWidth, region.x + region.w), y1 = Math.min(video.videoHeight, region.y + region.h);
+  if (x1 - x0 < 20 || y1 - y0 < 10) return null;
+  const k = Math.max(1, Math.min(3, scale));
+  const canvas = h('canvas', { width: Math.round((x1 - x0) * k), height: Math.round((y1 - y0) * k) });
+  canvas.getContext('2d').drawImage(video, x0, y0, x1 - x0, y1 - y0, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
+/** Where an ISBN is usually printed relative to a barcode: just above it, else just below. */
+function readingPlan(box, lastTry) {
+  const w = box.width;
+  const thin = box.height < w * 0.3; // some detectors report a scan line, not the whole symbol
+  const mid = box.y + box.height / 2;
+  const top = thin ? mid - w * 0.35 : box.y, bottom = thin ? mid + w * 0.35 : box.y + box.height;
+  const x = box.x - w * 0.25, width = w * 2.05;
+  const above = { x, y: top - w * 0.45, w: width, h: w * 0.5 };
+  const below = { x, y: bottom - w * 0.05, w: width, h: w * 0.5 };
+  const plan = [
+    { region: above, scale: 650 / w, psm: '6' },
+    { region: above, scale: 520 / w, psm: '6' },
+    { region: below, scale: 650 / w, psm: '6' },
+  ];
+  if (lastTry) plan.push({ region: { x, y: top - w * 0.55, w: width, h: bottom - top + w * 1.1 }, scale: 520 / w, psm: '11' });
+  return plan;
+}
+
+async function readPrintedIsbn(firstBox) {
+  const session = scanner.session;
+  const ATTEMPTS = 3;
+  scanner.busy = true;
+  buzz(15);
+  showCard(busyCard('Reading the printed ISBN…'));
+  let isbn = null, worker = null;
+  try {
+    worker = await getOcrWorker();
+    const detector = await scanner.detector;
+    // A few fresh frames, in case the first one was blurred.
+    for (let attempt = 0; attempt < ATTEMPTS && !isbn && alive(session); attempt++) {
+      let box = firstBox;
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, 200));
+        const codes = await detector.detect(video).catch(() => []);
+        const scanned = codes.map((c) => String(c.rawValue || '').replace(/\D/g, '')).find((v) => isbn13Valid(v) && /^97[89]/.test(v));
+        if (scanned) { isbn = scanned; break; }
+        box = codes.find((c) => c.boundingBox)?.boundingBox;
+        if (!box) continue;
+      }
+      for (const step of readingPlan(box, attempt === ATTEMPTS - 1)) {
+        const canvas = cropVideo(step.region, step.scale);
+        if (!canvas) continue;
+        await worker.setParameters({ tessedit_pageseg_mode: step.psm });
+        const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('OCR timed out')), 15000));
+        const { data } = await Promise.race([worker.recognize(canvas, {}, { text: true }), timeout]);
+        isbn = findPrintedIsbn(data.text);
+        if (isbn || !alive(session)) break;
+      }
+    }
+  } catch (err) {
+    console.warn(err);
   }
+  if (!alive(session)) return;
+  if (isbn) { onIsbn(isbn); return; }
+  // Scanning stays paused until one of these is chosen.
+  showCard(card({
+    status: 'Not an ISBN barcode', tone: 'warn', title: 'Couldn’t read the ISBN beside it',
+    sub: 'Some older books carry a shop barcode. Hold the printed ISBN number sharp and level, or type it in.',
+    onDismiss: () => { scanner.busy = false; },
+    actions: [
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => { scanner.lastCode = ''; scanner.busy = false; showCard(null); } }, icon('scan'), 'Try again'),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: openIsbnSheet }, icon('keyboard'), 'Type ISBN'),
+    ],
+  }));
 }
 
 function setMode(mode, isbn = '') {
@@ -1013,7 +1118,7 @@ function getOcrWorker() {
       cacheMethod: 'none', // the service worker already keeps these files
       logger: (m) => ocr.onProgress?.(m),
     });
-    await worker.setParameters({ tessedit_pageseg_mode: '11', user_defined_dpi: '200' }); // sparse text: covers are not paragraphs
+    await worker.setParameters({ user_defined_dpi: '200' });
     return worker;
   })();
   mine.catch(() => { if (ocr.promise === mine) ocr.promise = null; });
@@ -1138,19 +1243,31 @@ async function processCover({ canvas, thumb }) {
   showCard(progress);
   setHint('');
 
-  let lines = [];
+  let lines = [], printedIsbn = null;
   try {
     ocr.onProgress = (m) => { if (m.status === 'recognizing text') progress.setProgress(0.15 + m.progress * 0.85); else progress.setProgress(0.1); };
     const worker = await getOcrWorker();
     const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('OCR timed out')), 30000));
-    const { data } = await Promise.race([worker.recognize(canvas, {}, { text: false, blocks: true }), timeout]);
+    await worker.setParameters({ tessedit_pageseg_mode: '11' }); // sparse text: covers are not paragraphs
+    const { data } = await Promise.race([worker.recognize(canvas, {}, { text: true, blocks: true }), timeout]);
     lines = extractLines(data);
+    printedIsbn = findPrintedIsbn(data.text);
   } catch (err) {
     console.warn(err);
   } finally {
     ocr.onProgress = null;
   }
   if (!alive(session)) return;
+
+  // A photographed back cover or copyright page: the ISBN on it beats guessing from the text.
+  if (printedIsbn && printedIsbn !== isbn) {
+    scanner.capturing = false;
+    $('shutterBtn').disabled = false;
+    video.play().catch(() => {});
+    setMode('barcode');
+    onIsbn(printedIsbn);
+    return;
+  }
 
   const guess = guessTitleAuthor(lines);
   let candidates = [];

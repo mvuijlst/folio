@@ -10,6 +10,10 @@ A small installable web app (PWA) for cataloguing books with your phone.
 3. **Still nothing?** The title and author read from the cover are put in a form for you to
    correct. Every line of text found on the cover is a chip you can tap to fill a field.
 
+Older paperbacks (mostly American) carry a shop barcode (UPC) instead of an ISBN one, with the
+ISBN only printed beside it. The scanner notices this and reads the printed number instead.
+Photographing a back cover or copyright page that shows an ISBN works the same way.
+
 You can also type an ISBN or enter a book entirely by hand. Books scanned without a connection
 are saved by ISBN and completed automatically once you are back online.
 
