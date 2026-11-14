@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.17.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.18.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -98,7 +98,7 @@ if (!settings.langs.length) settings.langs = ['eng'];
 function initTheme() {
   const apply = (t) => {
     document.documentElement.setAttribute('data-theme', t);
-    document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f7f3ec' : '#131210';
+    document.querySelector('meta[name="theme-color"]').content = t === 'light' ? '#f6f4fc' : '#1e1945';
   };
   let theme = 'dark';
   try { theme = localStorage.getItem('bookscan.theme') || 'dark'; } catch {}
@@ -1117,7 +1117,7 @@ function renderNav() {
   const counts = new Map(lists.map((l) => [l.id, 0]));
   for (const b of books) for (const id of Object.keys(shelves(b))) if (counts.has(id)) counts.set(id, counts.get(id) + 1);
   const link = (target, href, isCurrent, name, count) => h('a', {
-    class: 'nav-item', href, 'aria-current': isCurrent ? 'page' : null,
+    class: 'nav-item', href, 'aria-current': isCurrent ? 'page' : null, 'data-list': typeof target === 'string' ? target : null,
     onclick: (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
       e.preventDefault();

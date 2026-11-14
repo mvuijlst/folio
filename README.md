@@ -329,4 +329,11 @@ and that deletes the shelf.
 | `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and language data (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |
 
-Icons are from [Lucide](https://lucide.dev) (ISC).
+Icons in the interface are from [Lucide](https://lucide.dev) (ISC).
+
+The app's own icon and its colours come from one picture, `icons/folio-art.jpg`: an open book
+in a dark disc on an indigo ground. `icons/make.py` cuts every icon size out of it (run it again
+after replacing the picture), and the colour tokens at the top of `styles.css` are sampled from
+it: the indigo ground, the amber-to-coral of the book's pages for buttons and the list you are
+on, and the mint, gold and coral of the three marks under the book for *To read*, *Reading*
+and *Read*.

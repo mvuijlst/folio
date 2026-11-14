@@ -5,12 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <title>Folio</title>
   <meta name="description" content="Your books on lists: library, to read, reading, read, lent out. Scan a barcode to add one.">
-  <meta name="theme-color" content="#131210">
+  <meta name="theme-color" content="#1e1945">
   <meta name="color-scheme" content="dark light">
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="manifest.webmanifest">
-  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="icon" href="icons/favicon-48.png" type="image/png" sizes="48x48">
+  <link rel="icon" href="icons/icon-192.png" type="image/png" sizes="192x192">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
   <link rel="preload" href="fonts/fraunces-latin-opsz-normal.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="fonts/instrument-sans-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
   <script>
@@ -69,8 +70,11 @@
 <div class="app" id="app">
   <header class="top">
     <div class="brand">
-      <h1 class="wordmark">Fol<em>io</em></h1>
-      <p class="count" id="count">&nbsp;</p>
+      <img class="mark" src="icons/mark-96.png" width="56" height="56" alt="">
+      <div>
+        <h1 class="wordmark">Fol<em>io</em></h1>
+        <p class="count" id="count">&nbsp;</p>
+      </div>
     </div>
     <div class="top-actions">
       <button class="icon-btn" id="exportBtn" aria-label="Export as JSON" title="Export as JSON"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg></button>
