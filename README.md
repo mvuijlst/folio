@@ -39,6 +39,23 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
 
 Books scanned before lists existed count as being in the *Library*.
 
+## Views, covers and reviews
+
+- **Three views** of every list, chosen with the buttons beside the search box: the *list*
+  (as it always was), *covers* (a shelf of covers with their ratings, grouped by year) and
+  *cards* (larger cover, details, lists and the start of the latest review, grouped by month).
+- **Covers keep their own proportions**: a square audiobook cover is square, everywhere.
+- **Tapping a book opens its page**: cover, details, the lists it is on and its reviews.
+  *Edit details* leads to the form with its fields and lists.
+- **Reviews.** A book can have any number, each with an optional reading date and an optional
+  rating from 0 to 10, written in Markdown (emphasis, links, quotes, lists, images). The rating
+  shown in lists is that of the latest review that gives one. Reviews are searched too.
+- **Covers are kept on the server.** For signed-in users the server fetches a copy of each
+  cover that comes from a book catalogue (Open Library, Google Books), a few per sync, as a
+  320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py
+  fetch_covers` does a whole shelf at once. Covers you photographed yourself already travel
+  with the book.
+
 ## Export
 
 **Export** (the download icon) saves, shares or copies the whole shelf as JSON:
@@ -57,6 +74,10 @@ Books scanned before lists existed count as being in the *Library*.
     "lists": [
       { "list": "Library", "since": "2026-11-14T12:27:54.748Z" },
       { "list": "Lent out", "since": "2026-11-20T18:02:11.000Z", "note": "Jan" }
+    ],
+    "rating": 9,
+    "reviews": [
+      { "date": "2026-11-30", "rating": 9, "text": "Markdown, *as written*." }
     ]
   }
 ]
@@ -131,14 +152,17 @@ venv/bin/python manage.py import_boeken --user NAME --remove                    
 - Each post becomes a book on *To read*, *Reading* or *Read* (or *Abandoned*, a list that is
   made when first needed), dated as in the booklog. A reread is the same book, not a second one.
 - A book comes with its rating, series, how far along it is, and a link to its page in the
-  booklog; the app shows these in the list and in the book's form.
+  booklog. Every read becomes a **review** of the book: the day it was read, the rating and the
+  text (Hugo shortcodes for images and videos become plain Markdown). A book that is not read
+  yet gets its note as a review without a date.
 - A booklog book that is already on the shelf (same ISBN) is joined with it and keeps its other
   lists and notes. A booklog book deleted in the app stays deleted.
 - Covers are written as small images to `covers/boeken/` next to the app (the booklog's own are
   full-size) and served as plain files.
 - **For now the booklog is the source**: run the import again and titles, ratings and reading
   status are set from it once more, overwriting changes made to those in the app. Other lists,
-  notes and scanned books are never touched. On the server the booklog's checkout is the one
+  notes and scanned books are never touched, and neither are reviews written in the app or
+  booklog reviews that were edited in the app. On the server the booklog's checkout is the one
   boeggn keeps, `/home/django/boeggn-yusupov/repo`.
 
 ## Updating
@@ -176,7 +200,7 @@ and that deletes the shelf.
 | `lang-nl.js` | the app's text in Dutch |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
 | `server/` | optional Django sync server (accounts, a copy of each shelf and its lists), and the booklog import |
-| `covers/` | cover thumbnails made by the import (not in the repository) |
+| `covers/` | cover images kept by the server: `boeken/` from the import, `web/` from the catalogues (not in the repository) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
 | `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and language data (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |

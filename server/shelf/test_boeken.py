@@ -1,7 +1,10 @@
+import io
+import json
 import tempfile
 from datetime import timezone as dt_timezone
 from io import StringIO
 from pathlib import Path
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
@@ -9,7 +12,9 @@ from django.test import TestCase
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
-from shelf import boeken
+from django.test import override_settings
+
+from shelf import boeken, covers
 from shelf.models import Book, List
 
 POSTS = {
@@ -35,7 +40,11 @@ categories: ["sf"]
 tags: ["desert"]
 authors: ["herbert-frank", "someone-else"]
 ---
-A long review.
+A long review, with *emphasis*.
+
+{{< bookimg src="uploads/2010/03/worm.jpg" alt="A worm" >}}
+
+See [the sequel](/2011/02/dune-messiah/) and {{< youtube VRaoHi_xcWk >}}.
 ''',
     'dune-herlezing': '''---
 title: "Dune"
@@ -68,6 +77,7 @@ slug: "gilgamesh"
 status: "to-read"
 authors: ["unknown-slug"]
 ---
+Why this is on the pile.
 ''',
 }
 AUTHORS = {'herbert-frank': 'Frank Herbert', 'kuang-r-f': 'R.F. Kuang', 'someone-else': 'Some Translator'}
@@ -108,10 +118,12 @@ class ImportTests(TestCase):
         self.assertFalse(Path(self.tmp.name, 'thumbs').exists())
         self.assertIn('1 cover thumbnails made', self.run_import())
         cover = self.book('dune')['cover']
-        self.assertRegex(cover, r'^covers/boeken/[0-9a-f]{16}[.]webp$')
+        self.assertRegex(cover, r'^covers/boeken/[0-9a-f]{16}-320[.]webp$')
         with Image.open(Path(self.tmp.name, 'thumbs', cover.rsplit('/', 1)[1])) as thumb:
-            self.assertEqual(thumb.size, (240, 360))
-        self.assertIn('3 unchanged, 0 left deleted, 0 cover thumbnails made', self.run_import())
+            self.assertEqual(thumb.size, (320, 480))
+        self.assertEqual(self.book('dune')['coverRatio'], 0.667)     # its own proportions, known before it loads
+        self.assertIn('3 unchanged', self.run_import())
+        self.assertIn('0 cover thumbnails made', self.run_import())
 
     def book(self, key):
         return Book.objects.get(user=self.user, data__boeken=key).data
@@ -133,8 +145,9 @@ class ImportTests(TestCase):
         self.assertEqual(dune['rating'], 10)                           # of the latest read
         self.assertEqual(dune['added'], '2010-03-31T21:30:00.000Z')    # when it was first read
         self.assertEqual(dune['lists'], {'read': {'at': '2024-05-02T08:00:00.000Z'}})
-        self.assertEqual([r['url'] for r in dune['reads']],
-                         ['https://boeken.tsuk.org/2010/03/dune/', 'https://boeken.tsuk.org/2024/05/dune-herlezing/'])
+        self.assertEqual([(r['date'], r['rating'], r['url']) for r in dune['reviews']],
+                         [('2010-03-31', 9, 'https://boeken.tsuk.org/2010/03/dune/'),
+                          ('2024-05-02', 10, 'https://boeken.tsuk.org/2024/05/dune-herlezing/')])
         self.assertTrue(dune['isbn'])                                   # the first read knew it; the reread did not
         self.assertEqual(dune['url'], 'https://boeken.tsuk.org/2024/05/dune-herlezing/')
 
@@ -142,6 +155,34 @@ class ImportTests(TestCase):
         # The address follows the date as written in the file, not that moment in another time zone.
         self.assertEqual({p['slug']: p['_url'] for p in boeken.read_posts(self.tmp.name)}['dune'],
                          'https://boeken.tsuk.org/2010/03/dune/')
+
+    def test_reads_become_reviews(self):
+        self.assertIn('3 reviews', self.run_import())
+        first = self.book('dune')['reviews'][0]
+        self.assertEqual(first['id'], 'boeken-dune')
+        self.assertEqual(first['text'], 'A long review, with *emphasis*.\n\n'
+                         '![A worm](https://boeken.tsuk.org/wp-content/uploads/2010/03/worm.jpg)\n\n'
+                         'See [the sequel](https://boeken.tsuk.org/2011/02/dune-messiah/) and '
+                         '[YouTube](https://www.youtube.com/watch?v=VRaoHi_xcWk).')
+        self.assertEqual(self.book('dune')['reviews'][1]['text'], '')            # a read without a write-up
+        # Not read yet: what was written is kept, without a reading date. Nothing written, no review.
+        self.assertEqual([(r['date'], r['rating'], r['text']) for r in self.book('gilgamesh')['reviews']],
+                         [('', None, 'Why this is on the pile.')])
+        self.assertNotIn('reviews', self.book('katabasis'))
+
+    def test_reviews_changed_or_written_in_the_app_are_kept(self):
+        self.run_import()
+        row = Book.objects.get(uid='boeken-dune')
+        edited = {**row.data['reviews'][0], 'text': 'My better words.'}
+        own = {'id': 'x1', 'date': '2025-01-01', 'rating': 7, 'text': 'Listened to it this time.'}
+        row.data = {**row.data, 'reviews': [edited, row.data['reviews'][1], own]}
+        row.save()
+        # The booklog changes both of its reviews; only the one left alone in the app follows.
+        make_repo(self.tmp.name, {**POSTS, 'dune': POSTS['dune'].replace('A long review', 'A longer review'),
+                                  'dune-herlezing': POSTS['dune-herlezing'].replace('rating: 10', 'rating: 9')})
+        self.assertIn('1 reviews kept as edited in the app', self.run_import())
+        self.assertEqual([(r['date'], r['rating'], r['text'][:16]) for r in self.book('dune')['reviews']],
+                         [('2010-03-31', 9, 'My better words.'), ('2024-05-02', 9, ''), ('2025-01-01', 7, 'Listened to it t')])
 
     def test_running_it_again_changes_nothing(self):
         self.run_import()
@@ -206,9 +247,78 @@ class ImportTests(TestCase):
         kept = Book.objects.get(uid='abc').data
         self.assertEqual(list(kept['lists']), ['library'])
         self.assertNotIn('boeken', kept)
+        self.assertNotIn('reviews', kept)
         self.assertEqual(Book.objects.get(uid='boeken-dune').modified.tzinfo, dt_timezone.utc)
 
     def test_other_users_are_untouched(self):
         other = get_user_model().objects.create_user('someone', password='x')
         self.run_import()
         self.assertFalse(Book.objects.filter(user=other).exists())
+
+
+def png(width, height):
+    from PIL import Image
+    out = io.BytesIO()
+    Image.new('RGB', (width, height), 'teal').save(out, 'PNG')
+    return out.getvalue()
+
+
+class CoverTests(TestCase):
+    """Covers that live at a book catalogue get a copy on the server."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user('reader', password='x')
+        self.client.force_login(self.user)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        settings = override_settings(COVERS_DIR=Path(self.tmp.name))
+        settings.enable()
+        self.addCleanup(settings.disable)
+
+    def sync(self, *books):
+        changes = [{'id': b['id'], 'modified': '2026-11-14T10:00:00Z', 'deleted': False, 'book': b} for b in books]
+        res = self.client.post('/api/sync', json.dumps({'since': None, 'changes': changes}), content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        return res.json()
+
+    def test_a_scanned_books_cover_is_copied_and_the_book_comes_back_pointing_at_it(self):
+        url = 'https://covers.openlibrary.org/b/id/123-M.jpg'
+        with mock.patch.object(covers, 'download', return_value=png(320, 400)) as download:
+            answer = self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})
+        self.assertEqual(download.call_args.args[0], 'https://covers.openlibrary.org/b/id/123-L.jpg?default=false')
+        book = answer['changes'][0]['book']
+        self.assertRegex(book['cover'], r'^covers/web/[0-9a-f]{16}-320[.]webp$')
+        self.assertEqual((book['coverRatio'], book['coverSource']), (0.8, url))
+        self.assertTrue(Path(self.tmp.name, 'web', book['cover'].rsplit('/', 1)[1]).is_file())
+        self.assertEqual(answer['changes'][0]['modified'], '2026-11-14T10:00:00Z')   # nobody edited the book
+
+    def test_only_the_catalogues_are_asked(self):
+        with mock.patch.object(covers, 'download') as download:
+            answer = self.sync({'id': 'b1', 'title': 'A', 'cover': 'https://example.org/internal.jpg'},
+                               {'id': 'b2', 'title': 'B', 'cover': 'http://books.google.com/x'},
+                               {'id': 'b3', 'title': 'C', 'cover': 'covers/web/already.webp'})
+        download.assert_not_called()
+        self.assertEqual(answer['changes'], [])
+
+    def test_a_cover_that_cannot_be_fetched_is_left_and_not_asked_for_again(self):
+        url = 'https://books.google.com/books/content?id=x&img=1'
+        with mock.patch.object(covers, 'download', side_effect=OSError('gone')) as download:
+            self.assertEqual(self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})['changes'], [])
+            self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})
+        self.assertEqual(download.call_count, 1)
+        self.assertEqual(Book.objects.get(uid='b1').data['cover'], url)
+
+    def test_a_blank_pixel_is_not_a_cover(self):
+        with mock.patch.object(covers, 'download', return_value=png(1, 1)):
+            self.assertEqual(self.sync({'id': 'b1', 'title': 'Dune', 'cover': 'https://covers.openlibrary.org/b/id/1-M.jpg'})['changes'], [])
+
+    def test_fetch_covers_does_a_whole_shelf(self):
+        when = timezone.now()
+        for n in range(7):
+            Book.objects.create(user=self.user, uid=f'b{n}', modified=when, changed=when,
+                                data={'id': f'b{n}', 'title': str(n), 'cover': f'https://books.google.com/books/content?id={n}'})
+        out = StringIO()
+        with mock.patch.object(covers, 'download', return_value=png(300, 450)):
+            call_command('fetch_covers', stdout=out)
+        self.assertIn('reader: 7 covers kept, 0 could not be fetched', out.getvalue())
+        self.assertTrue(all(b.data['cover'].startswith('covers/web/') for b in Book.objects.all()))

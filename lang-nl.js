@@ -42,10 +42,29 @@ export default {
     'Bookscan heet nu Folio en staat op {host}. Meld je daar aan en je boekenkast komt mee. Dit oude adres verdwijnt.',
   'Open Folio': 'Folio openen',
 
-  'Review on {host}': 'Bespreking op {host}',
   'On {host}': 'Op {host}',
-  'This book comes from {host}. Its details and reading status are set from there again at the next import.':
-    'Dit boek komt van {host}. De gegevens en de leesstatus worden bij de volgende import opnieuw van daar overgenomen.',
+  'This book comes from {host}. Its details and reading status are set from there again at the next import; reviews you change here are kept.':
+    'Dit boek komt van {host}. De gegevens en de leesstatus worden bij de volgende import opnieuw van daar overgenomen; besprekingen die je hier aanpast, blijven behouden.',
+  'View': 'Weergave',
+  'List': 'Lijst',
+  'Covers': 'Covers',
+  'Cards': 'Kaarten',
+
+  // A book's page and its reviews
+  'Reviews': 'Besprekingen',
+  'Add review': 'Bespreking toevoegen',
+  'No reviews yet.': 'Nog geen besprekingen.',
+  'Edit details': 'Gegevens bewerken',
+  'New review': 'Nieuwe bespreking',
+  'Edit review': 'Bespreking bewerken',
+  'Delete review': 'Bespreking verwijderen',
+  'Review removed': 'Bespreking verwijderd',
+  'Review': 'Bespreking',
+  'Read on': 'Gelezen op',
+  'Rating (0–10)': 'Score (0–10)',
+  'Markdown works: *italic*, **bold**, > quote, [link](https://…).': 'Markdown werkt: *cursief*, **vet**, > citaat, [link](https://…).',
+  'A rating goes from 0 to 10.': 'Een score gaat van 0 tot 10.',
+  'Write something, or give a reading date or a rating.': 'Schrijf iets, of geef een leesdatum of een score.',
 
   // Book form
   'New book': 'Nieuw boek',

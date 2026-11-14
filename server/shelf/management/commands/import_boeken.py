@@ -8,29 +8,48 @@ reading status, …), so those are set afresh each time, and a book is only stor
 something changed. Everything else about a book is left alone: the other lists it is on,
 its notes, its cover thumbnail.
 
-Covers: the booklog's images are full-size, far too heavy for a list of thumbnails. For
-each cover found in the repository's media/ folder a small WebP is written to covers/boeken/
-next to the app (served as plain files), named after the image's content, and the book
-points at that. Where the image is missing, the book points at the booklog's own copy.
+Reviews: every read in the booklog is a review of the book, with the day it was read, the
+rating and the text. Reviews written in the app are kept, and so is a booklog review that
+was edited in the app (until publishing back to the booklog exists, the app's text would
+otherwise be lost).
 
 A booklog book that is already on the shelf (same ISBN, scanned earlier) is joined with it
 instead of added a second time. A booklog book that was deleted in the app stays deleted.
+
+Covers: the booklog's images are full-size, far too heavy for a list of thumbnails. For
+each cover found in the repository's media/ folder a small WebP is written to covers/boeken/
+next to the app (see shelf/covers.py), named after the image's content, and the book points
+at that. Where the image is missing, the book points at the booklog's own copy.
 """
 import hashlib
 from pathlib import Path
 
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from shelf import boeken
+from shelf import boeken, covers
 from shelf.models import Book, List
 
 READING_GROUP = 'Reading status'
 READING_LISTS = set(boeken.STATUS_LISTS.values())
-COVER_WIDTH = 240   # shown at 52–72 px wide, on screens of up to three device pixels per pixel
+
+
+def merged_reviews(old, incoming):
+    """The booklog's reviews next to the ones made or edited in the app. → (reviews, how many were kept as edited)"""
+    old = [r for r in old or [] if isinstance(r, dict)]
+    previous = {r['boeken']: r for r in old if r.get('boeken')}
+    out, kept = [r for r in old if not r.get('boeken')], 0
+    for review in incoming:
+        before = previous.get(review['boeken'])
+        if before and before.get('sum') and boeken.review_sum(before) != before['sum']:
+            out.append(before)
+            kept += 1
+        else:
+            out.append(review)
+    # Oldest read first; what has no reading date comes last.
+    return sorted(out, key=lambda r: (not r.get('date'), r.get('date') or '', r.get('id') or '')), kept
 
 
 class Command(BaseCommand):
@@ -40,12 +59,12 @@ class Command(BaseCommand):
         parser.add_argument('repo', nargs='?', help='path of a checkout of mvuijlst/boeken')
         parser.add_argument('--user', required=True, help='whose shelf to import into')
         parser.add_argument('--dry-run', action='store_true', help='report what would happen, change nothing')
-        parser.add_argument('--covers', default=str(Path(settings.BASE_DIR).parent / 'covers' / 'boeken'),
+        parser.add_argument('--covers', dest='covers_dir', default=None,
                             help='where cover thumbnails are written (default: covers/boeken/ next to the app)')
         parser.add_argument('--remove', action='store_true',
                             help='undo the import: delete the books it added, and take its data off books it joined')
 
-    def handle(self, repo, user, dry_run, remove, covers, **options):
+    def handle(self, repo, user, dry_run, remove, covers_dir, **options):
         try:
             user = get_user_model().objects.get(username=user)
         except get_user_model().DoesNotExist:
@@ -58,7 +77,7 @@ class Command(BaseCommand):
                 counts = self.remove(user)
             else:
                 incoming = boeken.books(repo)
-                made = self.thumbnails(incoming, Path(covers), dry_run)
+                made = self.thumbnails(incoming, Path(covers_dir) if covers_dir else covers.folder('boeken'), dry_run)
                 counts = {**self.merge(user, incoming), 'cover thumbnails made': made}
             if dry_run:
                 transaction.set_rollback(True)
@@ -67,30 +86,23 @@ class Command(BaseCommand):
 
     def thumbnails(self, incoming, folder, dry_run):
         """Point each book at a small copy of its cover, making the copies that don't exist yet."""
-        from PIL import Image, ImageOps
-
         made = 0
         for book in incoming:
             source = book['cover_file']
             if not source:
                 continue
-            target = folder / (hashlib.sha1(source.read_bytes()).hexdigest()[:16] + '.webp')
-            if not target.exists():
-                if not dry_run:
-                    try:
-                        with Image.open(source) as image:
-                            image = ImageOps.exif_transpose(image).convert('RGB')
-                            image.thumbnail((COVER_WIDTH, COVER_WIDTH * 4))   # never enlarges
-                            folder.mkdir(parents=True, exist_ok=True)
-                            partial = target.with_suffix('.part')
-                            image.save(partial, 'WEBP', quality=80)
-                            partial.replace(target)
-                    except Exception as err:   # an image Pillow can't read: keep the booklog's own
-                        self.stderr.write(f'No thumbnail for {source.name}: {err}')
-                        continue
-                made += 1
+            target = folder / (hashlib.sha1(source.read_bytes()).hexdigest()[:16] + f'-{covers.WIDTH}.webp')
+            try:
+                if target.exists():
+                    ratio = covers.ratio_of(target)
+                else:
+                    ratio = covers.ratio_of(source) if dry_run else covers.write_thumbnail(source, target)
+                    made += 1
+            except Exception as err:   # an image that can't be read: the book keeps the booklog's own
+                self.stderr.write(f'No thumbnail for {source.name}: {err}')
+                continue
             # Relative, so it is fetched from wherever the app is served.
-            book['fields']['cover'] = f'covers/boeken/{target.name}'
+            book['fields'].update(cover=f'covers/boeken/{target.name}', coverRatio=ratio)
         return made
 
     def merge(self, user, incoming):
@@ -107,7 +119,8 @@ class Command(BaseCommand):
         either_or = READING_LISTS | {l.uid for l in List.objects.filter(user=user, deleted=False)
                                      if l.data.get('group') == READING_GROUP}
         counts = {'books in the booklog': len(incoming), 'added': 0, 'joined with a scanned book': 0,
-                  'updated': 0, 'unchanged': 0, 'left deleted': 0}
+                  'updated': 0, 'unchanged': 0, 'left deleted': 0,
+                  'reviews': sum(len(b['reviews']) for b in incoming), 'reviews kept as edited in the app': 0}
 
         for book in incoming:
             row = by_key.get(book['key'])
@@ -130,6 +143,10 @@ class Command(BaseCommand):
             on = {k: v for k, v in on.items() if k not in either_or}
             on[book['list']] = {'at': book['at']}
             data['lists'] = on
+            data['reviews'], kept = merged_reviews(old.get('reviews'), book['reviews'])
+            counts['reviews kept as edited in the app'] += kept
+            if not data['reviews']:
+                del data['reviews']
 
             if row is None:
                 Book.objects.create(user=user, uid=data['id'], data=data, title=data['title'][:300],
@@ -156,6 +173,7 @@ class Command(BaseCommand):
     def remove(self, user):
         now = timezone.now()
         counts = {'deleted': 0, 'separated from a scanned book': 0}
+        scanned = ('title', 'author', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource')
         for row in Book.objects.filter(user=user, deleted=False):
             if not row.data.get('boeken'):
                 continue
@@ -163,8 +181,11 @@ class Command(BaseCommand):
                 row.data, row.deleted = {}, True   # a tombstone, so it leaves every device
                 counts['deleted'] += 1
             else:
-                keep = {k: v for k, v in row.data.items() if k not in boeken.FIELDS or k in ('title', 'author', 'publisher', 'date', 'pages', 'isbn', 'cover')}
+                keep = {k: v for k, v in row.data.items() if k not in boeken.FIELDS or k in scanned}
                 keep['lists'] = {k: v for k, v in (keep.get('lists') or {}).items() if k not in READING_LISTS}
+                keep['reviews'] = [r for r in keep.get('reviews') or [] if not r.get('boeken')]
+                if not keep['reviews']:
+                    del keep['reviews']
                 row.data = keep
                 counts['separated from a scanned book'] += 1
             row.modified = row.changed = now

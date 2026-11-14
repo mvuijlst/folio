@@ -13,6 +13,7 @@ Books travel in "changes" and the user's lists in "lists". A change is {"id", "m
 already have, so every device converges on the same shelf.
 """
 import json
+import logging
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth import authenticate, login, logout
@@ -24,7 +25,10 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
+from . import covers
 from .models import Book, List
+
+logger = logging.getLogger(__name__)
 
 MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
@@ -127,7 +131,7 @@ def clean_change(raw, key):
 
 
 def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
-    """Store the client's changes that are newer than ours; return the rows the client lacks."""
+    """Store the client's changes that are newer than ours; return the rows the client lacks, by uid."""
     changes = [c for c in (clean_change(raw, model.KEY) for raw in raw_changes) if c]
     existing = {r.uid: r for r in model.objects.filter(user=user, uid__in=[c['uid'] for c in changes])}
     accepted, stale = set(), set()
@@ -156,7 +160,7 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
     out = {r.uid: r for r in outgoing if r.uid not in accepted}
     for uid in stale - out.keys():
         out[uid] = existing[uid]
-    return [r.as_change() for r in out.values()]
+    return out
 
 
 @require_POST
@@ -180,9 +184,17 @@ def sync(request):
         # which of them were deleted elsewhere.
         lists = merge(List, user, raw_lists, when(data.get('listsSince')), now, tombstones_when_fresh=True)
 
+    # Covers from the book catalogues get a copy on this server, a few per sync. Those books go
+    # back in this answer, so the device that scanned them points at the copy straight away.
+    try:
+        for book in covers.adopt(user):
+            books[book.uid] = book
+    except Exception:   # a cover is never worth failing a sync for
+        logger.exception('Could not fetch covers')
+
     return JsonResponse({
         'cursor': now.isoformat().replace('+00:00', 'Z'),
-        'changes': books,
-        'lists': lists,
+        'changes': [b.as_change() for b in books.values()],
+        'lists': [l.as_change() for l in lists.values()],
         'user': user.get_username(),
     })

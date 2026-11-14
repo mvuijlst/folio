@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.5.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.6.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -208,7 +208,8 @@ const STANDARD_LISTS = [
 /** The user's lists, in their order. */
 let lists = [];
 /** What the library shows: one list, or every book when `list` is null. */
-const view = { list: null };
+const VIEWS = ['list', 'covers', 'cards'];
+const view = { list: null, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
 
 // The standard lists (and their group and note) are stored under their English names, so
 // they are the same list on a Dutch and an English device. Until they are renamed, they
@@ -874,18 +875,32 @@ function hue(text) {
   return x;
 }
 
-function coverEl(book, large) {
+/**
+ * A book's cover, in the cover's own proportions (a square audiobook stays square). Covers
+ * kept on the server say how wide they are for their height (`coverRatio`), so the box has
+ * the right shape before the image arrives; for other covers it takes shape on loading.
+ * Without an image it is a coloured book with the title's first letter (and, where
+ * `titled`, the title itself: in the covers view there is nothing else to tell books apart).
+ */
+function coverEl(book, large, titled) {
   const label = book.title || book.isbn || '?';
   const el = h('div', { class: 'cover' + (large ? ' lg' : ''), style: `--h:${hue(label)}` },
-    h('span', { text: (book.title || '?').trim().charAt(0).toUpperCase() }));
+    h('span', { text: (book.title || '?').trim().charAt(0).toUpperCase() }),
+    titled && h('small', { text: displayTitle(book) }));
+  const shape = (ratio) => {
+    if (ratio > 0) el.style.setProperty('--r', Math.min(1.6, Math.max(0.45, ratio)).toFixed(3));
+    else el.style.removeProperty('--r');
+  };
   const sources = [book.cover, book.thumb].filter(Boolean);
   if (sources.length) {
+    if (book.cover) shape(book.coverRatio);
     const img = h('img', { alt: '', loading: 'lazy', decoding: 'async' });
-    const next = () => { const src = sources.shift(); if (src) img.src = src; else img.remove(); };
+    const next = () => { shape(0); const src = sources.shift(); if (src) img.src = src; else img.remove(); };
     img.addEventListener('error', next);
     // Open Library answers a missing cover with a 1×1 pixel image.
-    img.addEventListener('load', () => { if (img.naturalWidth < 8) next(); });
-    next();
+    img.addEventListener('load', () => { if (img.naturalWidth < 8) next(); else shape(img.naturalWidth / img.naturalHeight); });
+    const first = sources.shift();
+    img.src = first;
     el.append(img);
   }
   return el;
@@ -917,6 +932,36 @@ function bookRow(b, onPick, extra, tags) {
       h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') || (b.title ? '' : b.isbn && !b.pending ? `ISBN ${b.isbn}` : '') }),
       meta, tags));
 }
+
+/** A book in the covers view: its cover and its rating. */
+function bookTile(b, onPick) {
+  return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: () => onPick(b) },
+    coverEl(b, false, true),
+    h('div', { class: 'tile-rating', text: b.rating != null ? `★ ${b.rating}` : '' }));
+}
+
+/** The start of the latest review, as plain text. */
+function excerpt(b) {
+  const text = sortedReviews(b).find((r) => r.text)?.text || '';
+  return text.replace(/!\[[^\]]*\]\([^)]*\)/g, '').replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_>#`]/g, '')
+    .replace(/\s+/g, ' ').trim().slice(0, 240);
+}
+
+/** A book in the cards view: a larger cover, the details, the lists and the start of the review. */
+function bookCard(b, onPick, tags) {
+  const text = excerpt(b);
+  return h('button', { class: 'bcard', type: 'button', onclick: () => onPick(b) },
+    coverEl(b),
+    h('div', { class: 'book-text' },
+      h('div', { class: 'book-title', text: displayTitle(b) }),
+      h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') }),
+      h('div', { class: 'book-meta', text: metaLine(b) }),
+      text && h('p', { class: 'card-excerpt', text }),
+      tags));
+}
+
+const monthLabel = (iso) => new Date(iso).toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
+const yearLabel = (iso) => String(new Date(iso).getFullYear());
 
 function dayLabel(iso) {
   const d = new Date(iso), now = new Date();
@@ -955,6 +1000,18 @@ function renderNav() {
   }
 }
 
+// Everything a search looks through, folded once per version of a book: with reviews in it,
+// that is too much text to redo for every book on every keystroke.
+const searchCache = new WeakMap();
+function searchText(b) {
+  const cached = searchCache.get(b);
+  if (cached?.modified === b.modified) return cached.text;
+  const text = fold([b.title, b.author, b.series, b.publisher, b.isbn, b.date,
+    ...listsOf(b).map((m) => m.note), ...(b.reviews || []).map((r) => r.text)].join(' '));
+  searchCache.set(b, { modified: b.modified, text });
+  return text;
+}
+
 // A shelf can hold thousands of books, so the library is drawn a page at a time: more rows
 // are added as you scroll towards the end.
 const PAGE = 120;
@@ -968,10 +1025,14 @@ function appendRows(upTo = shown.next + PAGE) {
   $('more')?.remove();
   const frag = document.createDocumentFragment();
   const end = Math.min(shown.rows.length, upTo);
+  // The denser the view, the coarser its headings: days in the list, months for cards, years for covers.
+  const heading = { list: dayLabel, cards: monthLabel, covers: yearLabel }[view.mode];
   for (const b of shown.rows.slice(shown.next, end)) {
-    const day = dayLabel(shown.when(b));
+    const day = heading(shown.when(b));
     if (!shown.query && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
-    frag.append(bookRow(b, (book) => openBookForm({ book }), null, listTags(b, shown.current)));
+    if (view.mode === 'covers') frag.append(bookTile(b, openBook));
+    else if (view.mode === 'cards') frag.append(bookCard(b, openBook, listTags(b, shown.current)));
+    else frag.append(bookRow(b, openBook, null, listTags(b, shown.current)));
   }
   shown.next = end;
   const more = end < shown.rows.length
@@ -987,6 +1048,9 @@ function renderLibrary() {
   $('count').textContent = books.length ? plural(books.length, 'book') : t('Nothing scanned yet');
   $('search').placeholder = current ? t('Search {list}', { list: show(current.name) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
+  $('tools').hidden = !books.length;
+  $('library').className = `library mode-${view.mode}`;
+  for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
 
   // A list shows the book that went on it last first; the whole shelf, the one added last.
@@ -995,10 +1059,10 @@ function renderLibrary() {
   $('searchWrap').hidden = inView.length < 8 && !query;
 
   const found = query
-    ? inView.filter((b) => fold([b.title, b.author, b.series, b.publisher, b.isbn, b.date, ...listsOf(b).map((m) => m.note)].join(' ')).includes(query))
+    ? inView.filter((b) => searchText(b).includes(query))
     : inView;
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
-  const key = `${view.list}|${query}`;
+  const key = `${view.list}|${view.mode}|${query}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
   shown = { rows: found, next: 0, lastDay: '', key, current, query, when };
   $('library').replaceChildren();
@@ -1051,7 +1115,9 @@ function listPicker(on, { notes = true } = {}) {
  *  book      existing record, or a draft when `isNew`
  *  ocrLines  text read from the cover, offered as tap-to-fill chips
  */
-function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading, onSaved, onClose }) {
+function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading, onSaved, onClose, back }) {
+  // `back` is where Cancel and Save go instead of closing the sheet (the book's page).
+  const leave = () => (back ? back() : sheet.close());
   let saved = false;
   const input = (name, attrs = {}) => h('input', { name, value: book[name] ?? '', autocomplete: 'off', ...attrs });
   const f = {
@@ -1102,15 +1168,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   }, icon('swap'), t('Swap title and author'));
 
   // A book that came from the booklog: where to read about it, and who has the last word.
-  let source = null;
-  if (book.boeken && book.url) {
-    let host = '';
-    try { host = new URL(book.url).host; } catch {}
-    source = host && h('p', { class: 'sheet-note from-site' },
-      h('a', { href: book.url, target: '_blank', rel: 'noopener' }, book.reviewed ? t('Review on {host}', { host }) : t('On {host}', { host }), ' ↗'),
-      h('br'),
-      t('This book comes from {host}. Its details and reading status are set from there again at the next import.', { host }));
-  }
+  const source = sourceNote(book, true);
 
   const form = h('form', { novalidate: true, onsubmit: submit },
     sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null,
@@ -1127,7 +1185,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => sheet.close() }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: leave }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add to shelf') : t('Save'))));
 
   async function submit(e) {
@@ -1157,7 +1215,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       await saveBook(book);
     }
     saved = true;
-    sheet.close();
+    leave();
     onSaved?.(result);
   }
 
@@ -1168,6 +1226,175 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   }
 
   sheet.open(form, () => onClose?.(saved));
+}
+
+/* ───────────────────────── Markdown (reviews) ───────────────────────── */
+
+// Reviews are written in Markdown. This draws its everyday part (paragraphs, emphasis, links,
+// quotes, lists, images, rules) straight into DOM nodes: nothing in a review is ever read as HTML.
+const safeUrl = (url) => (/^(https?:|mailto:)/i.test(url) ? url : null);
+const INLINE = /!\[([^\]]*)\]\(([^)\s]+)\)|\[([^\]]+)\]\(([^)\s]+)\)|\*\*([^\s*](?:.*?[^\s])?)\*\*|\*([^\s*](?:[^*]*?[^\s*])?)\*|_([^\s_](?:[^_]*?[^\s_])?)_|`([^`]+)`|(?: {2,}|\\)\n/g;
+
+function inlineMarkdown(text) {
+  const out = [];
+  let last = 0;
+  for (const m of text.matchAll(INLINE)) {
+    // _this_ is emphasis, snake_case_words are not.
+    if (m[7] !== undefined && (/\w/.test(text[m.index - 1] || '') || /\w/.test(text[m.index + m[0].length] || ''))) continue;
+    if (m.index > last) out.push(text.slice(last, m.index));
+    last = m.index + m[0].length;
+    if (m[2] !== undefined) {
+      const src = safeUrl(m[2]);
+      out.push(src ? h('a', { class: 'prose-img', href: src, target: '_blank', rel: 'noopener' }, h('img', { src, alt: m[1], loading: 'lazy' })) : m[1]);
+    } else if (m[4] !== undefined) {
+      const href = safeUrl(m[4]);
+      out.push(href ? h('a', { href, target: '_blank', rel: 'noopener' }, inlineMarkdown(m[3])) : m[3]);
+    } else if (m[5] !== undefined) out.push(h('strong', null, inlineMarkdown(m[5])));
+    else if (m[6] !== undefined || m[7] !== undefined) out.push(h('em', null, inlineMarkdown(m[6] ?? m[7])));
+    else if (m[8] !== undefined) out.push(h('code', { text: m[8] }));
+    else out.push(h('br'));
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+function renderMarkdown(source) {
+  const frag = document.createDocumentFragment();
+  const lines = String(source || '').replace(/\r\n?/g, '\n').split('\n');
+  const ITEM = /^\s*(?:[-*+]|(\d+)[.)])\s+(.*)$/;
+  const para = [];
+  const flush = () => { if (para.length) frag.append(h('p', null, inlineMarkdown(para.join('\n')))); para.length = 0; };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    let m;
+    if (!line.trim()) { flush(); i++; }
+    else if (/^\s*(?:-{3,}|\*{3,}|_{3,}|\* \* \*)\s*$/.test(line)) { flush(); frag.append(h('hr')); i++; }
+    else if (/^\s*⁂\s*$/.test(line)) { flush(); frag.append(h('p', { class: 'asterism', text: '⁂' })); i++; }
+    else if ((m = line.match(/^#{1,6}\s+(.*)$/))) { flush(); frag.append(h('h4', null, inlineMarkdown(m[1]))); i++; }
+    else if (/^\s*>/.test(line)) {
+      flush();
+      const quoted = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) quoted.push(lines[i++].replace(/^\s*>\s?/, ''));
+      frag.append(h('blockquote', null, renderMarkdown(quoted.join('\n'))));
+    } else if ((m = line.match(ITEM))) {
+      flush();
+      const ordered = m[1] !== undefined, items = [];
+      while (i < lines.length && (m = lines[i].match(ITEM))) {
+        let item = m[2];
+        i++;
+        while (i < lines.length && /^\s{2,}\S/.test(lines[i]) && !ITEM.test(lines[i])) item += '\n' + lines[i++].trim();
+        items.push(h('li', null, inlineMarkdown(item)));
+      }
+      frag.append(h(ordered ? 'ol' : 'ul', null, items));
+    } else { para.push(line); i++; }
+  }
+  flush();
+  return frag;
+}
+
+/* ───────────────────────── A book's page and its reviews ───────────────────────── */
+
+// A book can have any number of reviews: {id, date, rating, text}. `date` is the day it was
+// read ("2026-11-14") and may be empty; `rating` is 0–10 or null; `text` is Markdown. The
+// book's own `rating`, shown in lists, is that of the latest review that gives one.
+
+/** Newest read first; reviews without a reading date after those. */
+function sortedReviews(book) {
+  return [...(book.reviews || [])].sort((a, b) => (!a.date - !b.date) || (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}
+
+function settleRating(book) {
+  const rated = sortedReviews(book).find((r) => r.rating != null);
+  if (rated) book.rating = rated.rating; else delete book.rating;
+}
+
+const longDate = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
+
+function sourceNote(book, withWarning) {
+  if (!book.boeken || !book.url) return null;
+  let host = '';
+  try { host = new URL(book.url).host; } catch {}
+  return host ? h('p', { class: 'sheet-note from-site' },
+    h('a', { href: book.url, target: '_blank', rel: 'noopener' }, t('On {host}', { host }), ' ↗'),
+    withWarning && h('br'),
+    withWarning && t('This book comes from {host}. Its details and reading status are set from there again at the next import; reviews you change here are kept.', { host })) : null;
+}
+
+function openBook(book) {
+  const again = () => { if (books.includes(book)) openBook(book); else sheet.close(); };
+  const reviewEl = (review) => h('article', { class: 'review' },
+    h('div', { class: 'review-head' },
+      h('span', { text: [review.date && longDate(review.date), review.rating != null && `★ ${review.rating}`].filter(Boolean).join(' · ') || t('Note') }),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Edit review'), onclick: () => openReviewForm(book, review, again) }, icon('pencil'))),
+    review.text && h('div', { class: 'prose' }, renderMarkdown(review.text)));
+  const reviews = sortedReviews(book);
+
+  sheet.open(h('div', { class: 'book-page' },
+    h('div', { class: 'page-head' },
+      coverEl(book, true),
+      h('div', { class: 'page-title' },
+        h('h2', { class: 'sheet-title', text: displayTitle(book) }),
+        book.author && h('p', { class: 'page-author', text: book.author }),
+        seriesLine(book) && h('p', { class: 'page-series', text: seriesLine(book) }),
+        metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
+        listTags(book, null)),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x'))),
+    sourceNote(book, false),
+    h('div', { class: 'sheet-section' },
+      h('div', { class: 'section-head' },
+        h('h3', { text: t('Reviews') }),
+        h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, null, again) }, icon('plus'), t('Add review'))),
+      reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
+    h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
+}
+
+/** Write a review, or change one. `back` shows the book's page again. */
+function openReviewForm(book, review, back) {
+  const isNew = !review;
+  const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const text = h('textarea', { name: 'text', rows: 9, class: 'review-text', autocapitalize: 'sentences' });
+  text.value = review?.text || '';
+  // Reading date and rating are both optional; a book that was just read most likely was read today.
+  const date = h('input', { name: 'date', type: 'date', max: today, value: review ? review.date || '' : (shelves(book).read ? today : '') });
+  const rating = h('input', { name: 'rating', type: 'number', min: 0, max: 10, step: 1, inputmode: 'numeric', placeholder: '–', value: review?.rating ?? '' });
+  const error = h('p', { class: 'field-error', hidden: true });
+
+  async function submit(e) {
+    e.preventDefault();
+    const stars = rating.value.trim() === '' ? null : Math.round(Number(rating.value));
+    const data = { date: date.value || '', rating: stars, text: text.value.replace(/\r\n?/g, '\n').trim() };
+    const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
+    if (stars != null && !(stars >= 0 && stars <= 10)) return fail(t('A rating goes from 0 to 10.'), rating);
+    if (!data.text && !data.date && stars == null) return fail(t('Write something, or give a reading date or a rating.'), text);
+    if (review) Object.assign(review, data);
+    else (book.reviews ||= []).push({ id: newId(), ...data });
+    settleRating(book);
+    await saveBook(book);
+    back();
+  }
+
+  function remove() {
+    book.reviews = book.reviews.filter((r) => r !== review);
+    settleRating(book);
+    saveBook(book);
+    back();
+    toast(t('Review removed'), { action: t('Undo'), onAction: () => { (book.reviews ||= []).push(review); settleRating(book); saveBook(book); if (sheet.isOpen) back(); } });
+  }
+
+  sheet.open(h('form', { novalidate: true, onsubmit: submit },
+    sheetHead(isNew ? t('New review') : t('Edit review'), displayTitle(book)),
+    h('label', { class: 'field' }, h('span', { text: t('Review') }), text),
+    h('p', { class: 'sheet-note md-hint', text: t('Markdown works: *italic*, **bold**, > quote, [link](https://…).') }),
+    h('div', { class: 'field-row' },
+      h('label', { class: 'field' }, h('span', { text: t('Read on') }), date),
+      h('label', { class: 'field' }, h('span', { text: t('Rating (0–10)') }), rating)),
+    error,
+    h('div', { class: 'btn-row sheet-actions' },
+      !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save')))));
+  if (isNew) text.focus();
 }
 
 /* ───────────────────────── Managing lists ───────────────────────── */
@@ -1276,6 +1503,8 @@ function exportJson() {
     title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
     isbn: b.isbn || '', cover: b.cover ? abs(b.cover) : '', added: b.added,
     lists: listsOf(b).map(({ list, at, note }) => ({ list: show(list.name), since: at, ...(note && { note }) })),
+    ...(b.rating != null && { rating: b.rating }),
+    ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '' })) }),
   }));
   return JSON.stringify(rows, null, 2);
 }
@@ -2085,6 +2314,13 @@ function bindEvents() {
   $('exportBtn').addEventListener('click', openExport);
   $('settingsBtn').addEventListener('click', openSettings);
   $('search').addEventListener('input', renderLibrary);
+  $('viewSeg').addEventListener('click', (e) => {
+    const mode = e.target.closest('button')?.dataset.view;
+    if (!VIEWS.includes(mode) || mode === view.mode) return;
+    view.mode = mode;
+    store.set('view', mode);
+    renderLibrary();
+  });
 
   window.addEventListener('hashchange', () => { readRoute(); renderLibrary(); });
 

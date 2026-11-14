@@ -81,6 +81,8 @@ USE_TZ = True
 
 # The PWA owns /static-free paths at the site root; Django's admin assets live apart.
 STATIC_URL = '/django-static/'
+# Cover thumbnails are written next to the app and served from there as plain files.
+COVERS_DIR = BASE_DIR.parent / 'covers'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
