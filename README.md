@@ -88,7 +88,11 @@ Books scanned before lists existed count as being in the *Library*.
 
 ## The assistant
 
-Where the server has one (see *Accounts and sync*), a second button beside *Scan a book* adds
+*Add a book* offers the ways there are: scan the barcode, photograph the cover, describe the
+book, type its ISBN, or fill it in by hand. In the scanner, *No barcode?* offers the same
+without the barcode.
+
+Where the server has an assistant (see *Accounts and sync*), *Describe it* adds
 books from a description: a title, an author, a series, in your own words (*the new Kuang*,
 *Commonwealth Saga*, *Piranesi van Susanna Clarke*). The assistant answers with proposals:
 title, authors, series and number, publisher, year, pages, the language, categories from the
@@ -122,7 +126,7 @@ day, before it shows up in the share menu.
 
 ## Export
 
-**Export** (the download icon) saves, shares or copies the whole shelf as JSON:
+**Export as JSON**, in the settings, saves, shares or copies the whole shelf as JSON:
 
 ```json
 [
@@ -334,6 +338,7 @@ Icons in the interface are from [Lucide](https://lucide.dev) (ISC).
 The app's own icon and its colours come from one picture, `icons/folio-art.jpg`: an open book
 in a dark disc on an indigo ground. `icons/make.py` cuts every icon size out of it (run it again
 after replacing the picture), and the colour tokens at the top of `styles.css` are sampled from
-it: the indigo ground, the amber-to-coral of the book's pages for buttons and the list you are
-on, and the mint, gold and coral of the three marks under the book for *To read*, *Reading*
-and *Read*.
+it: the indigo ground, the amber of the book's pages for the main button and the list you are
+on, and for the three reading lists a dot each: the blue of the book's left-hand pages for
+*To read*, the gold of the middle mark for *Reading*, the mint of the first for *Read*.
+Corners are barely rounded, and only the one main button of a screen is filled.

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.18.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.19.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -888,16 +888,23 @@ function openLayer(onClose) {
 }
 function closeLayer() { if (layers.length) history.back(); }
 /** Close whatever is open on top, then do `next`: going back in history takes a moment, and a
- *  new view must not be pushed onto the entry that is on its way out. */
+ *  new view must not be pushed onto the entry that is on its way out. Everything that is open
+ *  (a sheet over the scanner, say) is left in one step back: two steps in a row, the second
+ *  asked for while the first is still landing, can end up a page too far. */
 function closeLayersThen(next) {
   if (!layers.length) { next(); return; }
-  window.addEventListener('popstate', () => setTimeout(() => closeLayersThen(next), 0), { once: true });
-  closeLayer();
+  window.addEventListener('popstate', () => setTimeout(next, 0), { once: true });
+  history.go(-layers.length);
 }
-window.addEventListener('popstate', () => {
-  const close = layers.pop();
-  if (!layers.length) document.body.classList.remove('locked');
-  if (close) { close(); return; }
+window.addEventListener('popstate', (e) => {
+  // The entry arrived at says how many layers were open when it was made; what is open beyond
+  // that is closed, the top one first.
+  const depth = Math.min(layers.length, e.state?.layer || 0);
+  if (layers.length > depth) {
+    while (layers.length > depth) layers.pop()();
+    if (!layers.length) document.body.classList.remove('locked');
+    return;
+  }
   // Nothing was open on top: Back or Forward moved between views.
   readRoute();
   renderLibrary();
@@ -1226,7 +1233,6 @@ function renderLibrary() {
       : current ? t('Search {list}', { list: listName(current) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
-  $('describeBtn').hidden = !(sync.user && sync.assistant);
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
@@ -1258,7 +1264,7 @@ function renderLibrary() {
   appendRows(rows);
   if (query && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that search.') }));
   else if (current && !found.length && books.length) {
-    $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
+    $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Add a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
   }
 }
 
@@ -1635,6 +1641,31 @@ function sourceNote(book, explain, again) {
     book.boekenError && h('p', { class: 'field-error', text: t('Not published to {host}: {why}', { host, why: book.boekenError }) }));
 }
 
+/* Adding a book: the ways there are, to choose from. The same choice, without the barcode,
+   is behind "No barcode?" in the scanner. */
+
+/** The lists a book added now goes on: the open list, or else the ones chosen last time. */
+const addTarget = () => (view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById);
+
+function openAdd(inScanner = false) {
+  const way = (name, title, about, go) => h('button', { class: 'way', type: 'button', onclick: go },
+    icon(name), h('span', { class: 'way-text' }, h('span', { text: title }), h('small', { text: about })), icon('chevron'));
+  const assistant = sync.user && sync.assistant;
+  sheet.open(h('div', null,
+    inScanner ? sheetHead(t('No barcode?'), t('Other ways to add this book.')) : sheetHead(t('Add a book')),
+    h('div', { class: 'ways' },
+      !inScanner && way('barcode', t('Scan the barcode'), t('On the back cover. The quickest way.'),
+        () => closeLayersThen(() => openScanner())),
+      way('camera', t('Photograph the cover'), t('Its front cover is read and looked up.'),
+        inScanner ? () => { sheet.close(); setMode('cover'); } : () => closeLayersThen(() => openScanner('cover'))),
+      assistant && way('sparkles', t('Describe it'), t('A title, an author, a series, in your own words: the assistant finds the book.'),
+        () => closeLayersThen(() => openDescribe())),
+      !inScanner && way('keyboard', t('Type the ISBN'), t('The digits above the barcode or on the copyright page.'),
+        () => closeLayersThen(() => { openScanner(); openIsbnSheet(); })),
+      way('pencil', t('Fill it in by hand'), t('For a book no catalogue knows.'),
+        () => { if (!inScanner) scanner.target = addTarget(); manualEntry(inScanner ? scanner.pendingIsbn : ''); }))));
+}
+
 /* The assistant: a few words about a book → proposals to add */
 
 /** Is this book (as the assistant proposed it) on the shelf already? */
@@ -1648,7 +1679,7 @@ function openDescribe(shared) {
   const host = booklogHost();
   const words = h('textarea', { name: 'text', rows: 3, autocapitalize: 'sentences', enterkeyhint: 'search' });
   words.value = [shared?.text, shared?.url].filter(Boolean).join('\n');
-  const on = placed((view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById));
+  const on = placed(addTarget());
   const error = h('p', { class: 'field-error', hidden: true });
   const find = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('sparkles'), t('Find'));
   const results = h('div', { class: 'proposals' });
@@ -2510,6 +2541,9 @@ function openSettings() {
       h('p', { class: 'sheet-note' },
         t('Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.'))),
     h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Your shelf, as a file') }),
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: openExport }, icon('download'), t('Export as JSON'))),
+    h('div', { class: 'sheet-section' },
       h('h3', { text: t('About · version {version}', { version: APP_VERSION }) }),
       h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }))));
   renderAccount();
@@ -2541,15 +2575,16 @@ function setHint(text, ms) {
   if (ms) scanner.hintTimer = setTimeout(() => setHint(), ms);
 }
 
-function openScanner() {
+/** `mode`: 'barcode', or 'cover' to start at photographing the front cover. */
+function openScanner(mode = 'barcode') {
   if (scanner.open) return;
   scanner.open = true;
   const session = ++scanner.session;
   Object.assign(scanner, { added: 0, busy: false, capturing: false, lastCode: '', pendingIsbn: '' });
   // Scanning from an open list fills that list; otherwise the lists chosen last time.
-  scanner.target = (view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById);
+  scanner.target = addTarget();
   scannerEl.hidden = false;
-  setMode('barcode');
+  setMode(mode === 'cover' ? 'cover' : 'barcode');
   updateScanCount();
   renderScanTarget();
   openLayer(closeScannerNow);
@@ -3227,9 +3262,7 @@ async function processCover({ canvas, thumb }) {
 
 function bindEvents() {
   initTurning();
-  $('scanBtn').addEventListener('click', openScanner);
-  $('describeBtn').addEventListener('click', openDescribe);
-  $('exportBtn').addEventListener('click', openExport);
+  $('addBtn').addEventListener('click', () => openAdd());
   $('settingsBtn').addEventListener('click', openSettings);
   $('search').addEventListener('input', renderLibrary);
   $('viewSeg').addEventListener('click', (e) => {
@@ -3245,7 +3278,7 @@ function bindEvents() {
   $('scanClose').addEventListener('click', closeLayer);
   $('scanTargetBtn').addEventListener('click', openTargetSheet);
   $('typeIsbnBtn').addEventListener('click', openIsbnSheet);
-  $('noBarcodeBtn').addEventListener('click', () => setMode('cover'));
+  $('noBarcodeBtn').addEventListener('click', () => { if (!scanner.capturing) openAdd(true); });
   $('backToBarcodeBtn').addEventListener('click', () => { if (!scanner.capturing) setMode('barcode'); });
   $('byHandBtn').addEventListener('click', () => { if (!scanner.capturing) manualEntry(scanner.pendingIsbn); });
   $('shutterBtn').addEventListener('click', () => { if (scanner.stream) captureCover(); else $('coverFile').click(); });

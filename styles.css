@@ -51,11 +51,11 @@
 /* ───────────── Tokens ─────────────
    The colours are those of the app's icon (icons/folio-art.jpg): an indigo night, the amber
    and coral of the book's right-hand pages, the mint, gold and coral of the three marks
-   under it. --accent is for text and lines; --accent-fill, the pages' own gradient, for what
-   is filled (the main button, the list you are on), always with --on-accent on top. */
+   under it. --accent is for text and lines; --accent-fill, a quieter amber, for the one
+   thing that is filled (the main button), with --on-accent on top. What is merely switched
+   on (the list you are on, a chosen chip) is tinted, not filled. */
 :root {
   --bg: #100d2a;
-  --glow: #1a1645;
   --surface: #1b1744;
   --surface-2: #29235d;
   --border: #3b3477;
@@ -64,17 +64,18 @@
   --faint: #a09ad0;
   --accent: #fdb563;
   --accent-hover: #ffc971;
-  --accent-fill: linear-gradient(115deg, #ffc971 0%, #fdb563 40%, #fd856c 100%);
+  --accent-fill: #dfa35b;
+  --accent-tint: rgba(253, 181, 99, .14);
   --on-accent: #251a45;
   --star: #fdb563;
-  --mint: #85e5b5;
+  --teal: #62c0d8;
   --gold: #e2bd6c;
-  --coral: #ff826c;
+  --mint: #85e5b5;
   --danger: #ff8196;
   --ok: #85e5b5;
   --shadow: 0 12px 34px rgba(10, 6, 36, .55);
-  --radius: 16px;
-  --radius-sm: 12px;
+  --radius: 8px;
+  --radius-sm: 6px;
   --serif: 'Fraunces', 'Iowan Old Style', Georgia, serif;
   --sans: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --safe-t: env(safe-area-inset-top, 0px);
@@ -83,7 +84,6 @@
 }
 [data-theme="light"] {
   --bg: #f6f4fc;
-  --glow: #ffffff;
   --surface: #ffffff;
   --surface-2: #ece9f7;
   --border: #dbd6ee;
@@ -92,10 +92,13 @@
   --faint: #827cab;
   --accent: #c2410c;
   --accent-hover: #a8370a;
+  --accent-fill: #c2410c;
+  --accent-tint: rgba(194, 65, 12, .1);
+  --on-accent: #fffaf5;
   --star: #f0a024;
-  --mint: #2fae84;
+  --teal: #2a8fb0;
   --gold: #cf9f2f;
-  --coral: #f0624a;
+  --mint: #2fae84;
   --danger: #c22d4b;
   --ok: #1f8a63;
   --shadow: 0 12px 34px rgba(40, 30, 100, .16);
@@ -109,7 +112,7 @@ body {
   font-family: var(--sans);
   font-size: 16px;
   line-height: 1.5;
-  background: var(--bg) radial-gradient(ellipse 90% 460px at 50% -80px, var(--glow), transparent) no-repeat;
+  background: var(--bg);
   color: var(--text);
   min-height: 100dvh;
   overscroll-behavior-y: none;
@@ -159,7 +162,7 @@ img { display: block; max-width: 100%; }
 .count { color: var(--muted); font-size: .9rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
 .top-actions { display: flex; gap: 2px; margin-right: -10px; }
 .icon-btn {
-  width: 44px; height: 44px; border-radius: 50%;
+  width: 44px; height: 44px; border-radius: var(--radius-sm);
   display: grid; place-items: center;
   color: var(--muted);
   transition: background .15s ease, color .15s ease;
@@ -176,8 +179,8 @@ img { display: block; max-width: 100%; }
 .search {
   flex: 1; min-width: 0;
   display: flex; align-items: center; gap: 10px;
-  padding: 0 14px; height: 46px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 999px;
+  padding: 0 12px; height: 42px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--faint);
   transition: border-color .15s ease;
 }
@@ -200,25 +203,24 @@ img { display: block; max-width: 100%; }
 .nav-label { display: none; }
 .nav-item {
   flex: none; display: inline-flex; align-items: center; gap: 8px;
-  height: 38px; padding: 0 14px; border-radius: 999px;
+  height: 36px; padding: 0 12px; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--surface);
   color: var(--muted); font-size: .92rem; font-weight: 600; text-decoration: none; white-space: nowrap;
   transition: background .15s ease, color .15s ease, border-color .15s ease;
 }
 .nav-item:hover { color: var(--text); }
 .nav-item b { font-weight: 500; font-size: .84rem; opacity: .7; font-variant-numeric: tabular-nums; }
-.nav-item[aria-current="page"] { background: var(--accent-fill) border-box; border-color: transparent; color: var(--on-accent); }
+.nav-item[aria-current="page"] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
 /* The three reading lists wear the three marks under the book in the icon. */
 .nav-item[data-list="to-read"] span::before, .nav-item[data-list="reading"] span::before,
 .nav-item[data-list="read"] span::before, .nav-item[data-list="abandoned"] span::before {
   content: ''; display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px;
   background: var(--mark);
 }
-.nav-item[data-list="to-read"] { --mark: var(--mint); }
-.nav-item[data-list="reading"] { --mark: var(--gold); }
-.nav-item[data-list="read"] { --mark: var(--coral); }
+.nav-item[data-list="to-read"] { --mark: var(--teal); }     /* waiting */
+.nav-item[data-list="reading"] { --mark: var(--gold); }     /* under way */
+.nav-item[data-list="read"] { --mark: var(--mint); }        /* done */
 .nav-item[data-list="abandoned"] { --mark: var(--faint); }
-.nav-item[aria-current="page"] span::before { background: var(--on-accent); }
 .nav-edit { border-style: dashed; background: none; }
 .nav-edit .icon { width: 16px; height: 16px; }
 
@@ -250,7 +252,7 @@ img { display: block; max-width: 100%; }
 .book-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .tag {
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  padding: 1px 8px; border-radius: 999px;
+  padding: 1px 7px; border-radius: 4px;
   border: 1px solid var(--border); color: var(--muted);
   font-size: .72rem; font-weight: 600; letter-spacing: .02em;
 }
@@ -349,42 +351,32 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .empty h2 { font-family: var(--serif); font-weight: 460; font-size: 1.55rem; letter-spacing: -.015em; }
 .empty p { color: var(--muted); margin-top: 10px; }
 
-/* Floating scan button */
+/* The one floating button: add a book */
 .dock {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  padding: 36px 20px calc(var(--safe-b) + 22px);
+  padding: 32px 20px calc(var(--safe-b) + 18px);
   display: flex; justify-content: center;
-  background: linear-gradient(to top, var(--bg) 45%, transparent);
+  background: linear-gradient(to top, var(--bg) 40%, transparent);
   pointer-events: none;
 }
 .fab {
   pointer-events: auto;
-  display: inline-flex; align-items: center; gap: 10px;
-  height: 58px; padding: 0 30px 0 26px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 46px; padding: 0 20px 0 16px; border-radius: var(--radius-sm);
   background: var(--accent-fill); color: var(--on-accent);
-  font-weight: 600; font-size: 1.04rem; letter-spacing: .005em;
+  font-weight: 600; font-size: .98rem;
   box-shadow: var(--shadow);
   transition: filter .15s ease, transform .15s ease;
 }
+.fab .icon { width: 20px; height: 20px; }
 .fab:hover { filter: brightness(1.07); }
-.dock { gap: 12px; align-items: center; }
-.fab-side {
-  pointer-events: auto; flex: none;
-  width: 58px; height: 58px; border-radius: 50%;
-  display: grid; place-items: center;
-  background: var(--surface-2); color: var(--accent); border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  transition: background .15s ease, transform .15s ease;
-}
-.fab-side:hover { background: var(--surface); }
-.fab-side:active { transform: scale(.95); }
 .fab:active { transform: scale(.97); }
 
 /* ───────────── Buttons & form bits ───────────── */
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  min-height: 50px; padding: 0 20px; border-radius: 999px;
-  font-weight: 600; font-size: 1rem;
+  min-height: 44px; padding: 0 18px; border-radius: var(--radius-sm);
+  font-weight: 600; font-size: .98rem;
   transition: background .15s ease, opacity .15s ease, border-color .15s ease;
 }
 .btn .icon { width: 19px; height: 19px; }
@@ -434,7 +426,7 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
   display: flex; flex-direction: column;
   background: var(--surface);
   border: 1px solid var(--border); border-bottom: none;
-  border-radius: 24px 24px 0 0;
+  border-radius: 12px 12px 0 0;
   box-shadow: var(--shadow);
   transform: translateY(102%);
   transition: transform .26s cubic-bezier(.2, .8, .2, 1);
@@ -458,15 +450,30 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .from-site .link-btn { padding: 2px 0; }
 .booklog-note { margin: -8px 0 0; }
 .book-actions { margin-top: 16px; }
-.book-actions .btn { min-height: 46px; }
+.book-actions .btn { min-height: 44px; }
 .drop-note { font-size: 1rem; color: var(--text); margin: -4px 0 8px; }
 .progress-form { display: flex; flex-wrap: wrap; gap: 0 10px; align-items: flex-end; margin-top: 16px; }
 .progress-form .field { margin-bottom: 0; min-width: 0; }
 .progress-amount { flex: 1 1 110px; max-width: 150px; }
 .progress-percent { flex: 1 1 64px; max-width: 84px; }
-.progress-form .btn { min-height: 46px; flex: none; }
+.progress-form .btn { min-height: 46px; flex: none; }   /* as tall as the fields beside it */
 .progress-form .field-error { flex-basis: 100%; margin: 8px 0 0; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
+
+/* The ways to add a book: a short list to choose from */
+.ways { margin: -8px 0 4px; }
+.way {
+  display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: center;
+  width: 100%; padding: 14px 0; text-align: left;
+  border-bottom: 1px solid var(--border);
+  transition: opacity .15s ease;
+}
+.way:last-child { border-bottom: none; }
+.way:active { opacity: .6; }
+.way > .icon:first-child { color: var(--accent); }
+.way > .icon:last-child { width: 18px; height: 18px; color: var(--faint); }
+.way-text span { display: block; font-weight: 600; }
+.way-text small { display: block; color: var(--muted); font-size: .86rem; margin-top: 1px; }
 
 /* The assistant's proposals */
 .describe-lists { margin: 6px 0 18px; }
@@ -531,7 +538,7 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .prose .asterism { text-align: center; color: var(--faint); }
 .prose code { font-family: ui-monospace, monospace; font-size: .9em; background: var(--surface-2); padding: 1px 5px; border-radius: 4px; }
 .prose-img { display: block; }
-.prose img { max-width: 100%; height: auto; border-radius: 6px; }
+.prose img { max-width: 100%; height: auto; border-radius: 4px; }
 .field textarea.review-text { font-family: var(--serif); font-size: 1.05rem; line-height: 1.55; resize: vertical; min-height: 200px; }
 .md-hint { margin: -6px 0 16px; font-size: .82rem; }
 
@@ -550,7 +557,7 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 /* Choosing and managing lists */
 .pick-row + .pick-row { margin-top: 12px; }
 .pick-label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 6px; }
-.list-picker .chip[aria-pressed="true"] { background: var(--accent-fill) border-box; border-color: transparent; color: var(--on-accent); }
+.list-picker .chip[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
 .list-picker .field { margin: 16px 0 0; }
 .form-lists { margin: 6px 0 18px; }
 .sheet-done { margin-top: 22px; }
@@ -576,19 +583,19 @@ div.list-name { cursor: default; }
 .badge {
   display: inline-block; vertical-align: 2px; margin-right: 8px;
   font-family: var(--sans); font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
-  color: var(--accent); border: 1px solid currentColor; border-radius: 999px; padding: 1px 8px;
+  color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 1px 7px;
 }
 
 /* Cover-text chips */
 .ocr { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 18px; }
 .ocr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .ocr-head > span { font-size: .84rem; color: var(--muted); }
-.seg { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 3px; }
-.seg button { padding: 5px 14px; border-radius: 999px; font-size: .84rem; font-weight: 600; color: var(--muted); transition: background .15s ease, color .15s ease; }
-.seg button[aria-pressed="true"] { background: var(--accent-fill); color: var(--on-accent); }
+.seg { display: inline-flex; background: var(--surface-2); border-radius: var(--radius-sm); padding: 3px; }
+.seg button { padding: 5px 14px; border-radius: 4px; font-size: .84rem; font-weight: 600; color: var(--muted); transition: background .15s ease, color .15s ease; }
+.seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 0 0 1px var(--border); }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .chip {
-  padding: 7px 13px; border-radius: 999px;
+  padding: 7px 12px; border-radius: var(--radius-sm);
   border: 1px solid var(--border); background: var(--surface);
   font-size: .92rem; text-align: left;
   transition: border-color .15s ease, background .15s ease;
@@ -619,19 +626,19 @@ div.list-name { cursor: default; }
   position: absolute; left: 50%; top: var(--finder-y);
   width: var(--finder-w); height: var(--finder-h);
   transform: translate(-50%, -50%);
-  border-radius: 18px;
+  border-radius: 8px;
   box-shadow: 0 0 0 200vmax rgba(14, 10, 36, .6);
   transition: width .3s cubic-bezier(.2, .8, .2, 1), height .3s cubic-bezier(.2, .8, .2, 1), top .3s ease;
 }
 .scanner.no-camera .finder { display: none; }
 .corner { position: absolute; width: 26px; height: 26px; border: 3px solid #fdb563; }
-.corner.tl { left: -2px; top: -2px; border-right: none; border-bottom: none; border-radius: 18px 0 0 0; }
-.corner.tr { right: -2px; top: -2px; border-left: none; border-bottom: none; border-radius: 0 18px 0 0; }
-.corner.bl { left: -2px; bottom: -2px; border-right: none; border-top: none; border-radius: 0 0 0 18px; }
-.corner.br { right: -2px; bottom: -2px; border-left: none; border-top: none; border-radius: 0 0 18px 0; }
+.corner.tl { left: -2px; top: -2px; border-right: none; border-bottom: none; border-radius: 8px 0 0 0; }
+.corner.tr { right: -2px; top: -2px; border-left: none; border-bottom: none; border-radius: 0 8px 0 0; }
+.corner.bl { left: -2px; bottom: -2px; border-right: none; border-top: none; border-radius: 0 0 0 8px; }
+.corner.br { right: -2px; bottom: -2px; border-left: none; border-top: none; border-radius: 0 0 8px 0; }
 .laser {
   position: absolute; left: 10%; right: 10%; top: 50%; height: 2px; border-radius: 2px;
-  background: linear-gradient(90deg, transparent, #fdb563, #fd856c, transparent);
+  background: linear-gradient(90deg, transparent, #fdb563, transparent);
   animation: laser 2.2s ease-in-out infinite;
 }
 @keyframes laser { 0%, 100% { transform: translateY(-34px); opacity: .25; } 50% { transform: translateY(34px); opacity: .9; } }
@@ -655,7 +662,7 @@ div.list-name { cursor: default; }
   padding: calc(var(--safe-t) + 14px) 16px 0;
 }
 .glass-btn {
-  width: 48px; height: 48px; border-radius: 50%;
+  width: 48px; height: 48px; border-radius: 8px;
   display: grid; place-items: center;
   background: rgba(24, 20, 58, .6); color: #f3f0fb;
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -666,7 +673,7 @@ div.list-name { cursor: default; }
 .scan-target {
   justify-self: center; min-width: 0; max-width: 100%;
   display: inline-flex; align-items: center; gap: 8px;
-  height: 40px; padding: 0 8px 0 14px; border-radius: 999px;
+  height: 40px; padding: 0 8px 0 12px; border-radius: 8px;
   background: rgba(24, 20, 58, .6); color: #f3f0fb;
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   font-size: .9rem; font-weight: 600;
@@ -693,7 +700,7 @@ div.list-name { cursor: default; }
 .for-cover .glass-pill { flex: 1; max-width: 124px; }
 .glass-pill {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
-  height: 48px; padding: 0 18px; border-radius: 999px;
+  height: 48px; padding: 0 16px; border-radius: 8px;
   background: rgba(24, 20, 58, .6); color: #f3f0fb;
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
   font-weight: 600; font-size: .93rem; white-space: nowrap;
@@ -712,7 +719,7 @@ div.list-name { cursor: default; }
 .card {
   position: relative;
   background: var(--surface); color: var(--text);
-  border: 1px solid var(--border); border-radius: 20px;
+  border: 1px solid var(--border); border-radius: var(--radius);
   padding: 16px;
   box-shadow: var(--shadow);
   animation: cardIn .26s cubic-bezier(.2, .8, .2, 1) both;
@@ -728,8 +735,8 @@ div.list-name { cursor: default; }
 .card-sub { color: var(--muted); font-size: .92rem; margin-top: 2px; }
 .card-meta { color: var(--faint); font-size: .8rem; margin-top: 2px; font-variant-numeric: tabular-nums; }
 .card-actions { display: flex; gap: 8px; margin-top: 14px; }
-.card-actions .btn { flex: 1; min-height: 46px; font-size: .95rem; padding: 0 14px; }
-.card-x { position: absolute; right: 6px; top: 6px; width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; color: var(--faint); }
+.card-actions .btn { flex: 1; min-height: 44px; font-size: .95rem; padding: 0 14px; }
+.card-x { position: absolute; right: 6px; top: 6px; width: 40px; height: 40px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--faint); }
 .card-x .icon { width: 18px; height: 18px; }
 .spinner { width: 20px; height: 20px; border-radius: 50%; border: 2.5px solid var(--border); border-top-color: var(--accent); animation: spin .7s linear infinite; flex: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -744,7 +751,7 @@ div.list-name { cursor: default; }
   transform: translate(-50%, -16px); opacity: 0;
   display: flex; align-items: center; gap: 14px;
   width: max-content; max-width: calc(100vw - 32px);
-  padding: 12px 18px; border-radius: 22px;
+  padding: 12px 16px; border-radius: var(--radius-sm);
   background: var(--text); color: var(--bg);
   font-size: .93rem; font-weight: 500;
   box-shadow: var(--shadow);
@@ -755,7 +762,6 @@ div.list-name { cursor: default; }
 
 @media (min-width: 640px) {
   .app { padding-left: 28px; padding-right: 28px; padding-top: calc(var(--safe-t) + 44px); }
-  .sheet { border-radius: 24px 24px 0 0; }
   .lists { margin-left: -28px; margin-right: -28px; padding-left: 28px; padding-right: 28px; }
 }
 /* Wide screens: the lists become a sidebar beside the books. */
@@ -794,7 +800,6 @@ div.list-name { cursor: default; }
     border-left: 3px solid var(--accent); padding-left: 9px;
     border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   }
-  .nav-item[aria-current="page"] span::before { background: var(--mark); }
   .nav-item[aria-current="page"] b { color: var(--accent); opacity: 1; }
   .nav-edit { justify-content: flex-start; color: var(--faint); font-size: .9rem; }
   .day:first-child { padding-top: 10px; }

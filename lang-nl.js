@@ -16,7 +16,6 @@ export default {
   'Your shelf is empty': 'Je boekenkast is leeg',
   'Scan the barcode on the back of a book and it lands here, with its title, author, publisher, date and page count.':
     'Scan de streepjescode op de achterkant van een boek en het komt hier terecht, met titel, auteur, uitgever, datum en aantal bladzijden.',
-  'Scan a book': 'Boek scannen',
   'Export as JSON': 'Exporteren als JSON',
   'Toggle theme': 'Licht of donker',
   'Settings': 'Instellingen',
@@ -24,8 +23,8 @@ export default {
   'Search your shelf': 'Zoek in je boekenkast',
   'Search {list}': 'Zoek in {list}',
   'No books match that search.': 'Geen boeken gevonden.',
-  'Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.':
-    'Nog niets op “{list}”. Scan een boek terwijl deze lijst openstaat, of open een boek en zet het erop.',
+  'Nothing on “{list}” yet. Add a book while this list is open, or open a book and put it here.':
+    'Nog niets op “{list}”. Voeg een boek toe terwijl deze lijst openstaat, of open een boek en zet het erop.',
   'All books': 'Alle boeken',
   'Edit lists': 'Lijsten bewerken',
   'Today': 'Vandaag',
@@ -77,8 +76,20 @@ export default {
   'Cards': 'Kaarten',
 
   // The assistant
-  'Add a book by describing it': 'Een boek toevoegen door het te beschrijven',
   'Add by description': 'Toevoegen via beschrijving',
+  'Add a book': 'Boek toevoegen',
+  'Other ways to add this book.': 'Andere manieren om dit boek toe te voegen.',
+  'Scan the barcode': 'Streepjescode scannen',
+  'On the back cover. The quickest way.': 'Op de achterkant. De snelste manier.',
+  'Photograph the cover': 'Cover fotograferen',
+  'Its front cover is read and looked up.': 'De voorkant wordt gelezen en opgezocht.',
+  'Describe it': 'Beschrijven',
+  'A title, an author, a series, in your own words: the assistant finds the book.': 'Een titel, een auteur, een reeks, in je eigen woorden: de assistent zoekt het boek.',
+  'Type the ISBN': 'ISBN typen',
+  'The digits above the barcode or on the copyright page.': 'De cijfers boven de streepjescode of op de copyrightpagina.',
+  'Fill it in by hand': 'Zelf invullen',
+  'For a book no catalogue knows.': 'Voor een boek dat geen catalogus kent.',
+  'Your shelf, as a file': 'Je boekenkast als bestand',
   'A title, an author, a series, in your own words. One book or several.': 'Een titel, een auteur, een serie, in je eigen woorden. Eén boek of meerdere.',
   'Put them on': 'Zet ze op',
   'Find': 'Zoeken',
