@@ -851,26 +851,60 @@ function handleCodes(codes) {
 
 /* Printed ISBN next to a non-ISBN barcode */
 
+// ISBNs beside barcodes are set in OCR-A or OCR-B. General-purpose OCR reads OCR-B well
+// but takes several OCR-A digits for letters (its 6 comes out as b, L or k). These are
+// the confusions measured on both fonts; the check digit rejects any wrong guess.
+const LOOKALIKE = {
+  O: '0', o: '0', D: '0', Q: '0',
+  I: '1', l: '1', '|': '1', '!': '1', ']': '1', '[': '1',
+  Z: '2', z: '2',
+  S: '5', s: '5',
+  b: '6', L: '6', k: '6', G: '6', h: '6',
+  B: '8', '&': '8',
+  g: '9', q: '9',
+};
+
 /**
- * Finds an ISBN in OCR text. The blocky font used beside barcodes is often misread
- * (its 6 looks like a b, its 0 like an O); the check digit keeps the corrections honest.
+ * Reads an ISBN from the start of `str` ("0-7868-8944-6 …"). Strict on purpose: the
+ * number must end on a group boundary with exactly 10 or 13 digits and a valid check
+ * digit, and an unreadable character ends it — nothing is skipped or guessed.
  */
+function parseIsbn(str) {
+  const groups = String(str).replace(/^[^0-9A-Za-z]+/, '').split(/[\s\-–—=.:]+/);
+  let digits = '', ten = null, used = 0;
+  for (const group of groups) {
+    let mapped = '';
+    for (const ch of group) {
+      const d = /[0-9]/.test(ch) ? ch : /x/i.test(ch) ? 'X' : LOOKALIKE[ch];
+      if (!d) { mapped = null; break; }
+      mapped += d;
+    }
+    if (!mapped) break;
+    digits += mapped;
+    used++;
+    if (digits.length === 10 && !ten) ten = toIsbn13(digits);
+    if (digits.length === 13) return toIsbn13(digits) || null;
+    if (digits.length > 13) return null;
+  }
+  // "978-…" cut short is an incomplete ISBN-13, not an ISBN-10.
+  return ten && digits.length === 10 && (used === groups.length || !/^97[89]/.test(digits)) ? ten : null;
+}
+
+/** Finds a printed ISBN in OCR text. */
 function findPrintedIsbn(text) {
-  const digits = (str) => str
-    .replace(/[OoQD]/g, '0').replace(/[Il|!]/g, '1').replace(/[Zz]/g, '2').replace(/[Ss]/g, '5')
-    .replace(/[bG]/g, '6').replace(/B/g, '8').replace(/[^0-9Xx]/g, '');
+  const SYMBOL = '[0-9A-Za-z|!\\]\\[&]';
+  const hyphenated = new RegExp(`${SYMBOL}+(?:[-–—]${SYMBOL}+){2,4}`, 'g');
   for (const line of String(text || '').split('\n')) {
     const candidates = [];
     const labelled = line.match(/[I1l|][S5][B8]N(?:[-\s]*1[03]\b)?[\s:.#-]*(.+)/i);
     if (labelled) candidates.push(labelled[1]);
-    for (const m of line.matchAll(/[0-9OIlSBZbG]{1,5}(?:[- ][0-9OIlSBZbG]{1,7}){2,4}[- ]?[0-9Xx]?/g)) candidates.push(m[0]);
+    candidates.push(...(line.match(hyphenated) || []));
     for (const candidate of candidates) {
-      // Also try with a zero that was read twice, as "O0" or "0O", collapsed.
-      for (const variant of new Set([candidate, candidate.replace(/O0|0O/g, '0')])) {
-        const d = digits(variant);
-        const isbn = toIsbn13(d.slice(0, 13)) || toIsbn13(d.slice(0, 10));
-        if (isbn) return isbn;
-      }
+      // Second try: a digit read twice, once as itself and once as its look-alike ("O0", "b6").
+      const deduped = candidate.replace(/([A-Za-z|!\]\[&])([0-9])|([0-9])([A-Za-z|!\]\[&])/g,
+        (m, a, b, c, d) => (a ? (LOOKALIKE[a] === b ? b : m) : (LOOKALIKE[d] === c ? c : m)));
+      const isbn = parseIsbn(candidate) || (deduped !== candidate && parseIsbn(deduped));
+      if (isbn) return isbn;
     }
   }
   return null;
