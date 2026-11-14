@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.14.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.15.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1727,6 +1727,30 @@ function openDescribe(shared) {
   if (shared) form.requestSubmit(); else words.focus();
 }
 
+/* A book by its address: #/book/<slug>, where the slug is that of its page in the booklog.
+   The booklog's own [edit] link on a book's page comes in this way. */
+
+/** The book a booklog page (its slug) is about: any read of it will do. */
+const bookBySlug = (slug) => books.find((b) => b.boeken === slug || (b.reviews || []).some((r) => r.boeken === slug));
+
+/** Opens the book the address names, if it names one. `retry`: the shelf may not have synced it yet. */
+async function openLinkedBook(retry = true) {
+  const match = location.hash.match(/^#\/book\/([^/?#]+)\/?$/);
+  if (!match) return;
+  let slug = match[1];
+  try { slug = decodeURIComponent(slug); } catch {}
+  let book = bookBySlug(slug);
+  if (!book && retry && sync.user && navigator.onLine !== false) {
+    await runSync();
+    book = bookBySlug(slug);
+  }
+  // The address has done its work: Back from the book's page goes to the shelf, not to it again.
+  history.replaceState(history.state, '', location.pathname + location.search);
+  if (book) openBook(book);
+  else if (!sync.user) toast(t('Sign in to open that book'), { action: t('Sign in'), onAction: openSettings, ms: 8000 });
+  else toast(t('That book isn’t on your shelf'));
+}
+
 /* What another app shares to this one (see share_target in the manifest and sw.js) */
 
 /** Picks up what the service worker kept. → {title, text, url, picture} or null */
@@ -3076,7 +3100,7 @@ function bindEvents() {
     renderLibrary();
   });
 
-  window.addEventListener('hashchange', () => { readRoute(); renderLibrary(); });
+  window.addEventListener('hashchange', () => { readRoute(); renderLibrary(); openLinkedBook(); });
 
   $('scanClose').addEventListener('click', closeLayer);
   $('scanTargetBtn').addEventListener('click', openTargetSheet);
@@ -3184,6 +3208,7 @@ async function init() {
 
   // Home-screen shortcut: jump straight into the scanner.
   takeShare().then((share) => { if (share) handleShare(share); });
+  openLinkedBook();
   if (new URLSearchParams(location.search).has('scan')) {
     history.replaceState(null, '', location.pathname + location.hash);
     openScanner();

@@ -249,6 +249,9 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
   one commit, worded as the booklog's always were (*Uitgelezen: …*, *Voortgang … (p. 210)*).
 - **Checked first.** Every post touched goes through the booklog's own `scripts/check_books.py`;
   what it turns down is not committed, and the book's page in the app says why.
+- **Back from the booklog.** `#/book/<slug>` opens the book whose page in the booklog has that
+  slug. The booklog's own edit link on a book's page (its *bewerkstand*, and the key *E*) points
+  there, so a book is one step from its public page to where it is edited.
 - **Not at once.** A book is published once it has been left alone for two minutes
   (`--delay`), so a tap on the wrong list can be undone before it is public.
 - **Not yet:** a review without a reading date on a book that is already read stays in the app.

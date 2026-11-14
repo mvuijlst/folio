@@ -4,7 +4,7 @@
 
 In this order, in the server's own clone of the booklog (BOEKEN_REPO_PATH):
 
-  1. fetch what others pushed (boeggn, an edit at a desk);
+  1. fetch what others pushed (an edit at a desk);
   2. publish what was changed in the app: one commit per book (shelf/publish.py);
   3. push, if BOEKEN_PUSH=1, which is what makes boeken.tsuk.org rebuild;
   4. import the booklog, so what others changed reaches the app (import_boeken) — skipped

@@ -87,6 +87,10 @@ export default {
   'Suggest': 'Voorstel',
   'Optional. One sentence about the book: the text of its page until you review it.': 'Optioneel. Eén zin over het boek: de tekst van zijn pagina tot je het bespreekt.',
 
+  // A book by its address
+  'Sign in to open that book': 'Meld je aan om dat boek te openen',
+  'That book isn’t on your shelf': 'Dat boek staat niet in je boekenkast',
+
   // Shared from another app
   'Add what was shared': 'Toevoegen wat gedeeld werd',
   'Sign in to add books from a description.': 'Meld je aan om boeken toe te voegen via een beschrijving.',
