@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.15.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.16.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1129,9 +1129,14 @@ function renderNav() {
     h('div', { class: 'nav-group' },
       item(null, t('All books'), books.length),
       seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount)),
-    ...listSections().map((section) => h('div', { class: 'nav-group' },
-      section.label && h('span', { class: 'nav-label', text: show(section.label) }),
-      section.members.map((l) => item(l.id, listName(l), counts.get(l.id))))),
+    // Only lists with books on them (and the one that is open): an empty list is no place to go.
+    // They are all still there to put books on, and under "Edit lists".
+    ...listSections()
+      .map((section) => ({ ...section, members: section.members.filter((l) => counts.get(l.id) > 0 || view.list === l.id) }))
+      .filter((section) => section.members.length)
+      .map((section) => h('div', { class: 'nav-group' },
+        section.label && h('span', { class: 'nav-label', text: show(section.label) }),
+        section.members.map((l) => item(l.id, listName(l), counts.get(l.id))))),
     h('div', { class: 'nav-group' },
       h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }))));
   // On a phone the lists are one scrolling row: keep the open one in sight.
@@ -1196,9 +1201,10 @@ function appendRows(upTo = shown.next + PAGE) {
     const day = heading(shown.when(b));
     if (!shown.query && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
     const number = shown.series && seriesNo(b) ? h('span', { class: 'badge', text: `#${seriesNo(b)}` }) : null;
-    if (view.mode === 'covers') frag.append(bookTile(b, openBook, !!shown.series));
-    else if (view.mode === 'cards') frag.append(bookCard(b, openBook, listTags(b, shown.current)));
-    else frag.append(bookRow(b, openBook, number, listTags(b, shown.current)));
+    const open = (book) => openBook(book, shown.rows);   // with the list it is opened from, for previous and next
+    if (view.mode === 'covers') frag.append(bookTile(b, open, !!shown.series));
+    else if (view.mode === 'cards') frag.append(bookCard(b, open, listTags(b, shown.current)));
+    else frag.append(bookRow(b, open, number, listTags(b, shown.current)));
   }
   shown.next = end;
   const more = end < shown.rows.length
@@ -1731,7 +1737,13 @@ function openDescribe(shared) {
    The booklog's own [edit] link on a book's page comes in this way. */
 
 /** The book a booklog page (its slug) is about: any read of it will do. */
-const bookBySlug = (slug) => books.find((b) => b.boeken === slug || (b.reviews || []).some((r) => r.boeken === slug));
+function bookBySlug(slug) {
+  // A few slugs are themselves percent-encoded (%ce%b2ehemoth), and an address may or may not
+  // have been decoded on its way here: compare both in one spelling.
+  const plain = (s) => { try { return decodeURIComponent(s || ''); } catch { return s || ''; } };
+  const wanted = plain(slug);
+  return books.find((b) => plain(b.boeken) === wanted || (b.reviews || []).some((r) => r.boeken && plain(r.boeken) === wanted));
+}
 
 /** Opens the book the address names, if it names one. `retry`: the shelf may not have synced it yet. */
 async function openLinkedBook(retry = true) {
@@ -1746,7 +1758,7 @@ async function openLinkedBook(retry = true) {
   }
   // The address has done its work: Back from the book's page goes to the shelf, not to it again.
   history.replaceState(history.state, '', location.pathname + location.search);
-  if (book) openBook(book);
+  if (book) openBook(book, null);
   else if (!sync.user) toast(t('Sign in to open that book'), { action: t('Sign in'), onAction: openSettings, ms: 8000 });
   else toast(t('That book isn’t on your shelf'));
 }
@@ -1782,7 +1794,7 @@ function handleShare(share) {
       const page = new URL(url);
       const slug = page.host === host && (page.pathname.match(/^\/\d{4}\/\d{2}\/([^/]+)\/?$/) || [])[1];
       const book = slug && books.find((b) => b.boeken === slug || (b.reviews || []).some((r) => r.boeken === slug));
-      if (book) { openBook(book); return; }
+      if (book) { openBook(book, null); return; }
     } catch {}
   }
   const text = [share.title, share.text].filter(Boolean).join('\n').replace(url, '').trim();
@@ -2031,8 +2043,55 @@ function progressBox(book, again) {
   error);
 }
 
-function openBook(book) {
+/* From a book to the one before or after it in the list it was opened from: swipe right or
+   left on its page (as on the booklog), the arrow keys, or the two arrows on the page. */
+
+/** The books of the list the open book was opened from, in the order shown; null when it wasn't from a list. */
+let trail = null;
+
+function neighbour(book, step) {
+  const at = trail ? trail.indexOf(book) : -1;
+  return at < 0 ? null : trail[at + step] || null;
+}
+
+/** The book whose page is open in the sheet, if that is what the sheet shows. */
+let openedBook = null;
+const bookPageOpen = () => sheet.isOpen && !!openedBook && !!$('sheetBody').querySelector('.book-page');
+
+function turnTo(step) {
+  const next = bookPageOpen() && neighbour(openedBook, step);
+  if (next) openBook(next);
+}
+
+function initTurning() {
+  let x0 = null, y0 = null;
+  const SWIPE = 60;   // px, as on the booklog
+  $('sheet').addEventListener('touchstart', (e) => {
+    const field = e.target.closest('input, textarea, select');
+    [x0, y0] = e.touches.length === 1 && !field ? [e.touches[0].clientX, e.touches[0].clientY] : [null, null];
+  }, { passive: true });
+  $('sheet').addEventListener('touchend', (e) => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) < SWIPE || Math.abs(dx) < Math.abs(dy) * 1.5) return;   // not a sideways swipe
+    turnTo(dx > 0 ? -1 : 1);
+  }, { passive: true });
+  document.addEventListener('keydown', (e) => {
+    if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || !bookPageOpen()) return;
+    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft') turnTo(-1);
+    else if (e.key === 'ArrowRight') turnTo(1);
+  });
+}
+
+/** `rows`: the list the book is opened from (null: from none); left out, it stays what it was. */
+function openBook(book, rows) {
+  if (rows !== undefined) trail = rows;
+  openedBook = book;
   const again = () => { if (books.includes(book)) openBook(book); else sheet.close(); };
+  const before = neighbour(book, -1), after = neighbour(book, 1);
+  const turn = (other, name, label) => h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, disabled: !other, onclick: () => openBook(other) }, icon(name));
   // With more than one read, each says which edition it was: its cover and a line about it.
   const several = (book.reviews || []).filter((r) => r.date).length > 1;
   const reviewEl = (review) => {
@@ -2060,7 +2119,9 @@ function openBook(book) {
         }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
         listTags(book, null)),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x'))),
+      h('div', { class: 'page-corner' },
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')),
+        (before || after) && h('div', { class: 'page-turn' }, turn(before, 'back', t('Previous book')), turn(after, 'forward', t('Next book'))))),
     sourceNote(book, false, again),
     progressBox(book, again),
     bookActions(book, again),
@@ -3087,6 +3148,7 @@ async function processCover({ canvas, thumb }) {
 /* ───────────────────────── Wiring ───────────────────────── */
 
 function bindEvents() {
+  initTurning();
   $('scanBtn').addEventListener('click', openScanner);
   $('describeBtn').addEventListener('click', openDescribe);
   $('exportBtn').addEventListener('click', openExport);

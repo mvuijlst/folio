@@ -55,7 +55,11 @@ Books scanned before lists existed count as being in the *Library*.
   *cards* (larger cover, details, lists and the start of the latest review, grouped by month).
 - **Covers keep their own proportions**: a square audiobook cover is square, everywhere.
 - **Tapping a book opens its page**: cover, details, the lists it is on and its reviews.
-  *Edit details* leads to the form with its fields and lists.
+  *Edit details* leads to the form with its fields and lists. From there, swiping left or
+  right (on a desktop: the arrow keys, or the two arrows on the page) goes to the next or previous book
+  of the list it was opened from.
+- **The menu shows the lists that have books on them.** An empty list is still there to put
+  books on, and under *Edit lists*.
 - **Reviews.** A book can have any number, each with an optional reading date and an optional
   rating from 0 to 10, written in Markdown (emphasis, links, quotes, lists, images). The rating
   shown in lists is that of the latest review that gives one. Reviews are searched too.

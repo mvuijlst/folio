@@ -5,6 +5,8 @@ const SHELL = 'bookscan-shell-v2';   // only renamed when the cache layout chang
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
 const SHARE = 'bookscan-share-v1';   // what another app just shared to this one, until the page picks it up
 
+const BYPASS = /\/(api|admin|django-static|covers)\//;   // never cached here; see the fetch handler
+
 const SHELL_FILES = [
   './',
   'styles.css',
@@ -30,6 +32,11 @@ self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const names = await caches.keys();
     await Promise.all(names.filter((n) => n.startsWith('bookscan-') && n !== SHELL && n !== VENDOR && n !== SHARE).map((n) => caches.delete(n)));
+    // Nothing in the shell has a query string, and covers are no longer kept here: entries
+    // like that are leftovers that can only stand in the way of the real ones.
+    const shell = await caches.open(SHELL);
+    const strays = (await shell.keys()).filter((r) => { const u = new URL(r.url); return u.search || BYPASS.test(u.pathname); });
+    await Promise.all(strays.map((r) => shell.delete(r)));
     await self.clients.claim();
   })());
 });
@@ -47,7 +54,7 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
   // The sync server (API, admin and its assets) is never cached. Nor are cover thumbnails:
   // there can be thousands, and the browser's own cache keeps the ones it has seen.
-  if (/\/(api|admin|django-static|covers)\//.test(url.pathname)) return;
+  if (BYPASS.test(url.pathname)) return;
 
   if (url.pathname.includes('/vendor/')) {
     event.respondWith(cacheFirst(request));
@@ -93,7 +100,9 @@ async function staleWhileRevalidate(event) {
   const cache = await caches.open(SHELL);
   const navigation = request.mode === 'navigate';
   const key = navigation ? './' : request;
-  const hit = await cache.match(key, { ignoreSearch: navigation });
+  // A navigation's key is './' whatever its query string, so it is matched exactly: with
+  // ignoreSearch an older entry such as './?x' would be found first and never be refreshed.
+  const hit = await cache.match(key);
   // The copy handed to the page gets consumed, so keep a clone to compare the fresh one against.
   const refresh = revalidate(cache, key, navigation ? './' : request.url, hit?.clone());
   if (hit) {
