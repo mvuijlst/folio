@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.7.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.8.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -923,7 +923,7 @@ function coverEl(book, large, titled) {
   };
   const sources = [book.cover, book.thumb].filter(Boolean);
   if (sources.length) {
-    if (book.cover) shape(book.coverRatio);
+    shape(book.coverRatio);
     const img = h('img', { alt: '', loading: 'lazy', decoding: 'async' });
     const next = () => { shape(0); const src = sources.shift(); if (src) img.src = src; else img.remove(); };
     img.addEventListener('error', next);
@@ -1183,6 +1183,54 @@ function listPicker(on, { notes = true } = {}) {
   return box;
 }
 
+/* Changing a cover */
+
+/**
+ * Reads a pasted, dropped or chosen picture. → {thumb, ratio, large}: a small copy that
+ * travels inside the book (so it shows at once, offline too), its proportions, and a larger
+ * one for the server to keep. Null if the file isn't a picture.
+ */
+async function readCover(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { return null; }
+  const draw = (maxSide) => {
+    const k = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
+    const canvas = h('canvas', { width: Math.round(bitmap.width * k), height: Math.round(bitmap.height * k) });
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  };
+  const picture = {
+    thumb: draw(300).toDataURL('image/jpeg', 0.72),
+    ratio: Number((bitmap.width / bitmap.height).toFixed(3)),
+    large: await new Promise((resolve) => draw(1600).toBlob(resolve, 'image/jpeg', 0.9)),
+  };
+  bitmap.close?.();
+  return picture;
+}
+
+/**
+ * Hands the larger picture to the server, which keeps it; the book then points at the
+ * server's copy. Without an account or a connection, the small copy inside the book stays
+ * the cover, and the server makes a file of that when the book next syncs.
+ */
+async function uploadCover(book, picture) {
+  if (!sync.user || navigator.onLine === false || !picture.large) return;
+  try {
+    if (!csrfToken()) await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' });
+    const res = await fetch(abs('api/cover'), {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store',
+      headers: { 'Content-Type': 'image/jpeg', 'X-CSRFToken': csrfToken() }, body: picture.large,
+    });
+    if (!res.ok) return;
+    const kept = await res.json();
+    if (book.thumb !== picture.thumb || !books.includes(book)) return;   // the cover was changed again meanwhile
+    Object.assign(book, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio });
+    await saveBook(book);
+  } catch (err) {
+    console.warn('Cover not uploaded', err);
+  }
+}
+
 /**
  * Add or edit a book.
  *  book      existing record, or a draft when `isNew`
@@ -1246,9 +1294,53 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   // A book that came from the booklog: where to read about it, and who has the last word.
   const source = sourceNote(book, true);
 
-  const form = h('form', { novalidate: true, onsubmit: submit },
-    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null,
-      (book.cover || book.thumb) ? coverEl(book) : null),
+  // The cover: tap it to choose a picture; or paste or drop one while no text field has the cursor.
+  let picture = null;
+  const coverPick = h('button', { class: 'cover-pick', type: 'button', title: t('Change the cover'), 'aria-label': t('Change the cover'), onclick: () => coverFile.click() });
+  const drawCover = () => coverPick.replaceChildren(
+    coverEl(picture ? { ...book, cover: '', thumb: picture.thumb, coverRatio: picture.ratio } : book, true),
+    h('span', { class: 'cover-pick-badge' }, icon('camera')));
+  const pickCover = async (file) => {
+    const read = file && await readCover(file);
+    if (!read) { toast(t('That picture couldn’t be opened')); return; }
+    picture = read;
+    drawCover();
+  };
+  const coverFile = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) pickCover(file); } });
+  const pictureIn = (transfer) => [...(transfer?.files || [])].find((file) => file.type.startsWith('image/'));
+  const onPaste = (e) => {
+    if (!form.isConnected) { document.removeEventListener('paste', onPaste); return; }
+    const focus = document.activeElement;
+    if (focus?.tagName === 'TEXTAREA' || (focus?.tagName === 'INPUT' && focus.type !== 'file')) return;   // the text field gets it
+    const file = pictureIn(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    pickCover(file);
+  };
+  document.addEventListener('paste', onPaste);
+  // Phones have no Ctrl+V: a button that reads the clipboard does the same there.
+  const pasteButton = navigator.clipboard?.read && h('button', {
+    class: 'link-btn', type: 'button', text: t('Paste'),
+    onclick: async () => {
+      try {
+        for (const item of await navigator.clipboard.read()) {
+          const type = item.types.find((kind) => kind.startsWith('image/'));
+          if (type) { pickCover(await item.getType(type)); return; }
+        }
+        toast(t('There is no picture on the clipboard'));
+      } catch { toast(t('Couldn’t reach the clipboard')); }
+    },
+  });
+  drawCover();
+
+  const form = h('form', {
+    novalidate: true, onsubmit: submit,
+    ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
+    ondrop: (e) => { const file = pictureIn(e.dataTransfer); if (file) { e.preventDefault(); pickCover(file); } },
+  },
+    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null, coverPick),
+    coverFile,
+    h('p', { class: 'sheet-note cover-hint' }, t('Tap the cover to choose a picture, or paste or drop one here.'), ' ', pasteButton),
     source,
     ocrBox,
     field(t('Title'), f.title),
@@ -1275,6 +1367,8 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
       lists: {},
       series: v('series'), seriesNumber: null, seriesLabel: '',
+      // A new cover: the small copy is the cover until the server has kept the larger one.
+      ...(picture && { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverSource: '', coverFull: '' }),
     };
     // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
     const typed = data.series ? v('seriesNumber') : '';
@@ -1299,6 +1393,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       await saveBook(book);
     }
     saved = true;
+    if (picture) uploadCover(result, picture);
     leave();
     onSaved?.(result);
   }

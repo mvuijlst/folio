@@ -6,6 +6,7 @@ of every cover, 320 pixels wide and in its original proportions, in covers/ (ser
 plain files). A book's `cover` then points at that copy ("covers/web/….webp"), `coverRatio`
 says how wide it is for its height, and `coverSource` remembers where it came from.
 """
+import base64
 import hashlib
 import io
 import urllib.error
@@ -18,6 +19,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 WIDTH = 320            # shown at up to about 110 px wide, on screens of up to three device pixels per pixel
+FULL = 1600            # longest side of the copy kept of a cover the user supplied (for the booklog)
 MAX_BYTES = 8_000_000
 TIMEOUT = 6            # seconds, per download
 RETRY_AFTER = 7 * 24 * 3600   # a cover that couldn't be fetched is left alone for a week
@@ -100,6 +102,35 @@ def keep(url):
     return None
 
 
+def keep_upload(data):
+    """A cover the user supplied (pasted, dropped, chosen or photographed), as image bytes.
+
+    It is re-encoded, never stored as sent: a JPEG of at most FULL on its longest side, and
+    the usual small WebP. → {'cover', 'coverFull', 'coverRatio'}; ValueError if it isn't a picture.
+    """
+    from PIL import Image, ImageOps
+
+    name = hashlib.sha1(data).hexdigest()[:16]
+    full, small = folder('own') / f'{name}.jpg', folder('own') / f'{name}-{WIDTH}.webp'
+    try:
+        if not full.exists():
+            with Image.open(io.BytesIO(data)) as image:
+                image = ImageOps.exif_transpose(image).convert('RGB')
+                if image.width < 20 or image.height < 20:
+                    raise ValueError('too small to be a cover')
+                image.thumbnail((FULL, FULL))
+                full.parent.mkdir(parents=True, exist_ok=True)
+                partial = full.with_suffix('.part')
+                image.save(partial, 'JPEG', quality=90)
+                partial.replace(full)
+        ratio = ratio_of(small) if small.exists() else write_thumbnail(full, small)
+    except ValueError:
+        raise
+    except Exception as err:   # not an image, a truncated one, one too large to open safely, …
+        raise ValueError('not a picture') from err
+    return {'cover': f'covers/own/{small.name}', 'coverFull': f'covers/own/{full.name}', 'coverRatio': ratio}
+
+
 def adopt(user, limit=4):
     """Give up to `limit` of this user's books a server-kept cover. Returns the books changed.
 
@@ -126,6 +157,25 @@ def adopt(user, limit=4):
             continue
         fresh.data = {**fresh.data, 'cover': kept[0], 'coverRatio': kept[1], 'coverSource': url}
         fresh.changed = timezone.now()   # `modified` stays: nobody edited the book
+        fresh.save(update_fields=['data', 'changed'])
+        changed.append(fresh)
+
+    # A cover set in the app while offline (or photographed in the scanner) travels inside the
+    # book as a small picture, `thumb`. Those get a file of their own as well.
+    from django.db.models import Q
+    inside = Book.objects.filter(Q(data__cover='') | Q(data__cover__isnull=True), user=user, deleted=False,
+                                 data__thumb__startswith='data:image/')
+    for book in inside[:max(0, limit - len(changed))] if limit else inside:
+        thumb = book.data['thumb']
+        try:
+            kept = keep_upload(base64.b64decode(thumb.split(',', 1)[1]))
+        except (ValueError, IndexError):
+            continue
+        fresh = Book.objects.get(pk=book.pk)
+        if fresh.deleted or fresh.data.get('cover') or fresh.data.get('thumb') != thumb:
+            continue
+        fresh.data = {**fresh.data, **kept}
+        fresh.changed = timezone.now()
         fresh.save(update_fields=['data', 'changed'])
         changed.append(fresh)
     return changed

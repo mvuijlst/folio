@@ -3,6 +3,7 @@
   GET  /api/session  → {"user": name | null}; also sets the CSRF cookie
   POST /api/login    {"username", "password"} → {"user": name}
   POST /api/logout
+  POST /api/cover    an image as the request body → {"cover", "coverFull", "coverRatio"}
   POST /api/sync     {"since": cursor | null, "changes": [change…],
                       "listsSince": cursor | null, "lists": [change…]}
                      → {"cursor", "changes": [change…], "lists": [change…]}
@@ -106,6 +107,22 @@ def login_view(request):
 def logout_view(request):
     logout(request)
     return JsonResponse({'user': None})
+
+
+# ───────────────────────── Covers ─────────────────────────
+
+@require_POST
+def cover(request):
+    """Keep a cover the user pasted, dropped or chose; the app then points the book at it."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    data = request.body
+    if not data or len(data) > covers.MAX_BYTES:
+        return error('That picture is too large.', 413)
+    try:
+        return JsonResponse(covers.keep_upload(data))
+    except ValueError:
+        return error('That file isn’t a picture.')
 
 
 # ───────────────────────── Sync ─────────────────────────

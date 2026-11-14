@@ -50,6 +50,13 @@ export default {
   'Covers': 'Covers',
   'Cards': 'Kaarten',
 
+  // Changing a cover
+  'Change the cover': 'Cover wijzigen',
+  'Tap the cover to choose a picture, or paste or drop one here.': 'Tik op de cover om een afbeelding te kiezen, of plak of sleep er hier een.',
+  'Paste': 'Plakken',
+  'That picture couldn’t be opened': 'Die afbeelding kon niet geopend worden',
+  'There is no picture on the clipboard': 'Er staat geen afbeelding op het klembord',
+
   // Series
   'Series': 'Series',
   'All series': 'Alle series',

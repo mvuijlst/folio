@@ -50,6 +50,12 @@ Books scanned before lists existed count as being in the *Library*.
 - **Reviews.** A book can have any number, each with an optional reading date and an optional
   rating from 0 to 10, written in Markdown (emphasis, links, quotes, lists, images). The rating
   shown in lists is that of the latest review that gives one. Reviews are searched too.
+- **Series.** Books that share a series name form a series: *Series* in the navigation lists
+  them all, and a series page shows its books in order. Set the series and its number in a
+  book's details; a number such as 4.5 sorts between 4 and 5.
+- **Changing a cover.** In a book's details, tap the cover to choose a picture (on a phone:
+  camera or gallery), or paste or drop one while no text field has the cursor; *Paste* reads
+  the clipboard where there is no Ctrl+V. The server keeps a large copy and a small one.
 - **Covers are kept on the server.** For signed-in users the server fetches a copy of each
   cover that comes from a book catalogue (Open Library, Google Books), a few per sync, as a
   320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py

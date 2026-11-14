@@ -434,6 +434,18 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .field textarea.review-text { font-family: var(--serif); font-size: 1.05rem; line-height: 1.55; resize: vertical; min-height: 200px; }
 .md-hint { margin: -6px 0 16px; font-size: .82rem; }
 
+/* The cover in the book form is a button */
+.cover-pick { position: relative; flex: none; border-radius: 6px; margin-top: 2px; }
+.cover-pick .cover { margin: 0; }
+.cover-pick-badge {
+  position: absolute; right: -8px; bottom: -8px; width: 30px; height: 30px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--accent); color: var(--on-accent); box-shadow: 0 1px 4px rgba(0, 0, 0, .4);
+}
+.cover-pick-badge .icon { width: 16px; height: 16px; }
+.cover-hint { margin: -6px 0 16px; font-size: .84rem; }
+.cover-hint .link-btn { padding: 0; font-size: inherit; }
+
 /* Choosing and managing lists */
 .pick-row + .pick-row { margin-top: 12px; }
 .pick-label { display: block; font-size: .8rem; color: var(--muted); margin-bottom: 6px; }

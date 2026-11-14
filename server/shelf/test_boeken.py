@@ -327,3 +327,28 @@ class CoverTests(TestCase):
             call_command('fetch_covers', stdout=out)
         self.assertIn('reader: 7 covers kept, 0 could not be fetched', out.getvalue())
         self.assertTrue(all(b.data['cover'].startswith('covers/web/') for b in Book.objects.all()))
+
+    def test_a_cover_handed_in_is_kept_large_and_small(self):
+        res = self.client.post('/api/cover', png(2400, 3600), content_type='image/png')
+        self.assertEqual(res.status_code, 200, res.content)
+        kept = res.json()
+        self.assertRegex(kept['cover'], r'^covers/own/[0-9a-f]{16}-320[.]webp$')
+        self.assertEqual(kept['coverRatio'], 0.667)
+        from PIL import Image
+        with Image.open(Path(self.tmp.name, 'own', kept['coverFull'].rsplit('/', 1)[1])) as full:
+            self.assertEqual((full.format, full.size), ('JPEG', (1067, 1600)))
+
+    def test_only_pictures_and_only_when_signed_in(self):
+        self.assertEqual(self.client.post('/api/cover', b'<html>not a picture</html>', content_type='image/png').status_code, 400)
+        self.assertFalse(Path(self.tmp.name, 'own').exists() and any(Path(self.tmp.name, 'own').iterdir()))
+        self.client.logout()
+        self.assertEqual(self.client.post('/api/cover', png(300, 450), content_type='image/png').status_code, 401)
+
+    def test_a_cover_that_travels_inside_the_book_gets_a_file(self):
+        import base64
+        thumb = 'data:image/png;base64,' + base64.b64encode(png(200, 300)).decode()
+        answer = self.sync({'id': 'b1', 'title': 'Dune', 'cover': '', 'thumb': thumb})
+        book = answer['changes'][0]['book']
+        self.assertRegex(book['cover'], r'^covers/own/[0-9a-f]{16}-320[.]webp$')
+        self.assertEqual(book['thumb'], thumb)       # still there, for when the device is offline
+        self.assertEqual(self.sync()['changes'][0]['book']['cover'], book['cover'])
