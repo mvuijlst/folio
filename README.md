@@ -23,7 +23,15 @@ are saved by ISBN and completed automatically once you are back online.
 ## Lists
 
 Every book can be on any number of lists. The app starts with *Library*, *To read*, *Reading*,
-*Read* and *Lent out*; *Edit lists* adds, renames, reorders and deletes them.
+*Read*, *Did not finish* and *Lent out*; *Edit lists* adds, renames, reorders and deletes them.
+
+- **The reading lists are part of the app.** *To read*, *Reading*, *Read* and *Did not finish*
+  are always there, always one either-or set, and cannot be renamed or removed (they can be
+  moved). That is what lets a book offer what comes next, on its page:
+  - on *To read*: **Start reading**, or **Drop** it. Dropping removes the book for good and is
+    asked first; for a book in the booklog its page there is deleted too;
+  - on *Reading*: the page reached, **Mark as read** (which asks for the reading date, a rating
+    and a review, all optional) or **Did not finish**.
 
 - **Either-or sets.** Lists in the same set exclude each other: putting a book on *Read* takes
   it off *To read* and *Reading*. A list on its own (*Library*, *Lent out*) can hold any book,
@@ -230,6 +238,9 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | the page reached changes (on the book's page) | `pagesRead` and a line in `progressLog` |
 | a book being read gets a dated review, or moves to *Read* | the post is finished: no status, the reading date, rating and text |
 | a read book gets another dated review, or moves back to *Reading* | a new post, a reread of the first, with the edition read that time |
+| a book being read is marked *Did not finish* | the post's status becomes `abandoned` |
+| a book that was only marked as read gets its review later | that same post gets the text and rating: no reread is made of it |
+| a book to read is dropped | its post is deleted, with its cover and the author, tag and series pages nothing else uses. Never a book that was read: that is refused |
 | title, series, publisher, year, pages or ISBN change | the front matter (title and series on every read of the book) |
 | the cover is replaced | the picture goes into `media/` and the post points at it |
 

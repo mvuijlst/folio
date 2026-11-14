@@ -186,7 +186,7 @@ def clean_change(raw, key):
             return None
         data = {k: v for k, v in data.items() if k not in ('modified', 'deleted')}
         data['id'] = uid
-    return {'uid': uid, 'modified': modified, 'deleted': deleted, 'data': data}
+    return {'uid': uid, 'modified': modified, 'deleted': deleted, 'data': data, 'drop': deleted and bool(raw.get('drop'))}
 
 
 def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
@@ -200,6 +200,10 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
             stale.add(c['uid'])   # the server has a newer version: send it back
             continue
         label = str(c['data'].get(model.LABEL) or '')[:300]
+        if c['drop'] and row and not row.deleted and row.data.get('boeken'):
+            # A book given up for good that is in the booklog: its tombstone remembers which,
+            # so the page there can go too (shelf/publish.py). Clients never see this.
+            c['data'] = {'drop': {'boeken': row.data['boeken'], 'title': row.title}}
         if row:
             if not c['deleted']:
                 setattr(row, model.LABEL, label)   # a tombstone keeps its label for the admin

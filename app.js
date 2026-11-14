@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.13.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.14.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -164,8 +164,10 @@ async function saveBook(book) {
   await DB.put(book).catch(storageFailed);
 }
 
-async function removeBook(book) {
+/** `drop`: the book is given up for good; for a booklog book its page there is deleted too. */
+async function removeBook(book, { drop = false } = {}) {
   books = books.filter((b) => b.id !== book.id);
+  if (drop) { sync.drops[book.id] = true; store.set('syncDrops', sync.drops); }
   touch(book.id);
   renderLibrary();
   await DB.del(book.id).catch(storageFailed);
@@ -173,6 +175,7 @@ async function removeBook(book) {
 
 async function restoreBook(book) {
   if (books.some((b) => b.id === book.id)) return;
+  if (sync.drops[book.id]) { delete sync.drops[book.id]; store.set('syncDrops', sync.drops); }
   books.push(book);
   sortBooks();
   touch(book.id, book);
@@ -202,8 +205,13 @@ const STANDARD_LISTS = [
   { id: 'to-read', name: 'To read', group: READING, noteLabel: '' },
   { id: 'reading', name: 'Reading', group: READING, noteLabel: '' },
   { id: 'read', name: 'Read', group: READING, noteLabel: '' },
+  { id: 'abandoned', name: 'Did not finish', group: READING, noteLabel: '' },
   { id: 'lent', name: 'Lent out', group: '', noteLabel: 'Lent to' },
 ];
+// The reading lists are part of the app: always there, always one either-or set, never
+// renamed or removed. That is what lets a book offer "start reading", "mark as read" and
+// "did not finish", and what the booklog's shelves are tied to.
+const FIXED = new Map(STANDARD_LISTS.filter((l) => l.group === READING).map((l) => [l.id, l]));
 
 /** The user's lists, in their order. */
 let lists = [];
@@ -217,6 +225,8 @@ const view = { list: null, series: null, seriesIndex: false, mode: VIEWS.include
 // are shown in the device's language.
 const STANDARD_TEXT = new Set([READING, ...STANDARD_LISTS.flatMap((l) => [l.name, l.noteLabel])].filter(Boolean));
 const show = (text) => (STANDARD_TEXT.has(text) ? t(text) : text);
+/** What a list is called: a fixed list by its own name in your language, any other as you named it. */
+const listName = (l) => (FIXED.has(l.id) ? t(FIXED.get(l.id).name) : show(l.name));
 
 const sortLists = () => lists.sort((a, b) => ((a.order ?? 0) - (b.order ?? 0)) || String(a.name).localeCompare(b.name));
 const listById = (id) => lists.find((l) => l.id === id);
@@ -261,7 +271,27 @@ async function saveList(list) {
   await DB.lists.put(list).catch(storageFailed);
 }
 
+/** Puts back a fixed list that is missing (an older version let them be deleted) or was taken out of its set. */
+async function ensureFixedLists() {
+  let mended = false;
+  const ids = STANDARD_LISTS.map((l) => l.id);
+  for (const [id, standard] of FIXED) {
+    let list = listById(id);
+    if (list && list.group === READING) continue;
+    if (!list) {
+      const before = listById(ids[ids.indexOf(id) - 1]);
+      list = { ...standard, order: before ? (before.order ?? 0) + 0.5 : lists.length };
+      lists.push(list);
+    } else list.group = READING;
+    touchList(id, list);
+    await DB.lists.put(list).catch(storageFailed);
+    mended = true;
+  }
+  if (mended) sortLists();
+}
+
 async function removeList(list) {
+  if (FIXED.has(list.id)) return;
   lists = lists.filter((l) => l.id !== list.id);
   touchList(list.id);
   renderLibrary();
@@ -272,6 +302,7 @@ async function loadLists() {
   lists = await DB.lists.all();
   if (!lists.length && !store.get('listsSeeded', false)) await seedLists();
   sortLists();
+  await ensureFixedLists();
 }
 
 async function seedLists() {
@@ -333,6 +364,7 @@ const sync = {
   cursor: store.get('syncCursor', null),   // server time of the last completed sync
   dirty: store.get('syncDirty', {}),       // book id → `modified` of a change not yet on the server
   listsCursor: store.get('syncListsCursor', null),
+  drops: store.get('syncDrops', {}),       // ids of deleted books that were dropped, until the server knows
   dirtyLists: store.get('syncDirtyLists', {}),
   last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
   error: '',
@@ -417,7 +449,7 @@ async function runSync({ loud = false } = {}) {
           const byId = new Map(rows.map((r) => [r.id, r]));
           return Object.entries(dirty).map(([id, modified]) => {
             const row = byId.get(id);
-            return { id, modified, deleted: !row, [key]: row || null };
+            return { id, modified, deleted: !row, [key]: row || null, ...(!row && key === 'book' && sync.drops[id] && { drop: true }) };
           });
         };
         const res = await api('sync', {
@@ -425,7 +457,11 @@ async function runSync({ loud = false } = {}) {
           listsSince: sync.listsCursor, lists: pack(sentLists, lists, 'list'),
         });
         if (!sync.user) return;   // signed out meanwhile
-        for (const [id, modified] of Object.entries(sent)) if (sync.dirty[id] === modified) delete sync.dirty[id];
+        for (const [id, modified] of Object.entries(sent)) {
+          if (sync.dirty[id] !== modified) continue;
+          delete sync.dirty[id];
+          if (sync.drops[id]) { delete sync.drops[id]; store.set('syncDrops', sync.drops); }
+        }
         if (res.lists) {   // a server from before lists existed leaves them waiting
           for (const [id, modified] of Object.entries(sentLists)) if (sync.dirtyLists[id] === modified) delete sync.dirtyLists[id];
           await applyRemoteLists(res.lists);
@@ -493,6 +529,7 @@ async function applyRemoteLists(changes) {
     const local = listById(c.id);
     if (c.deleted) {
       if (!local) continue;
+      if (FIXED.has(c.id)) { touchList(c.id, local); continue; }   // a fixed list stays, and is said to stay
       lists = lists.filter((l) => l !== local);
       await DB.lists.del(c.id).catch(storageFailed);
     } else {
@@ -507,6 +544,7 @@ async function applyRemoteLists(changes) {
     }
   }
   sortLists();
+  await ensureFixedLists();
   renderLibrary();
 }
 
@@ -963,7 +1001,7 @@ function displayTitle(b) {
 function listTags(book, current) {
   const tags = listsOf(book).map(({ list, note }) => {
     if (list === current) return note && `${show(list.noteLabel) || t('Note')}: ${note}`;
-    return note ? `${show(list.name)}: ${note}` : show(list.name);
+    return note ? `${listName(list)}: ${note}` : listName(list);
   }).filter(Boolean);
   return tags.length ? h('div', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text }))) : null;
 }
@@ -1093,7 +1131,7 @@ function renderNav() {
       seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount)),
     ...listSections().map((section) => h('div', { class: 'nav-group' },
       section.label && h('span', { class: 'nav-label', text: show(section.label) }),
-      section.members.map((l) => item(l.id, show(l.name), counts.get(l.id))))),
+      section.members.map((l) => item(l.id, listName(l), counts.get(l.id))))),
     h('div', { class: 'nav-group' },
       h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }))));
   // On a phone the lists are one scrolling row: keep the open one in sight.
@@ -1176,7 +1214,7 @@ function renderLibrary() {
   $('count').textContent = books.length ? plural(books.length, 'book') : t('Nothing scanned yet');
   $('search').placeholder = view.seriesIndex ? t('Search series')
     : view.series ? t('Search {list}', { list: view.series })
-      : current ? t('Search {list}', { list: show(current.name) }) : t('Search your shelf');
+      : current ? t('Search {list}', { list: listName(current) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
   $('describeBtn').hidden = !(sync.user && sync.assistant);
@@ -1211,7 +1249,7 @@ function renderLibrary() {
   appendRows(rows);
   if (query && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that search.') }));
   else if (current && !found.length && books.length) {
-    $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.', { list: show(current.name) }) }));
+    $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
   }
 }
 
@@ -1233,7 +1271,7 @@ function tidyCase(s) {
 function listPicker(on, { notes = true } = {}) {
   const box = h('div', { class: 'list-picker' });
   const chip = (l) => h('button', {
-    class: 'chip', type: 'button', text: show(l.name), 'aria-pressed': String(!!on[l.id]),
+    class: 'chip', type: 'button', text: listName(l), 'aria-pressed': String(!!on[l.id]),
     onclick: () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); },
   });
   const noteField = (l) => {
@@ -1841,7 +1879,7 @@ function openBooklogForm(book, back) {
   const rows = { status: h('div', { class: 'chips' }), language: h('div', { class: 'chips' }), categories: h('div', { class: 'chips' }) };
   const chip = (text, pressed, onclick) => h('button', { class: 'chip', type: 'button', text, 'aria-pressed': String(pressed), onclick });
   function draw() {
-    rows.status.replaceChildren(...status.map((l) => chip(show(l.name), !!on[l.id], () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); })));
+    rows.status.replaceChildren(...status.map((l) => chip(listName(l), !!on[l.id], () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); })));
     rows.language.replaceChildren(...Object.entries({ nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' })
       .map(([code, name]) => chip(name, language === code, () => { language = code; draw(); })));
     rows.categories.replaceChildren(...booklogCategories()
@@ -1885,6 +1923,53 @@ function openBooklogForm(book, back) {
       }),
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Add')))));
+}
+
+/**
+ * What you can do next with a book, by the reading list it is on: start one you meant to
+ * read (or drop it), finish or give up one you are reading.
+ */
+function bookActions(book, again) {
+  const on = shelves(book);
+  const move = async (id, message) => {
+    const before = book.lists;
+    book.lists = place({ ...shelves(book) }, id);
+    await saveBook(book);
+    again();
+    toast(message, {
+      action: t('Undo'),
+      onAction: async () => { if (before) book.lists = before; else delete book.lists; await saveBook(book); if (sheet.isOpen) again(); },
+    });
+  };
+  if (on.reading) {
+    return h('div', { class: 'btn-row book-actions' },
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => openReviewForm(book, null, again, { finish: true }) }, icon('check'), t('Mark as read')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Did not finish'), onclick: () => move('abandoned', t('Marked as not finished')) }));
+  }
+  if (on['to-read']) {
+    return h('div', { class: 'btn-row book-actions' },
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => move('reading', t('Started reading')) }, icon('book'), t('Start reading')),
+      h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: t('Drop'), onclick: () => confirmDrop(book) }));
+  }
+  return null;
+}
+
+/** Dropping a book you meant to read takes it out of the shelf for good; that is asked first. */
+function confirmDrop(book) {
+  const host = book.boeken ? booklogHost() : '';
+  sheet.open(h('div', null,
+    sheetHead(t('Drop this book?'), displayTitle(book)),
+    h('p', { class: 'sheet-note drop-note', text: host ? t('It is removed from your shelf, and its page on {host} is deleted.', { host }) : t('It is removed from your shelf.') }),
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => openBook(book) }),
+      h('button', {
+        class: 'btn btn-primary', type: 'button',
+        onclick: () => {
+          sheet.close();
+          removeBook(book, { drop: true });
+          toast(t('Book dropped'), { action: t('Undo'), onAction: () => restoreBook(book) });
+        },
+      }, icon('trash'), t('Drop')))));
 }
 
 /** How far along a book on the Reading list is: the page reached, or for an audiobook the time left. */
@@ -1954,22 +2039,25 @@ function openBook(book) {
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x'))),
     sourceNote(book, false, again),
     progressBox(book, again),
+    bookActions(book, again),
     h('div', { class: 'sheet-section' },
       h('div', { class: 'section-head' },
         h('h3', { text: t('Reviews') }),
-        h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, null, again) }, icon('plus'), t('Add review'))),
+        // A read that has only its date yet (marked as read, nothing said) is the one a review is for.
+        h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, sortedReviews(book).find((r) => r.date && !r.text && r.rating == null) || null, again) }, icon('plus'), t('Add review'))),
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
     h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
 }
 
 /** Write a review, or change one. `back` shows the book's page again. */
-function openReviewForm(book, review, back) {
+/** `finish`: this review is of the read just finished; saving it also puts the book on Read. */
+function openReviewForm(book, review, back, { finish = false } = {}) {
   const isNew = !review;
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const text = h('textarea', { name: 'text', rows: 9, class: 'review-text', autocapitalize: 'sentences' });
   text.value = review?.text || '';
   // Reading date and rating are both optional; a book that was just read most likely was read today.
-  const date = h('input', { name: 'date', type: 'date', max: today, value: review ? review.date || '' : (shelves(book).read ? today : '') });
+  const date = h('input', { name: 'date', type: 'date', max: today, value: review ? review.date || '' : (finish || shelves(book).read ? today : '') });
   const rating = h('input', { name: 'rating', type: 'number', min: 0, max: 10, step: 1, inputmode: 'numeric', placeholder: '–', value: review?.rating ?? '' });
   const error = h('p', { class: 'field-error', hidden: true });
 
@@ -2009,10 +2097,12 @@ function openReviewForm(book, review, back) {
     if (Object.keys(read).length) data.edition = read;
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
     if (stars != null && !(stars >= 0 && stars <= 10)) return fail(t('A rating goes from 0 to 10.'), rating);
-    if (!data.text && !data.date && stars == null) return fail(t('Write something, or give a reading date or a rating.'), text);
+    const blank = !data.text && !data.date && stars == null;
+    if (blank && !finish) return fail(t('Write something, or give a reading date or a rating.'), text);
+    if (finish) book.lists = place({ ...shelves(book) }, 'read');
     if (review && !data.edition) delete review.edition;
     if (review) Object.assign(review, data);
-    else (book.reviews ||= []).push({ id: newId(), ...data });
+    else if (!blank) (book.reviews ||= []).push({ id: newId(), ...data });
     settleRating(book);
     await saveBook(book);
     if (cover.picture && data.edition) uploadCover(data.edition, cover.picture, book);
@@ -2032,7 +2122,7 @@ function openReviewForm(book, review, back) {
     ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
     ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
   },
-    sheetHead(isNew ? t('New review') : t('Edit review'), displayTitle(book)),
+    sheetHead(finish ? t('Finished it') : isNew ? t('New review') : t('Edit review'), displayTitle(book)),
     h('label', { class: 'field' }, h('span', { text: t('Review') }), text),
     h('p', { class: 'sheet-note md-hint', text: t('Markdown works: *italic*, **bold**, > quote, [link](https://…).') }),
     h('div', { class: 'field-row' },
@@ -2074,11 +2164,11 @@ function openLists() {
     draw();
   };
   const row = (list, i) => h('div', { class: 'list-row' },
-    h('button', { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
-      h('span', { text: show(list.name) }),
-      h('small', { text: [list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) })].filter(Boolean).join(' · ') })),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} up', { list: show(list.name) }), disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} down', { list: show(list.name) }), disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
+    h(FIXED.has(list.id) ? 'div' : 'button', FIXED.has(list.id) ? { class: 'list-name' } : { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
+      h('span', { text: listName(list) }),
+      h('small', { text: [FIXED.has(list.id) && t('Part of the app'), list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) })].filter(Boolean).join(' · ') })),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} up', { list: listName(list) }), disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} down', { list: listName(list) }), disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
   function draw() {
     sheet.open(h('div', null,
       sheetHead(t('Lists'), t('Tap a list to rename it or change how it works.')),
@@ -2120,7 +2210,7 @@ function openListForm(list) {
     const data = { name: kept(name, list?.name), group: group === NEW ? clean(newSet) : group, noteLabel: kept(noteLabel, list?.noteLabel) };
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
     if (!data.name) return fail(t('A list needs a name.'), name);
-    if (lists.some((l) => l !== list && fold(show(l.name)) === fold(show(data.name)))) return fail(t('There is already a list with that name.'), name);
+    if (lists.some((l) => l !== list && fold(listName(l)) === fold(show(data.name)))) return fail(t('There is already a list with that name.'), name);
     if (group === NEW && !data.group) return fail(t('Give the new set a name, or pick “On its own”.'), newSet);
     const target = list || { id: newId(), order: lists.reduce((max, l) => Math.max(max, l.order ?? 0), -1) + 1 };
     Object.assign(target, data);
@@ -2134,8 +2224,8 @@ function openListForm(list) {
     openLists();
     // The books keep their place on the list, so undoing brings everything back.
     toast(count
-      ? t('Deleted “{list}” — the {n} on it stay on your shelf', { list: show(list.name), n: plural(count, 'book') })
-      : t('Deleted “{list}”', { list: show(list.name) }), { action: t('Undo'), onAction: () => saveList(list) });
+      ? t('Deleted “{list}” — the {n} on it stay on your shelf', { list: listName(list), n: plural(count, 'book') })
+      : t('Deleted “{list}”', { list: listName(list) }), { action: t('Undo'), onAction: () => saveList(list) });
   }
 
   sheet.open(h('form', { novalidate: true, onsubmit: submit },
@@ -2164,7 +2254,7 @@ function exportJson() {
   const rows = [...books].reverse().map((b) => ({
     title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
     isbn: b.isbn || '', cover: b.cover ? abs(b.cover) : '', added: b.added,
-    lists: listsOf(b).map(({ list, at, note }) => ({ list: show(list.name), since: at, ...(note && { note }) })),
+    lists: listsOf(b).map(({ list, at, note }) => ({ list: listName(list), since: at, ...(note && { note }) })),
     ...(b.series && { series: b.series, seriesNumber: seriesNo(b) }),
     ...(b.rating != null && { rating: b.rating }),
     ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '' })) }),
@@ -2583,7 +2673,7 @@ function updateScanCount() {
   $('scanCount').title = t('{n} added', { n: scanner.added });
 }
 
-const listNames = (ids) => ids.map((id) => listById(id)).filter(Boolean).map((l) => show(l.name)).join(' + ');
+const listNames = (ids) => ids.map((id) => listById(id)).filter(Boolean).map((l) => listName(l)).join(' + ');
 
 /** The lists a book scanned now goes on, as a fresh {listId: {at}} map. */
 const targetLists = () => placed(scanner.target);

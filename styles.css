@@ -431,6 +431,9 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .from-site .field-error { margin: 6px 0 0; }
 .from-site .link-btn { padding: 2px 0; }
 .booklog-note { margin: -8px 0 0; }
+.book-actions { margin-top: 16px; }
+.book-actions .btn { min-height: 46px; }
+.drop-note { font-size: 1rem; color: var(--text); margin: -4px 0 8px; }
 .progress-form { display: grid; grid-template-columns: minmax(0, 160px) auto; gap: 0 10px; align-items: end; margin-top: 16px; }
 .progress-form .field { margin-bottom: 0; }
 .progress-form .btn { min-height: 46px; justify-self: start; }
@@ -522,6 +525,7 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .list-name span { display: block; font-family: var(--serif); font-size: 1.09rem; font-weight: 500; }
 .list-name small { display: block; color: var(--faint); font-size: .8rem; }
 .list-name small:empty { display: none; }
+div.list-name { cursor: default; }
 .list-row .icon-btn:disabled { opacity: .3; }
 
 /* Account (optional sync) */

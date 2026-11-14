@@ -432,3 +432,96 @@ class AddToBooklogTests(BooklogCase):
         self.scan(title='Dune', author='Another Writer', isbn='9780000000002')
         self.publish()
         self.assertIn('title: "Dune"\n', self.post('dune-2'))
+
+
+class DropAndFinishTests(BooklogCase):
+    """Giving up a book that was to be read, and reviewing one after marking it as read."""
+
+    def drop(self, key, **change):
+        """Delete a book as the app does when it is dropped, long enough ago to be published."""
+        self.client.force_login(self.user)
+        row = self.book(key)
+        res = self.client.post('/api/sync', __import__('json').dumps({'since': None, 'changes': [
+            {'id': row.uid, 'modified': timezone.now().isoformat(), 'deleted': True, 'book': None, **change}]}), content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        Book.objects.filter(pk=row.pk).update(modified=timezone.now() - timedelta(hours=1))
+        return Book.objects.get(pk=row.pk)
+
+    def test_a_dropped_book_leaves_the_booklog_with_what_only_it_used(self):
+        content = self.repo / 'site' / 'content'
+        for kind, slug in (('authors', 'unknown-slug'), ('tags', 'only-here')):
+            (content / kind / slug).mkdir(parents=True, exist_ok=True)
+            (content / kind / slug / '_index.md').write_text(f'---\ntitle: "{slug}"\nslug: "{slug}"\n---\n', encoding='utf-8', newline='')
+        post = content / 'posts' / 'gilgamesh.md'
+        post.write_text(post.read_text(encoding='utf-8').replace('authors: ["unknown-slug"]', 'tags: ["only-here"]\nauthors: ["unknown-slug", "herbert-frank"]'), encoding='utf-8', newline='')
+        git(self.repo, 'add', '.')
+        git(self.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.org', 'commit', '--quiet', '-m', 'Pages')
+        self.import_booklog()
+
+        row = self.drop('gilgamesh', drop=True)
+        self.assertEqual(row.data, {'drop': {'boeken': 'gilgamesh', 'title': 'Gilgamesh'}})
+        counts, said = self.publish()
+        self.assertEqual(counts['published'], 1)
+        self.assertEqual(self.log()[0], 'Verwijderd: Gilgamesh')
+        self.assertFalse(post.exists())
+        self.assertFalse((content / 'authors' / 'unknown-slug').exists())       # nobody else is by this author
+        self.assertFalse((content / 'tags' / 'only-here').exists())
+        self.assertTrue((content / 'authors' / 'herbert-frank' / '_index.md').exists())   # Dune still is
+        self.assertTrue(publish.is_clean(str(self.repo)))
+        self.assertEqual(Book.objects.get(pk=row.pk).data, {})                  # done; not tried again
+        self.assertEqual(self.publish()[0]['published'], 0)
+        self.assertIn('2 books in the booklog', self.import_booklog())          # and the import doesn't bring it back
+
+    def test_deleting_a_book_without_dropping_it_leaves_the_booklog_alone(self):
+        row = self.drop('gilgamesh')
+        self.assertEqual(row.data, {})
+        self.assertEqual(self.publish()[0]['published'], 0)
+        self.assertTrue((self.repo / 'site/content/posts/gilgamesh.md').exists())
+
+    def test_a_book_that_was_read_is_never_dropped_from_the_booklog(self):
+        row = self.drop('dune', drop=True)
+        counts, said = self.publish()
+        self.assertEqual((counts['published'], counts['failed']), (0, 1))
+        self.assertTrue((self.repo / 'site/content/posts/dune.md').exists())
+        self.assertEqual(self.log()[0], 'The booklog')
+        self.assertEqual(Book.objects.get(pk=row.pk).data, {})
+
+    def test_a_drop_made_a_moment_ago_can_still_be_undone(self):
+        row = self.drop('gilgamesh', drop=True)
+        Book.objects.filter(pk=row.pk).update(modified=timezone.now())
+        self.assertEqual(self.publish(delay=120)[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 1})
+        self.assertTrue((self.repo / 'site/content/posts/gilgamesh.md').exists())
+
+    def test_did_not_finish(self):
+        def edit(data):
+            del data['lists']['reading']
+            data['lists']['abandoned'] = {'at': '2026-11-14T10:00:00.000Z'}
+        self.change('katabasis', edit)
+        self.publish()
+        self.assertEqual(self.log()[0], 'Niet uit: Katabasis')
+        self.assertEqual(self.changed_lines('katabasis'), ['+status: "abandoned"', '-status: "reading"'])
+
+    def test_a_review_written_after_marking_as_read_is_of_that_read(self):
+        def finish(data):
+            del data['lists']['reading']
+            data['lists']['read'] = {'at': '2026-11-14T10:00:00.000Z'}
+        self.change('katabasis', finish)
+        self.publish()
+        self.assertEqual(self.log()[0], 'Uitgelezen: Katabasis')
+        self.import_booklog()
+        placeholder = self.book('katabasis').data['reviews']
+        self.assertEqual([(bool(r['date']), r['rating'], r['text']) for r in placeholder], [(True, None, '')])
+
+        # Later the same day: what was thought of it.
+        today = placeholder[0]['date']
+        self.change('katabasis', lambda data: data['reviews'].append({'id': 'r9', 'date': today, 'rating': 8, 'text': 'Worth the descent.'}))
+        counts, said = self.publish()
+        self.assertEqual(self.log()[0], 'Bewerkt: Katabasis')                    # not "Herlezen"
+        self.assertFalse((self.repo / 'site/content/posts/katabasis-herlezing.md').exists())
+        post = self.post('katabasis')
+        self.assertIn('rating: 8\n', post)
+        self.assertTrue(post.endswith('---\nWorth the descent.\n'))
+        self.import_booklog()
+        self.assertEqual([(r['id'], r['rating'], r['text']) for r in self.book('katabasis').data['reviews']],
+                         [('boeken-katabasis', 8, 'Worth the descent.')])
+        self.assertEqual(self.publish()[0]['published'], 0)

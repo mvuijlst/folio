@@ -25,6 +25,8 @@ What a change in the app means in the booklog:
   the cover is replaced              the picture goes into media/ and the post points at it
   a book that is not in the booklog  a new post, with its cover and whatever author, tag and
     is added to it (`boekenWanted`)    series pages do not exist yet (see plan_new)
+  a book to read is dropped          its post is deleted, with its cover and the author, tag
+                                       and series pages nothing else uses (see plan_drop)
 
 The front-matter editing is boeggn's (apps/core/services/books.py), which wrote these posts
 before: changes are made line by line, never by re-serialising the YAML.
@@ -158,6 +160,8 @@ class Plan:
     """What publishing one book would do."""
     message: str = ''
     files: dict = field(default_factory=dict)      # path → new text (posts, term pages)
+    removals: list = field(default_factory=list)   # paths to delete (a dropped book's post and what only it used)
+    forget: list = field(default_factory=list)     # ids of reviews another review has taken the place of
     pictures: dict = field(default_factory=dict)   # path → bytes (a new cover)
     slugs: set = field(default_factory=set)        # posts to run the linter on
     links: list = field(default_factory=list)      # (review id, post slug, post address): these are now in step
@@ -167,7 +171,7 @@ class Plan:
 
     @property
     def writes(self):
-        return bool(self.files or self.pictures)
+        return bool(self.files or self.pictures or self.removals)
 
 
 def local(moment):
@@ -361,6 +365,21 @@ def plan_book(repo, data, group, taken, now):
                     front['pagesRead'] = 1
             kinds.append(target)
     else:
+        # Marked as read first and reviewed later: the latest read has nothing but its date yet,
+        # so the review is of that read, not of another one.
+        mine = next((r for r in reviews if r.get('boeken') == latest['slug']), None)
+        bare = not latest['_text'] and not isinstance(latest.get('rating'), int)
+        if fresh and status == 'read' and bare and (mine is None or (not mine.get('text') and mine.get('rating') is None)):
+            first = fresh.pop(0)
+            set_text(latest, first.get('text') or '')
+            set_rating(latest, first.get('rating'))
+            set_edition(latest, first)
+            if first['date'] != latest['_day']:
+                move_date(latest, first['date'])
+            plan.links.append((first.get('id'), latest['slug'], None))
+            if mine is not None:
+                plan.forget.append(mine.get('id'))
+            kinds.append('edit')
         for review in fresh:
             reread(review=review)
         if not fresh and target in ('to-read', 'reading'):
@@ -628,6 +647,40 @@ def plan_new(repo, data, posts, taken, now):
     return plan, slug
 
 
+# ───────────────────────── A book that is dropped ─────────────────────────
+
+def plan_drop(repo, drop, groups):
+    """The Plan that takes a dropped book out of the booklog: its post, its cover, and the
+    author, tag and series pages nothing else uses. Only ever a book that was never read:
+    one post, still to read. Anything else is refused, whatever the app asked."""
+    group = groups.get(str(drop.get('boeken')))
+    if not group:
+        return None   # not in the booklog (any more)
+    if len(group) != 1 or str(group[0].get('status') or 'read') != 'to-read':
+        raise ValueError('Only a book that is still to read can be dropped from the booklog.')
+    post = group[0]
+    plan = Plan(message=f'Verwijderd: {post["title"]}')
+    plan.removals.append(post['_path'])
+    others = [p for g in groups.values() for p in g if p is not post]
+
+    cover = str(post.get('cover') or '')
+    picture = Path(repo, 'media', cover.lstrip('/'))
+    if cover.startswith('/') and picture.is_file() and not any(str(p.get('cover') or '') == cover for p in others):
+        plan.removals.append(picture)
+    content = Path(repo, 'site', 'content')
+    for kind, own, used in (
+        ('authors', set(post.get('authors') or []), {a for p in others for a in p.get('authors') or []}),
+        ('tags', set(post.get('tags') or []), {t for p in others for t in p.get('tags') or []}),
+        ('series', {slugify(s) for s in post.get('series') or []}, {slugify(s) for p in others for s in p.get('series') or []}),
+    ):
+        for term in sorted(own - used):
+            page = content / kind / str(term) / '_index.md'
+            if page.is_file():
+                plan.removals.append(page)
+    plan.notes.append('removed from the booklog')
+    return plan
+
+
 # ───────────────────────── Git ─────────────────────────
 
 class RepoError(Exception):
@@ -681,13 +734,14 @@ def lint(repo, slug):
 
 def commit(repo, plan):
     """Write a plan's files, have them checked, and commit. Leaves no trace if anything fails."""
-    before = {path: (path.read_bytes() if path.exists() else None) for path in [*plan.files, *plan.pictures]}
+    before = {path: (path.read_bytes() if path.exists() else None) for path in [*plan.files, *plan.pictures, *plan.removals]}
 
     def undo():
         for path, content in before.items():
             if content is None:
                 path.unlink(missing_ok=True)
             else:
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)
 
     try:
@@ -697,12 +751,16 @@ def commit(repo, plan):
         for path, picture in plan.pictures.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(picture)
+        for path in plan.removals:
+            path.unlink()
+            if path.name == '_index.md' and not any(path.parent.iterdir()):
+                path.parent.rmdir()   # a term page lives in a folder of its own
         for slug in sorted(plan.slugs):
             fine, said = lint(repo, slug)
             if not fine:
                 raise RepoError(f'The booklog\'s check turned it down:\n{said}')
         relative = [str(path.relative_to(repo)) for path in before]
-        git(repo, 'add', '--', *relative)
+        git(repo, 'add', '--all', '--', *relative)
         name, _, email = settings.BOEKEN_GIT_AUTHOR.partition('<')
         git(repo, '-c', f'user.name={name.strip()}', '-c', f'user.email={email.strip(" >")}', 'commit', '-m', plan.message)
     except Exception:
@@ -719,6 +777,8 @@ def stamp(data, plan):
     links = {review_id: (slug, url) for review_id, slug, url in plan.links}
     reviews = []
     for review in data.get('reviews') or []:
+        if isinstance(review, dict) and review.get('id') in plan.forget:
+            continue
         if isinstance(review, dict) and review.get('id') in links:
             slug, url = links[review['id']]
             review = {**review, 'boeken': slug, **({'url': url} if url else {})}
@@ -766,6 +826,33 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
             row.data = {**row.data, 'boekenError': message}
             row.changed = timezone.now()
             row.save(update_fields=['data', 'changed'])
+
+    # Books that were dropped: their page in the booklog goes too.
+    for row in Book.objects.filter(user=user, deleted=True, data__drop__isnull=False):
+        if row.modified > now - timedelta(seconds=delay):
+            counts['waiting'] += 1
+            continue
+        try:
+            plan = plan_drop(repo, row.data['drop'], groups)
+            if plan:
+                say(f'{plan.message}  [{", ".join(plan.notes)}]')
+                for path in plan.removals:
+                    say(f'    {path.relative_to(repo).as_posix()}')
+                if not dry_run:
+                    commit(repo, plan)
+                counts['published'] += 1
+                gone = plan.removals[0]
+                groups.pop(str(row.data['drop'].get('boeken')), None)
+                taken.discard(gone.stem)
+            if not dry_run:
+                row.data = {}
+                row.save(update_fields=['data'])
+        except Exception as err:
+            counts['failed'] += 1
+            say(f'NOT removed: {row.data["drop"].get("title")}: {str(err).strip()[:300]}')
+            if not dry_run:
+                row.data = {}   # said once; the book is gone from the shelf either way
+                row.save(update_fields=['data'])
 
     # Books that are to be added to the booklog.
     every = [post for group in groups.values() for post in group]

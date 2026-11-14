@@ -7,6 +7,7 @@ export default {
   'To read': 'Te lezen',
   'Reading': 'Lezende',
   'Read': 'Gelezen',
+  'Did not finish': 'Niet uitgelezen',
   'Lent out': 'Uitgeleend',
   'Reading status': 'Leesstatus',
   'Lent to': 'Uitgeleend aan',
@@ -100,6 +101,19 @@ export default {
   'Paste': 'Plakken',
   'That picture couldn’t be opened': 'Die afbeelding kon niet geopend worden',
   'There is no picture on the clipboard': 'Er staat geen afbeelding op het klembord',
+
+  // What a book offers, by where it stands
+  'Part of the app': 'Hoort bij de app',
+  'Start reading': 'Beginnen lezen',
+  'Started reading': 'Begonnen met lezen',
+  'Mark as read': 'Uitgelezen',
+  'Finished it': 'Uitgelezen',
+  'Marked as not finished': 'Gemarkeerd als niet uitgelezen',
+  'Drop': 'Schrappen',
+  'Drop this book?': 'Dit boek schrappen?',
+  'It is removed from your shelf, and its page on {host} is deleted.': 'Het verdwijnt uit je boekenkast, en zijn pagina op {host} wordt verwijderd.',
+  'It is removed from your shelf.': 'Het verdwijnt uit je boekenkast.',
+  'Book dropped': 'Boek geschrapt',
 
   // Editions
   'Edition read': 'Gelezen editie',
