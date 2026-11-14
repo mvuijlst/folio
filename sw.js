@@ -1,5 +1,5 @@
 // Bookscan service worker: makes the app installable and usable offline.
-const SHELL = 'bookscan-shell-v1';   // bump to ship a new app version
+const SHELL = 'bookscan-shell-v2';   // bump to ship a new app version
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
 
 const SHELL_FILES = [
@@ -33,6 +33,8 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   // Book lookups and cover images go straight to the network.
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
+  // The sync server (API, admin and its assets) is never cached.
+  if (/\/(api|admin|django-static)\//.test(url.pathname)) return;
 
   if (url.pathname.includes('/vendor/')) {
     event.respondWith(cacheFirst(request));

@@ -1,0 +1,6 @@
+__pycache__/
+server/venv/
+server/db.sqlite3*
+server/staticfiles/
+server/.env
+server/.dev-credentials

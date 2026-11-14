@@ -44,9 +44,45 @@ camera and for installing.
   under the settings icon in the app).
 - **Locally:** `python3 -m http.server` in this folder, then open `http://localhost:8000`.
 
+## Accounts and sync (optional)
+
+Without an account everything stays on the phone. With one (settings → *Account*), the shelf is
+also kept on the server and can be opened on any other device by signing in there. Changes sync
+a moment after you make them, when the app comes back to the foreground, and when you're back
+online; if two devices change the same book, the newest change wins. *Sign out & clear* removes
+the shelf from that device only.
+
+The server is a small Django app in [`server/`](server): a JSON API (`/api/session`, `/api/login`,
+`/api/logout`, `/api/sync`) plus the Django admin at `/admin/`, where accounts are made. There
+is no public sign-up.
+
+```bash
+cd server
+python -m venv venv && venv/bin/pip install -r requirements.txt
+export DJANGO_DEBUG=1
+venv/bin/python manage.py migrate && venv/bin/python manage.py createcachetable
+venv/bin/python manage.py createsuperuser
+venv/bin/python manage.py runserver   # serves the app too, at http://localhost:8000
+venv/bin/python manage.py test
+```
+
+### Production (bookscan.yusupov.cloud)
+
+nginx serves the static app from `/home/django/bookscan-yusupov` and passes `/api/` and
+`/admin/` to gunicorn on `127.0.0.1:8030` (systemd unit `bookscan-yusupov`). Settings come from
+`server/.env` (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`). To deploy the working tree:
+
+```bash
+git ls-files -co --exclude-standard | tar -cf - -T - | ssh -p 2708 yusupov 'tar -x -C /home/django/bookscan-yusupov && chown -R django:django /home/django/bookscan-yusupov'
+ssh -p 2708 yusupov 'cd /home/django/bookscan-yusupov/server && sudo -u django bash -c "set -a; . ./.env; set +a; venv/bin/pip install -q -r requirements.txt && venv/bin/python manage.py migrate --noinput && venv/bin/python manage.py collectstatic --noinput" && systemctl restart bookscan-yusupov'
+```
+
+Bump `SHELL` in `sw.js` whenever the app files change, so installed copies update.
+
 ## Good to know
 
-- Your shelf is stored only on the device (IndexedDB). Export now and then to keep a copy.
+- Your shelf is stored on the device (IndexedDB), and on the server while you're signed in.
+  Export now and then to keep a copy of your own.
 - Google Books' keyless quota is shared and often exhausted. Open Library still answers, but
   for the best hit rate add a free Google Books API key under the settings icon.
 - Cover reading supports English, Dutch, French and German; pick the ones you need in settings.
@@ -60,6 +96,7 @@ camera and for installing.
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | the whole app |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
+| `server/` | optional Django sync server (accounts, a copy of each shelf) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
 | `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and language data (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "bookscan-dev",
+      "runtimeExecutable": "server/venv/Scripts/python.exe",
+      "runtimeArgs": ["server/manage.py", "runserver", "127.0.0.1:8765", "--noreload"],
+      "env": { "DJANGO_DEBUG": "1" },
+      "port": 8765
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 // Bookscan — catalog books by scanning their ISBN barcode.
-// Plain ES module, no build step. Everything is stored on the device (IndexedDB).
+// Plain ES module, no build step. The shelf is stored on the device (IndexedDB) and, for
+// signed-in users, synced with the small Django server in server/.
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -106,18 +107,21 @@ async function addBook(data) {
     ...data,
   };
   books.unshift(book);
+  touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
   return book;
 }
 
 async function saveBook(book) {
+  touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
 }
 
 async function removeBook(book) {
   books = books.filter((b) => b.id !== book.id);
+  touch(book.id);
   renderLibrary();
   await DB.del(book.id).catch(storageFailed);
 }
@@ -125,14 +129,254 @@ async function removeBook(book) {
 async function restoreBook(book) {
   if (books.some((b) => b.id === book.id)) return;
   books.push(book);
-  books.sort((a, b) => (a.added < b.added ? 1 : -1));
+  sortBooks();
+  touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
 }
 
+const sortBooks = () => books.sort((a, b) => (a.added < b.added ? 1 : -1));
+
 function storageFailed(err) {
   console.error(err);
   toast('Could not save to this device’s storage');
+}
+
+/* ───────────────────────── Sync (optional account) ───────────────────────── */
+
+// Signing in keeps a copy of the shelf on the server, so it can be opened on other devices.
+// Every change stamps the book with `modified` and is remembered in `sync.dirty` until the
+// server has it; the newest change to a book wins. Deleted books are sent as tombstones.
+const sync = {
+  user: store.get('syncUser', null),
+  cursor: store.get('syncCursor', null),   // server time of the last completed sync
+  dirty: store.get('syncDirty', {}),       // book id → `modified` of a change not yet on the server
+  last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
+  error: '',
+  running: null, again: false, timer: 0,
+  box: null,                               // the account section, while the settings sheet shows it
+};
+
+function saveSyncState() {
+  store.set('syncUser', sync.user);
+  store.set('syncCursor', sync.cursor);
+  store.set('syncDirty', sync.dirty);
+  store.set('syncLast', sync.last);
+}
+
+/** Record a change to a book (pass the book) or its deletion (pass only the id). */
+function touch(id, book) {
+  const now = new Date().toISOString();
+  if (book) book.modified = now;
+  sync.dirty[id] = now;
+  store.set('syncDirty', sync.dirty);
+  scheduleSync();
+}
+
+function scheduleSync(ms = 1500) {
+  if (!sync.user) return;
+  clearTimeout(sync.timer);
+  sync.timer = setTimeout(() => runSync(), ms);
+}
+
+function csrfToken() {
+  return decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/) || [])[1] || '');
+}
+
+async function api(path, data) {
+  const url = abs('api/' + path);
+  const post = () => fetch(url, {
+    method: 'POST', credentials: 'same-origin', cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrfToken() },
+    body: JSON.stringify(data),
+  });
+  let res;
+  if (data === undefined) {
+    res = await fetch(url, { credentials: 'same-origin', cache: 'no-store' });
+  } else {
+    if (!csrfToken()) await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' });
+    res = await post();
+    // No or stale CSRF cookie: fetch a fresh one and try once more.
+    if (res.status === 403) { await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' }); res = await post(); }
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(json.error || `Server error ${res.status}`), { status: res.status });
+  return json;
+}
+
+const time = (iso) => Date.parse(iso) || 0;
+
+async function runSync({ loud = false } = {}) {
+  if (!sync.user) return;
+  if (navigator.onLine === false) { if (loud) toast('You’re offline — changes will sync later'); return; }
+  if (sync.running) { sync.again = true; return sync.running; }
+  clearTimeout(sync.timer);
+  sync.running = (async () => {
+    try {
+      do {
+        sync.again = false;
+        const sent = { ...sync.dirty };
+        const byId = new Map(books.map((b) => [b.id, b]));
+        const changes = Object.entries(sent).map(([id, modified]) => {
+          const book = byId.get(id);
+          return book ? { id, modified, deleted: false, book } : { id, modified, deleted: true, book: null };
+        });
+        const res = await api('sync', { since: sync.cursor, changes });
+        if (!sync.user) return;   // signed out meanwhile
+        for (const [id, modified] of Object.entries(sent)) if (sync.dirty[id] === modified) delete sync.dirty[id];
+        await applyRemote(res.changes || []);
+        sync.cursor = res.cursor;
+        sync.last = new Date().toISOString();
+        sync.error = '';
+        saveSyncState();
+      } while (sync.again);
+      if (loud) toast('Shelf synced');
+    } catch (err) {
+      if (err.status === 401) {
+        forgetAccount();
+        toast('Signed out — sign in again to keep syncing', { action: 'Sign in', onAction: openSettings });
+      } else {
+        sync.error = err.status ? err.message : 'Couldn’t reach the server';
+        if (loud) toast(sync.error);
+      }
+    } finally {
+      sync.running = null;
+      renderAccount();
+    }
+  })();
+  return sync.running;
+}
+
+/** Bring changes made on other devices into this one. */
+async function applyRemote(changes) {
+  if (!changes.length) return;
+  for (const c of changes) {
+    // A newer change made here wins; it goes up on the next round.
+    if (sync.dirty[c.id] && time(sync.dirty[c.id]) >= time(c.modified)) continue;
+    const local = books.find((b) => b.id === c.id);
+    if (c.deleted) {
+      if (!local) continue;
+      books = books.filter((b) => b !== local);
+      await DB.del(c.id).catch(storageFailed);
+    } else {
+      const book = { ...c.book, id: c.id, modified: c.modified };
+      if (local) {
+        // Keep the same object: an open edit form may hold it.
+        for (const k of Object.keys(local)) delete local[k];
+        Object.assign(local, book);
+      } else {
+        books.push(book);
+      }
+      await DB.put(local || book).catch(storageFailed);
+    }
+  }
+  sortBooks();
+  renderLibrary();
+}
+
+async function signIn(username, password) {
+  const res = await api('login', { username, password });
+  sync.user = res.user;
+  sync.cursor = null;
+  sync.error = '';
+  // Offer everything on this device; books the server has newer copies of come back from it.
+  for (const b of books) sync.dirty[b.id] ??= b.modified || b.added;
+  saveSyncState();
+  renderAccount();
+  await runSync();
+  toast(sync.error || `Signed in — ${plural(books.length, 'book')} on your shelf`);
+}
+
+function forgetAccount() {
+  Object.assign(sync, { user: null, cursor: null, last: null, error: '' });
+  clearTimeout(sync.timer);
+  saveSyncState();
+  renderAccount();
+}
+
+async function signOut({ clearShelf }) {
+  if (Object.keys(sync.dirty).length && navigator.onLine !== false) await runSync();
+  if (!sync.user) return;   // the session had already ended
+  const waiting = Object.keys(sync.dirty).length;
+  if (clearShelf && waiting) {
+    toast(`${plural(waiting, 'change')} haven’t reached the server yet — sync before clearing this device`);
+    return;
+  }
+  try { await api('logout', {}); } catch {}
+  forgetAccount();
+  if (clearShelf) {
+    const gone = books;
+    books = [];
+    sync.dirty = {};
+    saveSyncState();
+    renderLibrary();
+    await Promise.all(gone.map((b) => DB.del(b.id))).catch(storageFailed);
+  }
+  toast(clearShelf ? 'Signed out and cleared this device' : 'Signed out — your shelf stays on this device');
+}
+
+function agoText(iso) {
+  const s = Math.round((Date.now() - time(iso)) / 1000);
+  if (s < 45) return 'just now';
+  if (s < 3600) return `${Math.round(s / 60)} min ago`;
+  if (s < 86400) return plural(Math.round(s / 3600), 'hour') + ' ago';
+  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/** The account part of the settings sheet; re-rendered whenever sync state changes. */
+function renderAccount() {
+  const box = sync.box;
+  if (!box?.isConnected) { sync.box = null; return; }
+
+  if (!sync.user) {
+    const user = h('input', { name: 'username', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false', required: true });
+    const pass = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true });
+    const error = h('p', { class: 'field-error', hidden: true });
+    const button = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Sign in');
+    const form = h('form', {
+      class: 'account-form',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        if (!user.value.trim() || !pass.value) { error.textContent = 'Enter your username and password.'; error.hidden = false; return; }
+        button.disabled = true;
+        error.hidden = true;
+        try {
+          await signIn(user.value.trim(), pass.value);
+        } catch (err) {
+          error.textContent = err.status ? err.message : 'Couldn’t reach the server. Are you online?';
+          error.hidden = false;
+          button.disabled = false;
+        }
+      },
+    },
+    h('div', { class: 'field-row' },
+      h('label', { class: 'field' }, h('span', { text: 'Username' }), user),
+      h('label', { class: 'field' }, h('span', { text: 'Password' }), pass)),
+    error, button);
+    box.replaceChildren(
+      h('h3', { text: 'Account' }),
+      form,
+      h('p', { class: 'sheet-note', text: 'Optional. Signed in, your shelf is also kept on the server, so you can open it on your other devices. Ask the person who runs this site for an account.' }));
+    return;
+  }
+
+  const waiting = Object.keys(sync.dirty).length;
+  let status;
+  if (sync.running) status = 'Syncing…';
+  else if (sync.error) status = `${sync.error}.${waiting ? ` ${plural(waiting, 'change')} waiting.` : ''}`;
+  else if (waiting) status = `${plural(waiting, 'change')} waiting to sync.`;
+  else status = sync.last ? `Synced ${agoText(sync.last)}.` : 'Not synced yet.';
+
+  box.replaceChildren(
+    h('h3', { text: 'Account' }),
+    h('p', { class: 'account-line' }, 'Signed in as ', h('strong', { text: sync.user })),
+    h('p', { class: 'sheet-note account-status' + (sync.error ? ' is-error' : ''), text: status }),
+    h('div', { class: 'stack account-actions' },
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', disabled: !!sync.running, onclick: () => runSync({ loud: true }) }, icon('sync'), 'Sync now'),
+      h('div', { class: 'btn-row' },
+        h('button', { class: 'btn btn-outline', type: 'button', text: 'Sign out', onclick: () => signOut({ clearShelf: false }) }),
+        h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: 'Sign out & clear', title: 'Sign out and remove the shelf from this device (it stays on the server)', onclick: () => signOut({ clearShelf: true }) }))),
+    h('p', { class: 'sheet-note', text: '“Sign out & clear” removes the shelf from this device only; it stays on the server.' }));
 }
 
 /* ───────────────────────── ISBN & dates ───────────────────────── */
@@ -669,12 +913,14 @@ function openSettings() {
   const key = h('input', { type: 'text', value: settings.googleKey, placeholder: 'Optional', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
   key.addEventListener('change', () => { settings.googleKey = key.value.trim(); store.set('googleKey', settings.googleKey); });
 
+  sync.box = h('div', { class: 'sheet-section account' });
   sheet.open(h('div', null,
     sheetHead('Settings'),
     installPrompt && h('button', {
       class: 'btn btn-primary btn-block', type: 'button',
       onclick: async () => { const p = installPrompt; installPrompt = null; sheet.close(); await p.prompt(); },
     }, icon('download'), 'Install Bookscan on this phone'),
+    sync.box,
     h('div', { class: 'sheet-section' },
       h('h3', { text: 'Languages on your covers' }),
       h('div', { class: 'chips' }, chips),
@@ -686,7 +932,9 @@ function openSettings() {
         'Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.')),
     h('div', { class: 'sheet-section' },
       h('h3', { text: 'About' }),
-      h('p', { class: 'sheet-note', text: 'Your shelf lives only on this device — export it now and then to keep a copy. Book data comes from Open Library and Google Books.' }))));
+      h('p', { class: 'sheet-note', text: 'Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.' }))));
+  renderAccount();
+  if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
 }
 
 /* ───────────────────────── Scanner ───────────────────────── */
@@ -1392,15 +1640,21 @@ async function init() {
   initTheme();
   bindEvents();
   try {
-    books = (await DB.all()).sort((a, b) => (a.added < b.added ? 1 : -1));
+    books = await DB.all();
+    sortBooks();
   } catch (err) {
     storageFailed(err);
   }
   renderLibrary();
   navigator.storage?.persist?.().catch(() => {});
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker failed', err));
-  window.addEventListener('online', retryPending);
+  window.addEventListener('online', () => { retryPending(); runSync(); });
+  // Pick up changes from other devices whenever the app comes back to the foreground.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && time(sync.last) < Date.now() - 30000) runSync();
+  });
   retryPending();
+  runSync();
 
   // Home-screen shortcut: jump straight into the scanner.
   if (new URLSearchParams(location.search).has('scan')) {

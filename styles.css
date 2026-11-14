@@ -300,6 +300,13 @@ img { display: block; max-width: 100%; }
 .sheet-note a { color: var(--accent); }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 
+/* Account (optional sync) */
+.account-line { font-size: 1rem; }
+.account-line strong { font-weight: 600; }
+.account-status { margin: 4px 0 14px; }
+.account-status.is-error { color: var(--danger); }
+.account-form .field-error { margin-top: -2px; }
+
 /* Candidate list */
 .cand-list { margin: -6px 0 16px; }
 .cand .book-title { -webkit-line-clamp: 3; }
