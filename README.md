@@ -44,6 +44,17 @@ camera and for installing.
   under the settings icon in the app).
 - **Locally:** `python3 -m http.server` in this folder, then open `http://localhost:8000`.
 
+## Updating
+
+Replace the files on the server; nothing else is needed. An installed copy compares its cached
+files with the server each time it is opened (and when it returns to the foreground), and
+restarts itself into the new version within a few seconds. If you are in the middle of
+something it shows *A new version is ready · Reload* instead. The running version is shown at
+the bottom of the settings sheet; bump `APP_VERSION` in `app.js` when you release.
+
+Do not uninstall the app to update it: Android offers to clear the site's data along with it,
+and that deletes the shelf.
+
 ## Good to know
 
 - Your shelf is stored only on the device (IndexedDB). Export now and then to keep a copy.
