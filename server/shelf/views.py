@@ -4,6 +4,7 @@
   POST /api/login    {"username", "password"} → {"user": name}
   POST /api/logout
   POST /api/cover    an image as the request body → {"cover", "coverFull", "coverRatio"}
+  POST /api/suggest  {"text"} → {"books": [proposal…]}: the assistant's reading of a description
   POST /api/sync     {"since": cursor | null, "changes": [change…],
                       "listsSince": cursor | null, "lists": [change…]}
                      → {"cursor", "changes": [change…], "lists": [change…]}
@@ -26,7 +27,9 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from . import covers
+from django.conf import settings
+
+from . import covers, intake
 from .models import Book, List
 
 logger = logging.getLogger(__name__)
@@ -35,6 +38,8 @@ MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
 LOGIN_LIMIT = 10              # failed attempts …
 LOGIN_WINDOW = 15 * 60        # … per this many seconds, per address and per username
+SUGGEST_LIMIT = 40            # questions to the assistant per user …
+SUGGEST_WINDOW = 60 * 60      # … per this many seconds
 
 
 def error(message, status=400):
@@ -123,6 +128,39 @@ def cover(request):
         return JsonResponse(covers.keep_upload(data))
     except ValueError:
         return error('That file isn’t a picture.')
+
+
+# ───────────────────────── The assistant ─────────────────────────
+
+@require_POST
+def suggest(request):
+    """A few words about a book, a few books or a series → proposals for the app to show."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    if not settings.OPENAI_API_KEY:
+        return error('The assistant is not set up on this server.', 503)
+    data = body(request)
+    text = str((data or {}).get('text') or '').strip()
+    if not text or len(text) > 2000:
+        return error('Describe the book in a few words.')
+
+    key = f'suggest:{request.user.pk}'
+    cache.add(key, 0, SUGGEST_WINDOW)
+    try:
+        if cache.incr(key) > SUGGEST_LIMIT:
+            return error('That is a lot of questions. Try again in an hour.', 429)
+    except ValueError:
+        cache.set(key, 1, SUGGEST_WINDOW)
+
+    try:
+        if settings.BOEKEN_REPO:
+            books = intake.propose(text, booklog=intake.Booklog(settings.BOEKEN_REPO))
+        else:
+            used = {c for b in Book.objects.filter(user=request.user, deleted=False) for c in b.data.get('categories') or []}
+            books = intake.propose(text, categories=used)
+    except intake.IntakeError as err:
+        return error(str(err), 502)
+    return JsonResponse({'books': books})
 
 
 # ───────────────────────── Sync ─────────────────────────
@@ -214,4 +252,5 @@ def sync(request):
         'changes': [b.as_change() for b in books.values()],
         'lists': [l.as_change() for l in lists.values()],
         'user': user.get_username(),
+        'assistant': bool(settings.OPENAI_API_KEY),   # whether /api/suggest will answer
     })

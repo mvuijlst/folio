@@ -8,4 +8,5 @@ urlpatterns = [
     path('logout', views.logout_view, name='logout'),
     path('sync', views.sync, name='sync'),
     path('cover', views.cover, name='cover'),
+    path('suggest', views.suggest, name='suggest'),
 ]

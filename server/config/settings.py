@@ -7,6 +7,8 @@ Configuration comes from environment variables (see .env.example):
   BOEKEN_REPO_PATH    a clone of the booklog to publish to (optional)
   BOEKEN_GIT_AUTHOR   "Name <address>" for the commits made there
   BOEKEN_PUSH         "1" to push those commits (which publishes them)
+  OPENAI_API_KEY      for the assistant that proposes books from a description (optional)
+  OPENAI_MODEL        the model it asks
 """
 import os
 from pathlib import Path
@@ -90,6 +92,11 @@ STATIC_URL = '/django-static/'
 BOEKEN_REPO = os.environ.get('BOEKEN_REPO_PATH') or None
 BOEKEN_GIT_AUTHOR = os.environ.get('BOEKEN_GIT_AUTHOR', 'Folio <folio@localhost>')
 BOEKEN_PUSH = os.environ.get('BOEKEN_PUSH') == '1'
+
+# The assistant (shelf/intake.py) turns a few words about a book into a proposal. It asks
+# a language model, with this key; without one the app doesn't offer it.
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-5.5')
 
 # Cover thumbnails are written next to the app and served from there as plain files.
 COVERS_DIR = BASE_DIR.parent / 'covers'

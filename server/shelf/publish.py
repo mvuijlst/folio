@@ -477,10 +477,14 @@ def plan_new(repo, data, posts, taken, now):
     title = str(data['title']).strip()
     names = [name.strip() for name in re.split(r',| & | and | en ', str(data['author'])) if name.strip()]
 
-    known = {boeken.fold(display): slug for slug, display in boeken.author_names(repo).items()}
+    from .intake import name_key   # "Hamilton, Peter F." is "Peter F. Hamilton" is hamilton-peter-f
+    known = {}
+    for slug, display in boeken.author_names(repo).items():
+        known[name_key(display.split())] = slug
+        known.setdefault(name_key(slug.split('-')), slug)
     authors = []
     for name in names:
-        slug = known.get(boeken.fold(name))
+        slug = known.get(name_key(name.split()))
         if not slug:
             slug, filed = author_slug(name)
             page = content / 'authors' / slug / '_index.md'

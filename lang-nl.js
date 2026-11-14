@@ -72,6 +72,20 @@ export default {
   'Covers': 'Covers',
   'Cards': 'Kaarten',
 
+  // The assistant
+  'Add a book by describing it': 'Een boek toevoegen door het te beschrijven',
+  'Add by description': 'Toevoegen via beschrijving',
+  'A title, an author, a series, in your own words. One book or several.': 'Een titel, een auteur, een serie, in je eigen woorden. Eén boek of meerdere.',
+  'Put them on': 'Zet ze op',
+  'Find': 'Zoeken',
+  'Looking…': 'Aan het zoeken…',
+  'Describe the book first.': 'Beschrijf eerst het boek.',
+  'No books recognised in that.': 'Daar zijn geen boeken in herkend.',
+  'Also add to {host}': 'Ook toevoegen aan {host}',
+  'Add {n}': '{n} toevoegen',
+  'Suggest': 'Voorstel',
+  'Optional. One sentence about the book: the text of its page until you review it.': 'Optioneel. Eén zin over het boek: de tekst van zijn pagina tot je het bespreekt.',
+
   // Changing a cover
   'Change the cover': 'Cover wijzigen',
   'Tap the cover to choose a picture, or paste or drop one here.': 'Tik op de cover om een afbeelding te kiezen, of plak of sleep er hier een.',

@@ -35,7 +35,8 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   time). Scanning a book you already have puts it on those lists too, so scanning onto
   *Lent out* or *Read* is the quick way to move a pile of books.
 - Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
-  On a wide screen the lists sit in a sidebar; on a phone they are a row of tabs.
+  On a wide screen the lists sit in a sidebar; on a phone they are a row of tabs. Every list or
+  series you open is a step in the browser's history: Back returns to the one before.
 
 Books scanned before lists existed count as being in the *Library*.
 
@@ -61,6 +62,22 @@ Books scanned before lists existed count as being in the *Library*.
   320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py
   fetch_covers` does a whole shelf at once. Covers you photographed yourself already travel
   with the book.
+
+## The assistant
+
+Where the server has one (see *Accounts and sync*), a second button beside *Scan a book* adds
+books from a description: a title, an author, a series, in your own words (*the new Kuang*,
+*Commonwealth Saga*, *Piranesi van Susanna Clarke*). The assistant answers with proposals:
+title, authors, series and number, publisher, year, pages, the language, categories from the
+booklog's own list, a few tags and one dry sentence about the book. For each, Open Library is
+asked for the ISBN and cover, and only believed when title and author really match; series,
+tags and authors are matched with what the booklog already has. You tick the ones you want,
+choose the lists they go on, and they are added like any scanned book; with a reading status
+they can go to the booklog in the same move.
+
+The same assistant sits behind *Suggest* in *Add to boeken.tsuk.org*: it fills in language,
+categories, tags and the sentence for a book you already have. Nothing it proposes is saved
+or published until you say so. This is boeggn's intake, with its prompt.
 
 ## Export
 
@@ -219,7 +236,8 @@ post of its own, and from then on it is a booklog book like the others.
 
 Settings, in `server/.env`: `BOEKEN_REPO_PATH` (a clone of the booklog that only this server
 writes to, outside the web root), `BOEKEN_GIT_AUTHOR` (`Name <address>` for its commits) and
-`BOEKEN_PUSH=1` (without it commits are made but not pushed, so nothing is public). On the
+`BOEKEN_PUSH=1` (without it commits are made but not pushed, so nothing is public). For the
+assistant: `OPENAI_API_KEY` and `OPENAI_MODEL`; without a key the app does not offer it. On the
 server a systemd timer runs `sync_boeken` every two minutes.
 
 ## Updating

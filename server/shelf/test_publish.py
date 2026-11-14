@@ -374,6 +374,6 @@ class AddToBooklogTests(BooklogCase):
         self.assertEqual(self.log()[0], 'Herlezen: Dune')
 
     def test_a_second_book_with_the_same_title_gets_its_own_address(self):
-        self.scan(title='Dune', author='Someone Else', isbn='9780000000002')
+        self.scan(title='Dune', author='Another Writer', isbn='9780000000002')
         self.publish()
         self.assertIn('title: "Dune"\n', self.post('dune-2'))

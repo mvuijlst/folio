@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.10.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.11.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -315,8 +315,9 @@ function setView(target) {
   const address = view.list ? `#/list/${encodeURIComponent(view.list)}`
     : view.series ? `#/series/${encodeURIComponent(view.series)}`
       : view.seriesIndex ? '#/series' : location.pathname + location.search;
-  // Replaced, not pushed: these are tabs, and Back keeps closing sheets and leaving the app.
-  history.replaceState(history.state, '', address);
+  // Every view is a step in the browser's history, so Back always returns to the one before
+  // (and only leaves the app from where you came in). Opening the view you are on adds nothing.
+  if (new URL(address, location.href).href !== location.href) history.pushState({ view: true }, '', address);
   renderLibrary();
   if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
 }
@@ -335,6 +336,7 @@ const sync = {
   dirtyLists: store.get('syncDirtyLists', {}),
   last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
   error: '',
+  assistant: store.get('assistant', false),   // whether the server can propose books from a description
   running: null, again: false, timer: 0,
   box: null,                               // the account section, while the settings sheet shows it
 };
@@ -431,6 +433,11 @@ async function runSync({ loud = false } = {}) {
         }
         await applyRemote(res.changes || []);
         sync.cursor = res.cursor;
+        if ('assistant' in res && sync.assistant !== !!res.assistant) {
+          sync.assistant = !!res.assistant;
+          store.set('assistant', sync.assistant);
+          renderLibrary();
+        }
         sync.last = new Date().toISOString();
         sync.error = '';
         saveSyncState();
@@ -830,7 +837,8 @@ async function searchByText(guess, lines) {
 
 /* ───────────────────────── Layers, sheet, toast ───────────────────────── */
 
-// Every overlay pushes a history entry so Android's back gesture closes it.
+// Every overlay pushes a history entry so Android's back gesture closes it. Views are history
+// entries too (see setView): Back closes what is open on top first, then walks back through them.
 const layers = [];
 function openLayer(onClose) {
   layers.push(onClose);
@@ -838,10 +846,20 @@ function openLayer(onClose) {
   document.body.classList.add('locked');
 }
 function closeLayer() { if (layers.length) history.back(); }
+/** Close whatever is open on top, then do `next`: going back in history takes a moment, and a
+ *  new view must not be pushed onto the entry that is on its way out. */
+function closeLayersThen(next) {
+  if (!layers.length) { next(); return; }
+  window.addEventListener('popstate', () => setTimeout(() => closeLayersThen(next), 0), { once: true });
+  closeLayer();
+}
 window.addEventListener('popstate', () => {
   const close = layers.pop();
   if (!layers.length) document.body.classList.remove('locked');
-  close?.();
+  if (close) { close(); return; }
+  // Nothing was open on top: Back or Forward moved between views.
+  readRoute();
+  renderLibrary();
 });
 
 const sheet = {
@@ -1111,6 +1129,7 @@ function renderLibrary() {
       : current ? t('Search {list}', { list: show(current.name) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
+  $('describeBtn').hidden = !(sync.user && sync.assistant);
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
@@ -1507,6 +1526,94 @@ function sourceNote(book, explain, again) {
     book.boekenError && h('p', { class: 'field-error', text: t('Not published to {host}: {why}', { host, why: book.boekenError }) }));
 }
 
+/* The assistant: a few words about a book → proposals to add */
+
+/** Is this book (as the assistant proposed it) on the shelf already? */
+function onShelfAlready(p) {
+  return books.find((b) => (p.isbn && b.isbn === p.isbn)
+    || (fold(b.title) === fold(p.title) && fold(b.author).split(',')[0].trim() === fold(p.author || '').split(',')[0].trim()));
+}
+
+function openDescribe() {
+  const host = booklogHost();
+  const words = h('textarea', { name: 'text', rows: 3, autocapitalize: 'sentences', enterkeyhint: 'search' });
+  const on = placed((view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById));
+  const error = h('p', { class: 'field-error', hidden: true });
+  const find = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('sparkles'), t('Find'));
+  const results = h('div', { class: 'proposals' });
+  const hasStatus = () => lists.some((l) => l.group === READING && on[l.id]);
+  let proposals = [], toBooklog = true;
+
+  function drawResults() {
+    const picked = proposals.filter((p) => p.picked);
+    const row = (p) => {
+      const there = onShelfAlready(p);
+      const box = h('input', { type: 'checkbox', checked: p.picked, disabled: !!there, onchange: () => { p.picked = box.checked; drawResults(); } });
+      return h('label', { class: 'proposal' + (there ? ' is-there' : '') },
+        box, coverEl(p),
+        h('div', { class: 'book-text' },
+          h('div', { class: 'book-title', text: p.title }),
+          h('div', { class: 'book-author', text: [p.author, seriesLine(p)].filter(Boolean).join(' · ') }),
+          h('div', { class: 'book-meta', text: there ? t('Already on your shelf') : metaLine(p) }),
+          p.note && h('p', { class: 'card-excerpt', text: p.note }),
+          h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text })))));
+    };
+    const booklog = host && h('label', { class: 'check-line' },
+      h('input', { type: 'checkbox', checked: toBooklog, onchange: (e) => { toBooklog = e.target.checked; } }),
+      h('span', { text: t('Also add to {host}', { host }) }));
+    results.replaceChildren(
+      ...proposals.map(row),
+      proposals.length > 0 && hasStatus() && booklog,
+      proposals.length > 0 && h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: !picked.length, onclick: add },
+        icon('check'), t('Add {n}', { n: plural(picked.length, 'book') })));
+  }
+
+  async function search(e) {
+    e.preventDefault();
+    const text = words.value.trim();
+    if (!text) { error.textContent = t('Describe the book first.'); error.hidden = false; words.focus(); return; }
+    error.hidden = true;
+    find.disabled = true;
+    results.replaceChildren(h('div', { class: 'card-busy' }, h('div', { class: 'spinner' }), h('div', { text: t('Looking…') })));
+    try {
+      const res = await api('suggest', { text });
+      proposals = (res.books || []).map((p) => ({ ...p, picked: !onShelfAlready(p) }));
+      drawResults();
+      if (!proposals.length) results.replaceChildren(h('p', { class: 'sheet-note', text: t('No books recognised in that.') }));
+    } catch (err) {
+      results.replaceChildren();
+      error.textContent = err.status ? err.message : t('Couldn’t reach the server. Are you online?');
+      error.hidden = false;
+    } finally {
+      find.disabled = false;
+    }
+  }
+
+  async function add() {
+    const picked = proposals.filter((p) => p.picked && !onShelfAlready(p));
+    for (const { picked: _, note, ...p } of picked) {
+      const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
+      // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
+      if (note) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
+      // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
+      if (host && toBooklog && hasStatus() && p.language && p.categories?.length) book.boekenWanted = true;
+      await addBook(book);
+    }
+    sheet.close();
+    toast(t('{n} added', { n: plural(picked.length, 'book') }));
+  }
+
+  sheet.open(h('div', null,
+    h('form', { novalidate: true, onsubmit: search },
+      sheetHead(t('Add by description'), t('A title, an author, a series, in your own words. One book or several.')),
+      h('label', { class: 'field' }, words),
+      error,
+      h('div', { class: 'sheet-section describe-lists' }, h('h3', { text: t('Put them on') }), listPicker(on, { notes: false })),
+      find),
+    results));
+  words.focus();
+}
+
 /* Adding a book to the booklog */
 
 /** The booklog this shelf belongs to ("boeken.tsuk.org"), or '' when it has none. */
@@ -1547,7 +1654,32 @@ function openBooklogForm(book, back) {
   let language = book.language || '';
   const chosen = new Set(book.categories || []);
   const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off' });
+  // A book without a review can get a sentence about it: the text of its page until it is reviewed.
+  const note = !(book.reviews || []).length && h('textarea', { name: 'note', rows: 2, autocapitalize: 'sentences' });
   const error = h('p', { class: 'field-error', hidden: true });
+  // The assistant fills in what it knows of the book; nothing is saved until Add.
+  const suggest = sync.user && sync.assistant && h('button', {
+    class: 'link-btn', type: 'button',
+    onclick: async () => {
+      suggest.disabled = true;
+      error.hidden = true;
+      try {
+        const res = await api('suggest', { text: `${book.title} — ${book.author || ''}${book.isbn ? ` (ISBN ${book.isbn})` : ''}` });
+        const p = (res.books || [])[0];
+        if (!p) throw Object.assign(new Error(t('No books recognised in that.')), { status: 1 });
+        language ||= p.language || '';
+        for (const name of p.categories || []) chosen.add(name);
+        if (!tags.value.trim()) tags.value = (p.tags || []).join(', ');
+        if (note && !note.value.trim()) note.value = p.note || '';
+        draw();
+      } catch (err) {
+        error.textContent = err.status ? err.message : t('Couldn’t reach the server. Are you online?');
+        error.hidden = false;
+      } finally {
+        suggest.disabled = false;
+      }
+    },
+  }, icon('sparkles'), t('Suggest'));
   const rows = { status: h('div', { class: 'chips' }), language: h('div', { class: 'chips' }), categories: h('div', { class: 'chips' }) };
   const chip = (text, pressed, onclick) => h('button', { class: 'chip', type: 'button', text, 'aria-pressed': String(pressed), onclick });
   function draw() {
@@ -1570,18 +1702,23 @@ function openBooklogForm(book, back) {
       tags: tags.value.split(',').map((tag) => tag.replace(/\s+/g, ' ').trim()).filter(Boolean),
       boekenWanted: true, boekenError: '',
     });
+    if (note && note.value.trim()) book.reviews = [{ id: newId(), date: '', rating: null, text: note.value.trim() }];
     await saveBook(book);
     back();
   }
 
   sheet.open(h('form', { class: 'list-picker', novalidate: true, onsubmit: submit },
     sheetHead(t('Add to {host}', { host }), displayTitle(book)),
-    h('p', { class: 'sheet-note booklog-note', text: t('The book gets a page of its own there, which anyone can see. A book you have read takes its review, rating and reading date along.') }),
+    h('p', { class: 'sheet-note booklog-note' },
+      t('The book gets a page of its own there, which anyone can see. A book you have read takes its review, rating and reading date along.'), ' ', suggest),
     h('div', { class: 'sheet-section' }, h('h3', { text: show(READING) }), rows.status),
     h('div', { class: 'sheet-section' }, h('h3', { text: t('Language of this edition') }), rows.language),
     h('div', { class: 'sheet-section' }, h('h3', { text: t('Categories') }), rows.categories),
     h('div', { class: 'sheet-section' }, h('h3', { text: t('Tags') }),
       h('label', { class: 'field' }, tags), h('p', { class: 'sheet-note', text: t('Optional. Separate tags with commas.') })),
+    note && h('div', { class: 'sheet-section' }, h('h3', { text: t('Note') }),
+      h('label', { class: 'field' }, note),
+      h('p', { class: 'sheet-note', text: t('Optional. One sentence about the book: the text of its page until you review it.') })),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       book.boekenWanted && h('button', {
@@ -1644,7 +1781,7 @@ function openBook(book) {
         book.author && h('p', { class: 'page-author', text: book.author }),
         seriesLine(book) && h('button', {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
-          onclick: () => { sheet.close(); setView({ series: book.series }); },
+          onclick: () => closeLayersThen(() => setView({ series: book.series })),
         }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
         listTags(book, null)),
@@ -2622,6 +2759,7 @@ async function processCover({ canvas, thumb }) {
 
 function bindEvents() {
   $('scanBtn').addEventListener('click', openScanner);
+  $('describeBtn').addEventListener('click', openDescribe);
   $('exportBtn').addEventListener('click', openExport);
   $('settingsBtn').addEventListener('click', openSettings);
   $('search').addEventListener('input', renderLibrary);
