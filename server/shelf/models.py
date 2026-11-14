@@ -2,33 +2,59 @@ from django.conf import settings
 from django.db import models
 
 
-class Book(models.Model):
-    """One book on one user's shelf, as the app stores it.
+class Record(models.Model):
+    """Something one user keeps in the app and syncs between devices, stored as the app sends it.
 
-    `uid` is the id the phone gave the book. `modified` is when a device last changed it
-    (the newer change wins); `changed` is when the server stored it, which is what other
-    devices ask "what's new since …" against. Deleted books stay as tombstones so the
-    deletion reaches every device.
+    `uid` is the id the device gave it. `modified` is when a device last changed it (the
+    newer change wins); `changed` is when the server stored it, which is what other devices
+    ask "what's new since …" against. Deleted records stay as tombstones so the deletion
+    reaches every device.
     """
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='books')
+    KEY = ''     # what the record is called in a sync change: {"id", "modified", "deleted", KEY: data}
+    LABEL = ''   # the field of `data` that is copied to a column of the same name, for the admin
+
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='%(class)ss')
     uid = models.CharField(max_length=64)
     data = models.JSONField(default=dict, blank=True)
-    title = models.CharField(max_length=300, blank=True)
     deleted = models.BooleanField(default=False)
     modified = models.DateTimeField()
     changed = models.DateTimeField(db_index=True)
 
     class Meta:
+        abstract = True
         ordering = ['-changed']
-        constraints = [models.UniqueConstraint(fields=['user', 'uid'], name='unique_book_per_user')]
-
-    def __str__(self):
-        return self.title or self.data.get('isbn') or self.uid
+        constraints = [models.UniqueConstraint(fields=['user', 'uid'], name='unique_%(class)s_per_user')]
 
     def as_change(self):
         return {
             'id': self.uid,
             'modified': self.modified.isoformat().replace('+00:00', 'Z'),
             'deleted': self.deleted,
-            'book': None if self.deleted else self.data,
+            self.KEY: None if self.deleted else self.data,
         }
+
+
+class Book(Record):
+    """One book on one user's shelf. The lists it is on are part of `data` ("lists")."""
+    KEY = 'book'
+    LABEL = 'title'
+
+    title = models.CharField(max_length=300, blank=True)
+
+    def __str__(self):
+        return self.title or self.data.get('isbn') or self.uid
+
+
+class List(Record):
+    """One of a user's lists of books (to read, library, lent out, …).
+
+    Lists that share a "group" in `data` are either-or: the app keeps a book on at most one
+    of them.
+    """
+    KEY = 'list'
+    LABEL = 'name'
+
+    name = models.CharField(max_length=300, blank=True)
+
+    def __str__(self):
+        return self.name or self.uid

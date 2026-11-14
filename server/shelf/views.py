@@ -3,11 +3,14 @@
   GET  /api/session  → {"user": name | null}; also sets the CSRF cookie
   POST /api/login    {"username", "password"} → {"user": name}
   POST /api/logout
-  POST /api/sync     {"since": cursor | null, "changes": [change…]} → {"cursor", "changes": [change…]}
+  POST /api/sync     {"since": cursor | null, "changes": [change…],
+                      "listsSince": cursor | null, "lists": [change…]}
+                     → {"cursor", "changes": [change…], "lists": [change…]}
 
-A change is {"id", "modified", "deleted", "book"}. The server keeps the newest change for
-each book (by "modified") and answers with everything stored after `since` that the device
-doesn't already have, so every device converges on the same shelf.
+Books travel in "changes" and the user's lists in "lists". A change is {"id", "modified",
+"deleted", "book"} (or "list"). The server keeps the newest change for each record (by
+"modified") and answers with everything stored after the cursor that the device doesn't
+already have, so every device converges on the same shelf.
 """
 import json
 from datetime import timezone as dt_timezone
@@ -21,7 +24,7 @@ from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
 from django.views.decorators.http import require_GET, require_POST
 
-from .models import Book
+from .models import Book, List
 
 MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
@@ -103,7 +106,7 @@ def logout_view(request):
 
 # ───────────────────────── Sync ─────────────────────────
 
-def clean_change(raw):
+def clean_change(raw, key):
     """Validate one change from the client; returns a dict or None."""
     if not isinstance(raw, dict):
         return None
@@ -112,15 +115,48 @@ def clean_change(raw):
     if not isinstance(uid, str) or not 0 < len(uid) <= 64 or modified is None:
         return None
     deleted = bool(raw.get('deleted'))
-    book = raw.get('book')
+    data = raw.get(key)
     if deleted:
-        book = {}
+        data = {}
     else:
-        if not isinstance(book, dict) or len(json.dumps(book)) > MAX_BOOK_BYTES:
+        if not isinstance(data, dict) or len(json.dumps(data)) > MAX_BOOK_BYTES:
             return None
-        book = {k: v for k, v in book.items() if k not in ('modified', 'deleted')}
-        book['id'] = uid
-    return {'uid': uid, 'modified': modified, 'deleted': deleted, 'book': book}
+        data = {k: v for k, v in data.items() if k not in ('modified', 'deleted')}
+        data['id'] = uid
+    return {'uid': uid, 'modified': modified, 'deleted': deleted, 'data': data}
+
+
+def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
+    """Store the client's changes that are newer than ours; return the rows the client lacks."""
+    changes = [c for c in (clean_change(raw, model.KEY) for raw in raw_changes) if c]
+    existing = {r.uid: r for r in model.objects.filter(user=user, uid__in=[c['uid'] for c in changes])}
+    accepted, stale = set(), set()
+    for c in changes:
+        row = existing.get(c['uid'])
+        if row and row.modified >= c['modified']:
+            stale.add(c['uid'])   # the server has a newer version: send it back
+            continue
+        label = str(c['data'].get(model.LABEL) or '')[:300]
+        if row:
+            if not c['deleted']:
+                setattr(row, model.LABEL, label)   # a tombstone keeps its label for the admin
+            row.data, row.deleted, row.modified, row.changed = c['data'], c['deleted'], c['modified'], now
+            row.save()
+        else:
+            row = model.objects.create(user=user, uid=c['uid'], data=c['data'], deleted=c['deleted'],
+                                       modified=c['modified'], changed=now, **{model.LABEL: label})
+            existing[c['uid']] = row
+        accepted.add(c['uid'])
+
+    outgoing = model.objects.filter(user=user)
+    if since:
+        outgoing = outgoing.filter(changed__gt=since)
+    elif not tombstones_when_fresh:
+        outgoing = outgoing.filter(deleted=False)   # a fresh device needs no tombstones
+    out = {r.uid: r for r in outgoing if r.uid not in accepted}
+    for uid in stale - out.keys():
+        out[uid] = existing[uid]
+    return [r.as_change() for r in out.values()]
 
 
 @require_POST
@@ -130,47 +166,23 @@ def sync(request):
     data = body(request)
     if data is None:
         return error('Bad request')
-    since = when(data.get('since'))
-    raw_changes = data.get('changes') or []
-    if not isinstance(raw_changes, list) or len(raw_changes) > MAX_CHANGES:
+    raw_books, raw_lists = data.get('changes') or [], data.get('lists') or []
+    if not all(isinstance(raw, list) and len(raw) <= MAX_CHANGES for raw in (raw_books, raw_lists)):
         return error('Bad request')
-    changes = [c for c in map(clean_change, raw_changes) if c]
 
     user = request.user
     # SQLite is opened in IMMEDIATE mode, so syncs run one at a time and timestamps
     # handed out here are strictly ordered.
     with transaction.atomic():
         now = timezone.now()
-        existing = {b.uid: b for b in Book.objects.filter(user=user, uid__in=[c['uid'] for c in changes])}
-        accepted, stale = set(), set()
-        for c in changes:
-            row = existing.get(c['uid'])
-            if row and row.modified >= c['modified']:
-                stale.add(c['uid'])   # the server has a newer version: send it back
-                continue
-            title = str(c['book'].get('title') or '')[:300]
-            if row:
-                if not c['deleted']:
-                    row.title = title   # a tombstone keeps its title for the admin
-                row.data, row.deleted, row.modified, row.changed = c['book'], c['deleted'], c['modified'], now
-                row.save()
-            else:
-                row = Book.objects.create(user=user, uid=c['uid'], data=c['book'], deleted=c['deleted'],
-                                          modified=c['modified'], changed=now, title=title)
-                existing[c['uid']] = row
-            accepted.add(c['uid'])
-
-        outgoing = Book.objects.filter(user=user)
-        if since:
-            outgoing = outgoing.filter(changed__gt=since)
-        else:
-            outgoing = outgoing.filter(deleted=False)   # a fresh device needs no tombstones
-        out = {b.uid: b for b in outgoing if b.uid not in accepted}
-        for uid in stale - out.keys():
-            out[uid] = existing[uid]
+        books = merge(Book, user, raw_books, when(data.get('since')), now)
+        # Every device starts with the same standard lists, so a fresh one must also hear
+        # which of them were deleted elsewhere.
+        lists = merge(List, user, raw_lists, when(data.get('listsSince')), now, tombstones_when_fresh=True)
 
     return JsonResponse({
         'cursor': now.isoformat().replace('+00:00', 'Z'),
-        'changes': [b.as_change() for b in out.values()],
+        'changes': books,
+        'lists': lists,
         'user': user.get_username(),
     })

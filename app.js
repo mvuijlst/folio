@@ -1,8 +1,9 @@
-// Bookscan — catalog books by scanning their ISBN barcode.
+// Bookscan — catalog books by scanning their ISBN barcode, and keep them on lists
+// (library, to read, reading, read, lent out, …).
 // Plain ES module, no build step. The shelf is stored on the device (IndexedDB) and, for
 // signed-in users, synced with the small Django server in server/.
 
-const APP_VERSION = '1.2.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.3.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -73,29 +74,33 @@ function initTheme() {
 
 /* ───────────────────────── Storage (IndexedDB) ───────────────────────── */
 
-const DB = (() => {
+// Books and lists each have a database of their own. Lists came later, and adding a store
+// to the books database would have meant a version upgrade — which waits for as long as an
+// older copy of the app is open in another tab, leaving this one with an empty shelf.
+function table(database, name) {
   let opening;
   const open = () => (opening ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open('bookscan', 1);
-    req.onupgradeneeded = () => req.result.createObjectStore('books', { keyPath: 'id' });
+    const req = indexedDB.open(database, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(name, { keyPath: 'id' });
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   }));
   const run = async (mode, fn) => {
     const db = await open();
     return new Promise((resolve, reject) => {
-      const tx = db.transaction('books', mode);
-      const req = fn(tx.objectStore('books'));
+      const tx = db.transaction(name, mode);
+      const req = fn(tx.objectStore(name));
       tx.oncomplete = () => resolve(req?.result);
       tx.onerror = tx.onabort = () => reject(tx.error);
     });
   };
   return {
     all: () => run('readonly', (s) => s.getAll()),
-    put: (book) => run('readwrite', (s) => s.put(book)),
+    put: (row) => run('readwrite', (s) => s.put(row)),
     del: (id) => run('readwrite', (s) => s.delete(id)),
   };
-})();
+}
+const DB = { ...table('bookscan', 'books'), lists: table('bookscan-lists', 'lists') };
 
 /** In-memory copy of the shelf, newest first. */
 let books = [];
@@ -105,7 +110,7 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toStri
 async function addBook(data) {
   const book = {
     id: newId(), added: new Date().toISOString(),
-    title: '', author: '', publisher: '', date: '', pages: null, isbn: '', cover: '', thumb: '',
+    title: '', author: '', publisher: '', date: '', pages: null, isbn: '', cover: '', thumb: '', lists: {},
     ...data,
   };
   books.unshift(book);
@@ -144,15 +149,117 @@ function storageFailed(err) {
   toast('Could not save to this device’s storage');
 }
 
+/* ───────────────────────── Lists ───────────────────────── */
+
+// A book can be on any number of lists. Lists that share a `group` are either-or: putting
+// a book on one takes it off the others (to read / reading / read). `book.lists` maps a
+// list id to {at, note}: when the book went on that list, and an optional note for lists
+// that ask for one ("lent to …").
+const EPOCH = '1970-01-01T00:00:00.000Z';
+const READING = 'Reading status';
+// Every device starts with these, under the same ids, so they are one list everywhere.
+// They carry the oldest possible `modified`: any real change, on any device, wins.
+const STANDARD_LISTS = [
+  { id: 'library', name: 'Library', group: '', noteLabel: '' },
+  { id: 'to-read', name: 'To read', group: READING, noteLabel: '' },
+  { id: 'reading', name: 'Reading', group: READING, noteLabel: '' },
+  { id: 'read', name: 'Read', group: READING, noteLabel: '' },
+  { id: 'lent', name: 'Lent out', group: '', noteLabel: 'Lent to' },
+];
+
+/** The user's lists, in their order. */
+let lists = [];
+/** What the library shows: one list, or every book when `list` is null. */
+const view = { list: null };
+
+const sortLists = () => lists.sort((a, b) => ((a.order ?? 0) - (b.order ?? 0)) || String(a.name).localeCompare(b.name));
+const listById = (id) => lists.find((l) => l.id === id);
+
+/** {listId: {at, note}} for a book. Books from before lists existed count as in the Library. */
+const shelves = (book) => book.lists || { library: { at: book.added } };
+
+/** The lists a book is on, in list order: [{list, at, note}]. */
+function listsOf(book) {
+  const on = shelves(book);
+  return lists.filter((l) => on[l.id]).map((l) => ({ list: l, at: on[l.id].at || book.added, note: on[l.id].note || '' }));
+}
+
+/** Puts list `id` in a {listId: …} map, taking the book off the other lists of its group. */
+function place(on, id, at = new Date().toISOString()) {
+  const list = listById(id);
+  if (!list) return on;
+  if (list.group) for (const other of lists) if (other.group === list.group && other.id !== id) delete on[other.id];
+  on[id] ??= { at };
+  return on;
+}
+
+/** A fresh {listId: …} map holding the given lists. */
+const placed = (ids) => ids.reduce((on, id) => place(on, id), {});
+
+/** Lists as they are shown: either-or groups kept together, loose lists in between. */
+function listSections() {
+  const sections = [];
+  for (const list of lists) {
+    let section = list.group ? sections.find((s) => s.label === list.group) : sections.at(-1);
+    if (!section || (!list.group && section.label)) sections.push(section = { label: list.group || '', members: [] });
+    section.members.push(list);
+  }
+  return sections;
+}
+
+async function saveList(list) {
+  if (!lists.includes(list)) lists.push(list);
+  touchList(list.id, list);
+  sortLists();
+  renderLibrary();
+  await DB.lists.put(list).catch(storageFailed);
+}
+
+async function removeList(list) {
+  lists = lists.filter((l) => l.id !== list.id);
+  touchList(list.id);
+  renderLibrary();
+  await DB.lists.del(list.id).catch(storageFailed);
+}
+
+async function loadLists() {
+  lists = await DB.lists.all();
+  if (!lists.length && !store.get('listsSeeded', false)) await seedLists();
+  sortLists();
+}
+
+async function seedLists() {
+  lists = STANDARD_LISTS.map((l, order) => ({ ...l, order, modified: EPOCH }));
+  store.set('listsSeeded', true);
+  await Promise.all(lists.map((l) => DB.lists.put(l)));
+}
+
+function readRoute() {
+  let id = null;
+  try { id = decodeURIComponent((location.hash.match(/^#\/list\/(.+)$/) || [])[1] || ''); } catch {}
+  view.list = id && listById(id) ? id : null;
+}
+
+function setView(id) {
+  view.list = id && listById(id) ? id : null;
+  // Replaced, not pushed: lists are tabs, and Back keeps closing sheets and leaving the app.
+  history.replaceState(history.state, '', view.list ? `#/list/${encodeURIComponent(view.list)}` : location.pathname + location.search);
+  renderLibrary();
+  if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
+}
+
 /* ───────────────────────── Sync (optional account) ───────────────────────── */
 
 // Signing in keeps a copy of the shelf on the server, so it can be opened on other devices.
 // Every change stamps the book with `modified` and is remembered in `sync.dirty` until the
 // server has it; the newest change to a book wins. Deleted books are sent as tombstones.
+// The lists themselves (names, order, groups) sync the same way, next to the books.
 const sync = {
   user: store.get('syncUser', null),
   cursor: store.get('syncCursor', null),   // server time of the last completed sync
   dirty: store.get('syncDirty', {}),       // book id → `modified` of a change not yet on the server
+  listsCursor: store.get('syncListsCursor', null),
+  dirtyLists: store.get('syncDirtyLists', {}),
   last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
   error: '',
   running: null, again: false, timer: 0,
@@ -163,8 +270,12 @@ function saveSyncState() {
   store.set('syncUser', sync.user);
   store.set('syncCursor', sync.cursor);
   store.set('syncDirty', sync.dirty);
+  store.set('syncListsCursor', sync.listsCursor);
+  store.set('syncDirtyLists', sync.dirtyLists);
   store.set('syncLast', sync.last);
 }
+
+const waitingChanges = () => Object.keys(sync.dirty).length + Object.keys(sync.dirtyLists).length;
 
 /** Record a change to a book (pass the book) or its deletion (pass only the id). */
 function touch(id, book) {
@@ -172,6 +283,15 @@ function touch(id, book) {
   if (book) book.modified = now;
   sync.dirty[id] = now;
   store.set('syncDirty', sync.dirty);
+  scheduleSync();
+}
+
+/** The same for a list. */
+function touchList(id, list) {
+  const now = new Date().toISOString();
+  if (list) list.modified = now;
+  sync.dirtyLists[id] = now;
+  store.set('syncDirtyLists', sync.dirtyLists);
   scheduleSync();
 }
 
@@ -217,15 +337,25 @@ async function runSync({ loud = false } = {}) {
     try {
       do {
         sync.again = false;
-        const sent = { ...sync.dirty };
-        const byId = new Map(books.map((b) => [b.id, b]));
-        const changes = Object.entries(sent).map(([id, modified]) => {
-          const book = byId.get(id);
-          return book ? { id, modified, deleted: false, book } : { id, modified, deleted: true, book: null };
+        const sent = { ...sync.dirty }, sentLists = { ...sync.dirtyLists };
+        const pack = (dirty, rows, key) => {
+          const byId = new Map(rows.map((r) => [r.id, r]));
+          return Object.entries(dirty).map(([id, modified]) => {
+            const row = byId.get(id);
+            return { id, modified, deleted: !row, [key]: row || null };
+          });
+        };
+        const res = await api('sync', {
+          since: sync.cursor, changes: pack(sent, books, 'book'),
+          listsSince: sync.listsCursor, lists: pack(sentLists, lists, 'list'),
         });
-        const res = await api('sync', { since: sync.cursor, changes });
         if (!sync.user) return;   // signed out meanwhile
         for (const [id, modified] of Object.entries(sent)) if (sync.dirty[id] === modified) delete sync.dirty[id];
+        if (res.lists) {   // a server from before lists existed leaves them waiting
+          for (const [id, modified] of Object.entries(sentLists)) if (sync.dirtyLists[id] === modified) delete sync.dirtyLists[id];
+          await applyRemoteLists(res.lists);
+          sync.listsCursor = res.cursor;
+        }
         await applyRemote(res.changes || []);
         sync.cursor = res.cursor;
         sync.last = new Date().toISOString();
@@ -276,13 +406,38 @@ async function applyRemote(changes) {
   renderLibrary();
 }
 
+async function applyRemoteLists(changes) {
+  if (!changes.length) return;
+  for (const c of changes) {
+    if (sync.dirtyLists[c.id] && time(sync.dirtyLists[c.id]) >= time(c.modified)) continue;
+    const local = listById(c.id);
+    if (c.deleted) {
+      if (!local) continue;
+      lists = lists.filter((l) => l !== local);
+      await DB.lists.del(c.id).catch(storageFailed);
+    } else {
+      const list = { ...c.list, id: c.id, modified: c.modified };
+      if (local) {
+        for (const k of Object.keys(local)) delete local[k];
+        Object.assign(local, list);
+      } else {
+        lists.push(list);
+      }
+      await DB.lists.put(local || list).catch(storageFailed);
+    }
+  }
+  sortLists();
+  renderLibrary();
+}
+
 async function signIn(username, password) {
   const res = await api('login', { username, password });
   sync.user = res.user;
-  sync.cursor = null;
+  sync.cursor = sync.listsCursor = null;
   sync.error = '';
   // Offer everything on this device; books the server has newer copies of come back from it.
   for (const b of books) sync.dirty[b.id] ??= b.modified || b.added;
+  for (const l of lists) sync.dirtyLists[l.id] ??= l.modified || EPOCH;
   saveSyncState();
   renderAccount();
   await runSync();
@@ -290,16 +445,16 @@ async function signIn(username, password) {
 }
 
 function forgetAccount() {
-  Object.assign(sync, { user: null, cursor: null, last: null, error: '' });
+  Object.assign(sync, { user: null, cursor: null, listsCursor: null, last: null, error: '' });
   clearTimeout(sync.timer);
   saveSyncState();
   renderAccount();
 }
 
 async function signOut({ clearShelf }) {
-  if (Object.keys(sync.dirty).length && navigator.onLine !== false) await runSync();
+  if (waitingChanges() && navigator.onLine !== false) await runSync();
   if (!sync.user) return;   // the session had already ended
-  const waiting = Object.keys(sync.dirty).length;
+  const waiting = waitingChanges();
   if (clearShelf && waiting) {
     toast(`${plural(waiting, 'change')} haven’t reached the server yet — sync before clearing this device`);
     return;
@@ -307,12 +462,14 @@ async function signOut({ clearShelf }) {
   try { await api('logout', {}); } catch {}
   forgetAccount();
   if (clearShelf) {
-    const gone = books;
+    const gone = books, goneLists = lists;
     books = [];
     sync.dirty = {};
+    sync.dirtyLists = {};
     saveSyncState();
+    await Promise.all([...gone.map((b) => DB.del(b.id)), ...goneLists.map((l) => DB.lists.del(l.id))]).catch(storageFailed);
+    await seedLists().catch(storageFailed);   // back to the lists a new device starts with
     renderLibrary();
-    await Promise.all(gone.map((b) => DB.del(b.id))).catch(storageFailed);
   }
   toast(clearShelf ? 'Signed out and cleared this device' : 'Signed out — your shelf stays on this device');
 }
@@ -362,7 +519,7 @@ function renderAccount() {
     return;
   }
 
-  const waiting = Object.keys(sync.dirty).length;
+  const waiting = waitingChanges();
   let status;
   if (sync.running) status = 'Syncing…';
   else if (sync.error) status = `${sync.error}.${waiting ? ` ${plural(waiting, 'change')} waiting.` : ''}`;
@@ -690,7 +847,16 @@ function displayTitle(b) {
   return b.pending ? `ISBN ${b.isbn}` : 'Unknown book';
 }
 
-function bookRow(b, onPick, extra) {
+/** Small labels for the lists a book is on; in a list's own view only its note ("Lent to: …"). */
+function listTags(book, current) {
+  const tags = listsOf(book).map(({ list, note }) => {
+    if (list === current) return note && `${list.noteLabel || 'Note'}: ${note}`;
+    return note ? `${list.name}: ${note}` : list.name;
+  }).filter(Boolean);
+  return tags.length ? h('div', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text }))) : null;
+}
+
+function bookRow(b, onPick, extra, tags) {
   let meta;
   if (b.pending) meta = h('div', { class: 'book-meta flag' }, icon('cloud-off'), 'Will be looked up when you’re online');
   else if (b.unresolved) meta = h('div', { class: 'book-meta flag', text: 'No match found — tap to fill in' });
@@ -700,7 +866,7 @@ function bookRow(b, onPick, extra) {
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title' }, extra, displayTitle(b)),
       h('div', { class: 'book-author', text: b.author || (b.title ? '' : b.isbn && !b.pending ? `ISBN ${b.isbn}` : '') }),
-      meta));
+      meta, tags));
 }
 
 function dayLabel(iso) {
@@ -712,23 +878,60 @@ function dayLabel(iso) {
   return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
+function renderNav() {
+  const counts = new Map(lists.map((l) => [l.id, 0]));
+  for (const b of books) for (const id of Object.keys(shelves(b))) if (counts.has(id)) counts.set(id, counts.get(id) + 1);
+  const item = (id, name, count) => h('a', {
+    class: 'nav-item', href: id ? `#/list/${encodeURIComponent(id)}` : '#/', 'aria-current': view.list === id ? 'page' : null,
+    onclick: (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
+      e.preventDefault();
+      setView(id);
+    },
+  }, h('span', { text: name }), h('b', { text: String(count) }));
+  const nav = $('lists');
+  nav.replaceChildren(
+    h('div', { class: 'nav-group' }, item(null, 'All books', books.length)),
+    ...listSections().map((section) => h('div', { class: 'nav-group' },
+      section.label && h('span', { class: 'nav-label', text: section.label }),
+      section.members.map((l) => item(l.id, l.name, counts.get(l.id))))),
+    h('div', { class: 'nav-group' },
+      h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: 'Edit lists' }))));
+  // On a phone the lists are one scrolling row: keep the open one in sight.
+  const active = nav.querySelector('[aria-current]');
+  if (active && (active.offsetLeft < nav.scrollLeft || active.offsetLeft + active.offsetWidth > nav.scrollLeft + nav.clientWidth)) {
+    nav.scrollLeft = active.offsetLeft - 20;
+  }
+}
+
 function renderLibrary() {
+  if (view.list && !listById(view.list)) view.list = null;   // the open list was deleted
+  const current = view.list ? listById(view.list) : null;
   const query = fold($('search').value.trim());
   $('count').textContent = books.length ? plural(books.length, 'book') : 'Nothing scanned yet';
-  $('searchWrap').hidden = books.length < 8 && !query;
+  $('search').placeholder = current ? `Search ${current.name}` : 'Search your shelf';
   $('empty').hidden = books.length > 0;
+  renderNav();
 
-  const list = query
-    ? books.filter((b) => fold([b.title, b.author, b.publisher, b.isbn, b.date].join(' ')).includes(query))
-    : books;
+  // A list shows the book that went on it last first; the whole shelf, the one added last.
+  const when = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
+  const inView = current ? books.filter((b) => shelves(b)[current.id]).sort((a, b) => (when(a) < when(b) ? 1 : -1)) : books;
+  $('searchWrap').hidden = inView.length < 8 && !query;
+
+  const found = query
+    ? inView.filter((b) => fold([b.title, b.author, b.publisher, b.isbn, b.date, ...listsOf(b).map((m) => m.note)].join(' ')).includes(query))
+    : inView;
   const frag = document.createDocumentFragment();
   let lastDay = '';
-  for (const b of list) {
-    const day = dayLabel(b.added);
+  for (const b of found) {
+    const day = dayLabel(when(b));
     if (!query && day !== lastDay) { frag.append(h('h2', { class: 'day', text: day })); lastDay = day; }
-    frag.append(bookRow(b, (book) => openBookForm({ book })));
+    frag.append(bookRow(b, (book) => openBookForm({ book }), null, listTags(b, current)));
   }
-  if (query && !list.length) frag.append(h('p', { class: 'no-results', text: 'No books match that search.' }));
+  if (query && !found.length) frag.append(h('p', { class: 'no-results', text: 'No books match that search.' }));
+  else if (current && !found.length && books.length) {
+    frag.append(h('p', { class: 'no-results', text: `Nothing on “${current.name}” yet. Scan a book while this list is open, or open a book and put it here.` }));
+  }
   $('library').replaceChildren(frag);
 }
 
@@ -741,6 +944,32 @@ function tidyCase(s) {
   s = String(s || '').replace(/\s+/g, ' ').trim();
   if (!s || s !== s.toUpperCase() || !/\p{L}{2}/u.test(s)) return s;
   return s.toLowerCase().split(' ').map((w, i) => (i > 0 && SMALL_WORDS.test(w) ? w : w.replace(/(^|[-'’.])(\p{L})/gu, (m, p, c) => p + c.toUpperCase()))).join(' ');
+}
+
+/**
+ * Chips for choosing lists, editing the {listId: {at, note}} map `on` in place. Either-or
+ * groups behave like radio buttons that can also be switched off.
+ */
+function listPicker(on, { notes = true } = {}) {
+  const box = h('div', { class: 'list-picker' });
+  const chip = (l) => h('button', {
+    class: 'chip', type: 'button', text: l.name, 'aria-pressed': String(!!on[l.id]),
+    onclick: () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); },
+  });
+  const noteField = (l) => {
+    const input = h('input', { value: on[l.id].note || '', autocomplete: 'off', autocapitalize: 'words' });
+    input.addEventListener('input', () => { on[l.id].note = input.value; });
+    return h('label', { class: 'field' }, h('span', { text: l.noteLabel }), input);
+  };
+  function draw() {
+    box.replaceChildren(
+      ...listSections().map((section) => h('div', { class: 'pick-row' },
+        section.label && h('span', { class: 'pick-label', text: section.label }),
+        h('div', { class: 'chips' }, section.members.map(chip)))),
+      ...(notes ? lists.filter((l) => on[l.id] && l.noteLabel).map(noteField) : []));
+  }
+  draw();
+  return box;
 }
 
 /**
@@ -763,6 +992,9 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   f.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); f.author.focus(); } });
   const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
   const error = h('p', { class: 'field-error', hidden: true });
+  // The lists the book is on, edited as a copy until the form is saved.
+  const on = {};
+  for (const { list, at, note } of listsOf(book)) on[list.id] = note ? { at, note } : { at };
 
   // Tap-to-fill chips for text read off the cover.
   let ocrBox = null;
@@ -805,6 +1037,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     field('Publisher', f.publisher),
     h('div', { class: 'field-row' }, field('Published', f.date), field('Pages', f.pages)),
     field('ISBN', f.isbn),
+    lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: 'Lists' }), listPicker(on)),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': 'Delete book', onclick: remove }, icon('trash')),
@@ -818,7 +1051,12 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       title: v('title'), author: v('author'), publisher: v('publisher'), date: normDate(v('date')),
       pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
       isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
+      lists: {},
     };
+    for (const [id, entry] of Object.entries(on)) {
+      const note = String(entry.note || '').replace(/\s+/g, ' ').trim();
+      data.lists[id] = { at: entry.at || new Date().toISOString(), ...(note && { note }) };
+    }
     if (!data.title) {
       error.textContent = 'A book needs at least a title.';
       error.hidden = false;
@@ -846,12 +1084,108 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   sheet.open(form, () => onClose?.(saved));
 }
 
+/* ───────────────────────── Managing lists ───────────────────────── */
+
+function openLists() {
+  const move = async (from, to) => {
+    [lists[from], lists[to]] = [lists[to], lists[from]];
+    for (const [order, list] of lists.entries()) {
+      if (list.order === order) continue;
+      list.order = order;
+      touchList(list.id, list);
+      await DB.lists.put(list).catch(storageFailed);
+    }
+    renderLibrary();
+    draw();
+  };
+  const row = (list, i) => h('div', { class: 'list-row' },
+    h('button', { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
+      h('span', { text: list.name }),
+      h('small', { text: [list.group && `One of: ${list.group}`, list.noteLabel && `Note: ${list.noteLabel}`].filter(Boolean).join(' · ') })),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Move ${list.name} up`, disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Move ${list.name} down`, disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
+  function draw() {
+    sheet.open(h('div', null,
+      sheetHead('Lists', 'Tap a list to rename it or change how it works.'),
+      h('div', { class: 'list-rows' }, lists.map(row)),
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openListForm() }, icon('plus'), 'New list')));
+  }
+  draw();
+}
+
+/** Add a list, or edit one. Afterwards the sheet goes back to the overview of lists. */
+function openListForm(list) {
+  const isNew = !list;
+  const name = h('input', { name: 'name', value: list?.name || '', autocomplete: 'off', autocapitalize: 'sentences', enterkeyhint: 'done' });
+  const noteLabel = h('input', { name: 'noteLabel', value: list?.noteLabel || '', placeholder: 'e.g. Lent to', autocomplete: 'off', autocapitalize: 'sentences' });
+  const error = h('p', { class: 'field-error', hidden: true });
+
+  // Either-or sets: on its own, one of the sets that exist, or a new one.
+  const NEW = Symbol('new set');
+  let group = list?.group || '';
+  const sets = [...new Set(lists.map((l) => l.group).filter(Boolean))];
+  const newSet = h('input', { name: 'group', placeholder: 'Name of the new set, e.g. Wishlist priority', autocomplete: 'off', autocapitalize: 'sentences' });
+  const newSetField = h('label', { class: 'field', hidden: true }, h('span', { text: 'New set' }), newSet);
+  const setChips = h('div', { class: 'chips' });
+  const drawSets = () => {
+    const chip = (value, text) => h('button', {
+      class: 'chip', type: 'button', text, 'aria-pressed': String(group === value),
+      onclick: () => { group = value; drawSets(); if (value === NEW) newSet.focus(); },
+    });
+    setChips.replaceChildren(chip('', 'On its own'), ...sets.map((g) => chip(g, g)), chip(NEW, 'New set…'));
+    newSetField.hidden = group !== NEW;
+  };
+  drawSets();
+
+  async function submit(e) {
+    e.preventDefault();
+    const clean = (input) => input.value.replace(/\s+/g, ' ').trim();
+    const data = { name: clean(name), group: group === NEW ? clean(newSet) : group, noteLabel: clean(noteLabel) };
+    const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
+    if (!data.name) return fail('A list needs a name.', name);
+    if (lists.some((l) => l !== list && fold(l.name) === fold(data.name))) return fail('There is already a list with that name.', name);
+    if (group === NEW && !data.group) return fail('Give the new set a name, or pick “On its own”.', newSet);
+    const target = list || { id: newId(), order: lists.reduce((max, l) => Math.max(max, l.order ?? 0), -1) + 1 };
+    Object.assign(target, data);
+    await saveList(target);
+    openLists();
+  }
+
+  function remove() {
+    const count = books.filter((b) => shelves(b)[list.id]).length;
+    removeList(list);
+    openLists();
+    // The books keep their place on the list, so undoing brings everything back.
+    toast(`Deleted “${list.name}”${count ? ` — the ${plural(count, 'book')} on it stay on your shelf` : ''}`, { action: 'Undo', onAction: () => saveList(list) });
+  }
+
+  sheet.open(h('form', { novalidate: true, onsubmit: submit },
+    sheetHead(isNew ? 'New list' : 'Edit list'),
+    h('label', { class: 'field' }, h('span', { text: 'Name' }), name),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: 'Either-or' }),
+      setChips,
+      newSetField,
+      h('p', { class: 'sheet-note', text: 'Lists in the same set are either-or: putting a book on one takes it off the others, like To read, Reading and Read. A list on its own can hold any book.' })),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: 'Note' }),
+      h('label', { class: 'field' }, noteLabel),
+      h('p', { class: 'sheet-note', text: 'Optional. If you name a note here, each book on this list can carry one — who you lent it to, where you left it.' })),
+    error,
+    h('div', { class: 'btn-row sheet-actions' },
+      !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': 'Delete list', onclick: remove }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: 'Cancel', onclick: () => openLists() }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? 'Add list' : 'Save'))));
+  if (isNew) name.focus();
+}
+
 /* ───────────────────────── Export ───────────────────────── */
 
 function exportJson() {
   const rows = [...books].reverse().map((b) => ({
     title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
     isbn: b.isbn || '', cover: b.cover || '', added: b.added,
+    lists: listsOf(b).map(({ list, at, note }) => ({ list: list.name, since: at, ...(note && { note }) })),
   }));
   return JSON.stringify(rows, null, 2);
 }
@@ -948,6 +1282,7 @@ const scanner = {
   busy: false, capturing: false,
   lastCode: '', lastSeen: 0,
   added: 0, pendingIsbn: '', wakeLock: null, hintTimer: 0,
+  target: [],   // ids of the lists scanned books go on
 };
 const alive = (session) => scanner.open && scanner.session === session;
 
@@ -968,9 +1303,12 @@ function openScanner() {
   scanner.open = true;
   const session = ++scanner.session;
   Object.assign(scanner, { added: 0, busy: false, capturing: false, lastCode: '', pendingIsbn: '' });
+  // Scanning from an open list fills that list; otherwise the lists chosen last time.
+  scanner.target = (view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById);
   scannerEl.hidden = false;
   setMode('barcode');
   updateScanCount();
+  renderScanTarget();
   openLayer(closeScannerNow);
   startCamera(session);
   scanLoop(session);
@@ -1251,7 +1589,31 @@ function setMode(mode, isbn = '') {
 
 function updateScanCount() {
   $('scanCount').hidden = scanner.added < 1;
-  $('scanCount').textContent = `${scanner.added} added`;
+  $('scanCount').textContent = String(scanner.added);
+  $('scanCount').title = `${scanner.added} added`;
+}
+
+const listNames = (ids) => ids.map((id) => listById(id)?.name).filter(Boolean).join(' + ');
+
+/** The lists a book scanned now goes on, as a fresh {listId: {at}} map. */
+const targetLists = () => placed(scanner.target);
+
+function renderScanTarget() {
+  $('scanTargetName').textContent = listNames(scanner.target) || 'No list';
+}
+
+function openTargetSheet() {
+  if (scanner.capturing) return;
+  const on = targetLists();
+  sheet.open(h('div', null,
+    sheetHead('Scan onto', 'Every book you scan goes on these lists. A book that is already on your shelf is put on them too.'),
+    listPicker(on, { notes: false }),
+    h('button', { class: 'btn btn-primary btn-block sheet-done', type: 'button', onclick: () => sheet.close() }, icon('check'), 'Done')),
+  () => {
+    scanner.target = lists.filter((l) => on[l.id]).map((l) => l.id);
+    store.set('scanTarget', scanner.target);
+    renderScanTarget();
+  });
 }
 
 /* Result cards */
@@ -1307,7 +1669,27 @@ async function onIsbn(isbn) {
   const existing = books.find((b) => b.isbn === isbn);
   if (existing) {
     scanner.busy = false;
-    showCard(card({ status: 'Already on your shelf', tone: 'warn', book: existing }));
+    // Scanning onto "Lent out" or "Read" is also how a book you already have gets there.
+    const before = existing.lists;
+    const missing = scanner.target.filter((id) => !shelves(existing)[id]);
+    if (!missing.length) {
+      showCard(card({ status: listNames(scanner.target) ? `Already on ${listNames(scanner.target)}` : 'Already on your shelf', tone: 'warn', book: existing }));
+      return;
+    }
+    existing.lists = missing.reduce((on, id) => place(on, id), { ...shelves(existing) });
+    saveBook(existing);
+    const undo = () => {
+      if (before) existing.lists = before; else delete existing.lists;
+      saveBook(existing);
+      showCard(null);
+    };
+    showCard(card({
+      status: `Put on ${listNames(missing)}`, tone: 'ok', statusIcon: 'check', book: existing,
+      actions: [
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: undo }, icon('undo'), 'Undo'),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book: existing }) }, icon('pencil'), 'Edit'),
+      ],
+    }));
     return;
   }
 
@@ -1315,7 +1697,7 @@ async function onIsbn(isbn) {
   const result = await lookupIsbn(isbn);
 
   if (result.status === 'found') {
-    const book = await addBook({ ...result.book, isbn });
+    const book = await addBook({ ...result.book, isbn, lists: targetLists() });
     if (!alive(session)) { toast(`Added “${book.title}”`); return; }
     scanner.added++;
     updateScanCount();
@@ -1335,7 +1717,7 @@ async function onIsbn(isbn) {
       ],
     }));
   } else {
-    const book = await addBook({ isbn, pending: true });
+    const book = await addBook({ isbn, pending: true, lists: targetLists() });
     if (!alive(session)) { toast('Saved the ISBN — details follow when you’re online'); return; }
     scanner.added++;
     updateScanCount();
@@ -1347,7 +1729,7 @@ async function onIsbn(isbn) {
 
 function manualEntry(isbn = '') {
   openBookForm({
-    book: { isbn }, isNew: true,
+    book: { isbn, lists: targetLists() }, isNew: true,
     onSaved: () => { scanner.added++; updateScanCount(); },
     onClose: (saved) => { if (saved && scanner.open) { setMode('barcode'); toast('Added to your shelf'); } },
   });
@@ -1573,7 +1955,7 @@ async function processCover({ canvas, thumb }) {
     if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); toast('Added to your shelf'); }
     else setHint();
   };
-  const draft = { title: guess.title, author: guess.author, isbn, thumb };
+  const draft = { title: guess.title, author: guess.author, isbn, thumb, lists: targetLists() };
   const chipLines = lines.map((l) => tidyCase(l.text)).filter((t) => t.length > 1);
   const editByHand = () => openBookForm({
     book: draft, isNew: true, ocrLines: chipLines, onClose: finish,
@@ -1587,7 +1969,7 @@ async function processCover({ canvas, thumb }) {
   const rows = candidates.map((c, i) => bookRow(c.book, async (b) => {
     if (picked) return;
     picked = true;
-    await addBook({ ...b, isbn: isbn || b.isbn, thumb });
+    await addBook({ ...b, isbn: isbn || b.isbn, thumb, lists: targetLists() });
     sheet.close();
   }, i === 0 && c.score >= 0.75 ? h('span', { class: 'badge', text: 'Best match' }) : null));
   rows.forEach((r) => r.classList.add('cand'));
@@ -1606,7 +1988,10 @@ function bindEvents() {
   $('settingsBtn').addEventListener('click', openSettings);
   $('search').addEventListener('input', renderLibrary);
 
+  window.addEventListener('hashchange', () => { readRoute(); renderLibrary(); });
+
   $('scanClose').addEventListener('click', closeLayer);
+  $('scanTargetBtn').addEventListener('click', openTargetSheet);
   $('typeIsbnBtn').addEventListener('click', openIsbnSheet);
   $('noBarcodeBtn').addEventListener('click', () => setMode('cover'));
   $('backToBarcodeBtn').addEventListener('click', () => { if (!scanner.capturing) setMode('barcode'); });
@@ -1678,9 +2063,11 @@ async function init() {
   try {
     books = await DB.all();
     sortBooks();
+    await loadLists();
   } catch (err) {
     storageFailed(err);
   }
+  readRoute();
   renderLibrary();
   navigator.storage?.persist?.().catch(() => {});
   initUpdates();
@@ -1694,7 +2081,7 @@ async function init() {
 
   // Home-screen shortcut: jump straight into the scanner.
   if (new URLSearchParams(location.search).has('scan')) {
-    history.replaceState(null, '', location.pathname);
+    history.replaceState(null, '', location.pathname + location.hash);
     openScanner();
   }
 }

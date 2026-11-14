@@ -4,3 +4,4 @@ server/db.sqlite3*
 server/staticfiles/
 server/.env
 server/.dev-credentials
+setup-deploy-secrets.sh

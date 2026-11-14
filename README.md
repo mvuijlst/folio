@@ -1,6 +1,7 @@
 # Bookscan
 
-A small installable web app (PWA) for cataloguing books with your phone.
+A small installable web app (PWA) for cataloguing books with your phone and keeping them on
+lists: your library, to read, reading, read, lent out, and any others you make.
 
 1. **Scan** the ISBN barcode on the back cover. The book is looked up in Open Library and
    Google Books and added to your shelf with title, author, publication date, publisher and
@@ -17,6 +18,27 @@ Photographing a back cover or copyright page that shows an ISBN works the same w
 You can also type an ISBN or enter a book entirely by hand. Books scanned without a connection
 are saved by ISBN and completed automatically once you are back online.
 
+## Lists
+
+Every book can be on any number of lists. The app starts with *Library*, *To read*, *Reading*,
+*Read* and *Lent out*; *Edit lists* adds, renames, reorders and deletes them.
+
+- **Either-or sets.** Lists in the same set exclude each other: putting a book on *Read* takes
+  it off *To read* and *Reading*. A list on its own (*Library*, *Lent out*) can hold any book,
+  whatever else it is on. Which set a list belongs to, if any, is chosen when editing the list.
+- **Notes.** A list can ask for a note per book. *Lent out* asks who it was lent to; the note
+  shows on the book and is searchable.
+- **Putting books on lists.** Open a book and tap its lists. Or scan: the pill at the top of
+  the scanner says which lists scanned books go on (the open list, or the ones you picked last
+  time). Scanning a book you already have puts it on those lists too, so scanning onto
+  *Lent out* or *Read* is the quick way to move a pile of books.
+- Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
+  On a wide screen the lists sit in a sidebar; on a phone they are a row of tabs.
+
+Books scanned before lists existed count as being in the *Library*.
+
+## Export
+
 **Export** (the download icon) saves, shares or copies the whole shelf as JSON:
 
 ```json
@@ -29,7 +51,11 @@ are saved by ISBN and completed automatically once you are back online.
     "pages": 536,
     "isbn": "9780156001311",
     "cover": "https://covers.openlibrary.org/b/id/…-M.jpg",
-    "added": "2026-11-14T12:27:54.748Z"
+    "added": "2026-11-14T12:27:54.748Z",
+    "lists": [
+      { "list": "Library", "since": "2026-11-14T12:27:54.748Z" },
+      { "list": "Lent out", "since": "2026-11-20T18:02:11.000Z", "note": "Jan" }
+    ]
   }
 ]
 ```
@@ -46,11 +72,11 @@ camera and for installing.
 
 ## Accounts and sync (optional)
 
-Without an account everything stays on the phone. With one (settings → *Account*), the shelf is
-also kept on the server and can be opened on any other device by signing in there. Changes sync
-a moment after you make them, when the app comes back to the foreground, and when you're back
-online; if two devices change the same book, the newest change wins. *Sign out & clear* removes
-the shelf from that device only.
+Without an account everything stays on the phone. With one (settings → *Account*), the shelf
+and its lists are also kept on the server and can be opened on any other device by signing in
+there. Changes sync a moment after you make them, when the app comes back to the foreground,
+and when you're back online; if two devices change the same book or the same list, the newest
+change wins. *Sign out & clear* removes the shelf from that device only.
 
 The server is a small Django app in [`server/`](server): a JSON API (`/api/session`, `/api/login`,
 `/api/logout`, `/api/sync`) plus the Django admin at `/admin/`, where accounts are made. There
@@ -90,7 +116,9 @@ and that deletes the shelf.
 
 ## Good to know
 
-- Your shelf is stored on the device (IndexedDB), and on the server while you're signed in.
+- Your shelf is stored on the device (IndexedDB: one database for books, one for lists), and
+  on the server while you're signed in. The server keeps each book and each list as the app
+  sent it; the lists a book is on travel inside the book.
   Export now and then to keep a copy of your own.
 - Google Books' keyless quota is shared and often exhausted. Open Library still answers, but
   for the best hit rate add a free Google Books API key under the settings icon.
@@ -105,7 +133,7 @@ and that deletes the shelf.
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | the whole app |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
-| `server/` | optional Django sync server (accounts, a copy of each shelf) |
+| `server/` | optional Django sync server (accounts, a copy of each shelf and its lists) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
 | `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and language data (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |
