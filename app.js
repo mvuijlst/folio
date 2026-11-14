@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.8.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.9.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1490,14 +1490,56 @@ function settleRating(book) {
 
 const longDate = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric' });
 
-function sourceNote(book, withWarning) {
+/**
+ * For a book that is in the booklog: the link to its page there, and that changes made here
+ * are published to it. When the last attempt to publish failed, what the booklog said.
+ */
+function sourceNote(book, explain) {
   if (!book.boeken || !book.url) return null;
   let host = '';
   try { host = new URL(book.url).host; } catch {}
-  return host ? h('p', { class: 'sheet-note from-site' },
-    h('a', { href: book.url, target: '_blank', rel: 'noopener' }, t('On {host}', { host }), ' ↗'),
-    withWarning && h('br'),
-    withWarning && t('This book comes from {host}. Its details and reading status are set from there again at the next import; reviews you change here are kept.', { host })) : null;
+  if (!host) return null;
+  return h('div', { class: 'from-site' },
+    h('p', { class: 'sheet-note' },
+      h('a', { href: book.url, target: '_blank', rel: 'noopener' }, t('On {host}', { host }), ' ↗'),
+      explain && h('br'),
+      explain && t('This book is in the booklog at {host}. What you change here is published there within a few minutes.', { host })),
+    book.boekenError && h('p', { class: 'field-error', text: t('Not published to {host}: {why}', { host, why: book.boekenError }) }));
+}
+
+/** How far along a book on the Reading list is: the page reached, or for an audiobook the time left. */
+function progressBox(book, again) {
+  if (!shelves(book).reading) return null;
+  const audio = !!book.duration;
+  const input = audio
+    ? h('input', { name: 'left', value: book.durationLeft || '', placeholder: '3u 12m', autocomplete: 'off' })
+    : h('input', { name: 'page', type: 'number', min: 0, max: book.pages || null, inputmode: 'numeric', value: book.pagesRead ?? '' });
+  const error = h('p', { class: 'field-error', hidden: true });
+  const fail = (message) => { error.textContent = message; error.hidden = false; input.focus(); };
+  return h('form', {
+    class: 'progress-form', novalidate: true,
+    onsubmit: async (e) => {
+      e.preventDefault();
+      if (audio) {
+        // The booklog writes durations as "3u 12m"; an h for hours is fine too.
+        const left = input.value.trim().toLowerCase().replace(/h/g, 'u').replace(/\s+/g, ' ');
+        if (!/^(?:\d+u)? ?(?:\d+m)?$/.test(left) || !left) return fail(t('Give the time left like 3u 12m.'));
+        book.durationLeft = left;
+      } else {
+        const page = Math.round(Number(input.value));
+        if (input.value.trim() === '' || !(page >= 0)) return fail(t('Which page are you on?'));
+        if (book.pages && page > book.pages) return fail(t('That is past the last page ({n}).', { n: book.pages }));
+        book.pagesRead = page;
+      }
+      await saveBook(book);
+      toast(t('Progress saved'));
+      again();
+    },
+  },
+  h('label', { class: 'field' },
+    h('span', { text: audio ? t('Time left') : book.pages ? t('Page (of {n})', { n: book.pages }) : t('Page') }), input),
+  h('button', { class: 'btn btn-outline', type: 'submit' }, icon('check'), t('Save')),
+  error);
 }
 
 function openBook(book) {
@@ -1523,6 +1565,7 @@ function openBook(book) {
         listTags(book, null)),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x'))),
     sourceNote(book, false),
+    progressBox(book, again),
     h('div', { class: 'sheet-section' },
       h('div', { class: 'section-head' },
         h('h3', { text: t('Reviews') }),

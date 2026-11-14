@@ -89,11 +89,11 @@ def make_repo(root, posts=POSTS):
     for old in folder.glob('*.md'):
         old.unlink()
     for slug, text in posts.items():
-        (folder / f'{slug}.md').write_text(text, encoding='utf-8')
+        (folder / f'{slug}.md').write_text(text, encoding='utf-8', newline='')   # as the booklog has them: LF
     for slug, name in AUTHORS.items():
         term = Path(root, 'site', 'content', 'authors', slug)
         term.mkdir(parents=True, exist_ok=True)
-        (term / '_index.md').write_text(f'---\ntitle: "{name}"\nslug: "{slug}"\n---\n', encoding='utf-8')
+        (term / '_index.md').write_text(f'---\ntitle: "{name}"\nslug: "{slug}"\n---\n', encoding='utf-8', newline='')
 
 
 class ImportTests(TestCase):

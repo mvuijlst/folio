@@ -398,6 +398,12 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .sheet-note a { color: var(--accent); }
 .from-site { margin: -8px 0 18px; }
 .from-site a { font-weight: 600; text-decoration: none; }
+.from-site .sheet-note { margin-top: 0; }
+.from-site .field-error { margin: 6px 0 0; }
+.progress-form { display: grid; grid-template-columns: minmax(0, 160px) auto; gap: 0 10px; align-items: end; margin-top: 16px; }
+.progress-form .field { margin-bottom: 0; }
+.progress-form .btn { min-height: 46px; justify-self: start; }
+.progress-form .field-error { grid-column: 1 / -1; margin: 8px 0 0; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 
 /* A book's page */

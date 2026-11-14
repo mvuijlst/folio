@@ -43,8 +43,16 @@ export default {
   'Open Folio': 'Folio openen',
 
   'On {host}': 'Op {host}',
-  'This book comes from {host}. Its details and reading status are set from there again at the next import; reviews you change here are kept.':
-    'Dit boek komt van {host}. De gegevens en de leesstatus worden bij de volgende import opnieuw van daar overgenomen; besprekingen die je hier aanpast, blijven behouden.',
+  'This book is in the booklog at {host}. What you change here is published there within a few minutes.':
+    'Dit boek staat in het boekenlog op {host}. Wat je hier wijzigt, verschijnt daar binnen enkele minuten.',
+  'Not published to {host}: {why}': 'Niet gepubliceerd op {host}: {why}',
+  'Page': 'Bladzijde',
+  'Page (of {n})': 'Bladzijde (van {n})',
+  'Time left': 'Nog te gaan',
+  'Which page are you on?': 'Op welke bladzijde ben je?',
+  'That is past the last page ({n}).': 'Dat is voorbij de laatste bladzijde ({n}).',
+  'Give the time left like 3u 12m.': 'Geef de resterende tijd als 3u 12m.',
+  'Progress saved': 'Voortgang opgeslagen',
   'View': 'Weergave',
   'List': 'Lijst',
   'Covers': 'Covers',

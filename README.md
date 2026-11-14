@@ -165,11 +165,45 @@ venv/bin/python manage.py import_boeken --user NAME --remove                    
   lists and notes. A booklog book deleted in the app stays deleted.
 - Covers are written as small images to `covers/boeken/` next to the app (the booklog's own are
   full-size) and served as plain files.
-- **For now the booklog is the source**: run the import again and titles, ratings and reading
-  status are set from it once more, overwriting changes made to those in the app. Other lists,
-  notes and scanned books are never touched, and neither are reviews written in the app or
-  booklog reviews that were edited in the app. On the server the booklog's checkout is the one
-  boeggn keeps, `/home/django/boeggn-yusupov/repo`.
+- The import and publishing (below) keep out of each other's way: whatever was changed in the
+  app and is not published yet is left as the app has it; everything else follows the booklog.
+  Other lists, notes and scanned books are never touched.
+
+### Publishing back to the booklog
+
+What is changed in the app about a booklog book is written back to the booklog, so
+boeken.tsuk.org follows without anyone editing Markdown:
+
+```bash
+venv/bin/python manage.py sync_boeken --user NAME --dry-run   # say what would be published
+venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, push, import
+```
+
+| In the app | In the booklog |
+| --- | --- |
+| a review is edited | its post gets the new text, rating and reading date (a date in another month keeps the old address as an alias) |
+| *To read* → *Reading* | the post's status, with progress started |
+| the page reached changes (on the book's page) | `pagesRead` and a line in `progressLog` |
+| a book being read gets a dated review, or moves to *Read* | the post is finished: no status, the reading date, rating and text |
+| a read book gets another dated review, or moves back to *Reading* | a new post, a reread of the first |
+| title, series, publisher, year, pages or ISBN change | the front matter (title and series on every read of the book) |
+| the cover is replaced | the picture goes into `media/` and the post points at it |
+
+- **Only what changed is written.** Posts are edited line by line, as boeggn did, never
+  re-serialised; a post nobody touched in the app stays byte for byte as it was. Each book is
+  one commit, worded as the booklog's always were (*Uitgelezen: …*, *Voortgang … (p. 210)*).
+- **Checked first.** Every post touched goes through the booklog's own `scripts/check_books.py`;
+  what it turns down is not committed, and the book's page in the app says why.
+- **Not at once.** A book is published once it has been left alone for two minutes
+  (`--delay`), so a tap on the wrong list can be undone before it is public.
+- **Not yet:** books that are not in the booklog are never published (adding a book to the
+  booklog still happens there), and a review without a reading date on a book that is already
+  read stays in the app.
+
+Settings, in `server/.env`: `BOEKEN_REPO_PATH` (a clone of the booklog that only this server
+writes to, outside the web root), `BOEKEN_GIT_AUTHOR` (`Name <address>` for its commits) and
+`BOEKEN_PUSH=1` (without it commits are made but not pushed, so nothing is public). On the
+server a systemd timer runs `sync_boeken` every two minutes.
 
 ## Updating
 

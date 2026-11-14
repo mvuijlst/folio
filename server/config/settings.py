@@ -4,6 +4,9 @@ Configuration comes from environment variables (see .env.example):
   DJANGO_SECRET_KEY   required in production
   DJANGO_DEBUG        "1" for local development
   DJANGO_ALLOWED_HOSTS  comma-separated, e.g. folio.yusupov.cloud
+  BOEKEN_REPO_PATH    a clone of the booklog to publish to (optional)
+  BOEKEN_GIT_AUTHOR   "Name <address>" for the commits made there
+  BOEKEN_PUSH         "1" to push those commits (which publishes them)
 """
 import os
 from pathlib import Path
@@ -82,6 +85,12 @@ USE_TZ = True
 
 # The PWA owns /static-free paths at the site root; Django's admin assets live apart.
 STATIC_URL = '/django-static/'
+# Publishing to the booklog (shelf/publish.py): a clone of mvuijlst/boeken that only this
+# server writes to, who its commits are by, and whether they are pushed. Unset: no publishing.
+BOEKEN_REPO = os.environ.get('BOEKEN_REPO_PATH') or None
+BOEKEN_GIT_AUTHOR = os.environ.get('BOEKEN_GIT_AUTHOR', 'Folio <folio@localhost>')
+BOEKEN_PUSH = os.environ.get('BOEKEN_PUSH') == '1'
+
 # Cover thumbnails are written next to the app and served from there as plain files.
 COVERS_DIR = BASE_DIR.parent / 'covers'
 STATIC_ROOT = BASE_DIR / 'staticfiles'

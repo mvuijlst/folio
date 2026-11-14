@@ -60,10 +60,44 @@ def review_text(body):
         if name == 'youtube':
             video = args.get('id') or rest.strip().strip('"')
             return f'[YouTube]({"https://www.youtube.com/watch?v=" + video})' if video else ''
-        return ''
-    text = SHORTCODE.sub(shortcode, body)
+        return match.group(0)   # one the app has no words for: kept as it is, so nothing is lost on the way back
+    text = SHORTCODE.sub(shortcode, body.replace('\r\n', '\n').replace('\r', '\n'))
     text = re.sub(r'\]\((/[^)\s]*)', lambda m: f']({SITE}{m.group(1)}', text)   # [link](/2020/01/slug/)
     return re.sub(r'\n{3,}', '\n\n', text).strip()
+
+
+def site_links(body):
+    """The addresses a post's body gives without the site in front ("/2020/01/slug/")."""
+    return set(re.findall(r'\]\((/[^)\s]*)', body or ''))
+
+
+def body_text(text, relative=()):
+    """A review as the booklog writes a post's body: review_text the other way round.
+
+    `relative` are the addresses the post gave without the site in front; those are written
+    that way again, and every other link stays exactly as it is in the review.
+    """
+    def image(match):
+        alt, src = match.group(1), match.group(2)
+        return '{{< bookimg src="uploads/' + src + '"' + (f' alt="{alt}"' if alt else '') + ' >}}'
+    site = re.escape(SITE)
+    text = re.sub(r'!\[([^\]]*)\]\(' + site + r'/wp-content/uploads/([^)\s]+)\)', image, str(text or ''))
+    text = re.sub(r'\[YouTube\]\(https://www\.youtube\.com/watch\?v=([\w-]+)\)', r'{{< youtube \1 >}}', text)
+    text = re.sub(r'\]\(' + site + r'(/[^)\s]*)', lambda m: f']({m.group(1)}' if m.group(1) in relative else m.group(0), text)
+    return re.sub(r'\n{3,}', '\n\n', text.replace('\r\n', '\n').replace('\r', '\n')).strip()
+
+
+# What of a book can be changed in the app and is then published to the booklog (shelf/publish.py).
+PUBLISHED = ('title', 'publisher', 'date', 'pages', 'isbn', 'series', 'seriesNumber', 'seriesLabel',
+             'pagesRead', 'durationLeft', 'cover')
+
+
+def state_of(book):
+    """Those facts of a book, and the reading list it is on. Kept in the book as `boekenState`
+    whenever the app and the booklog agree; a difference later on is a change made in the app."""
+    state = {key: book[key] for key in PUBLISHED if book.get(key) not in (None, '')}
+    state['list'] = next((name for name in STATUS_LISTS.values() if name in (book.get('lists') or {})), None)
+    return state
 
 
 def review_sum(review):
@@ -74,10 +108,13 @@ def review_sum(review):
 
 
 def read_posts(repo):
-    """Every post as a dict of its front matter, plus `_url`, `_when`, `_day` and `_text`."""
+    """Every post as a dict of its front matter, plus `_url`, `_when`, `_day` and `_text`
+    (and the file itself: `_path`, `_file`, its front matter `_raw` and its body `_body`)."""
     posts = []
     for path in sorted(Path(repo, 'site', 'content', 'posts').glob('*.md')):
-        match = FRONT_MATTER.match(path.read_text(encoding='utf-8'))
+        with open(path, encoding='utf-8', newline='') as file:   # as it is on disk, line endings included
+            content = file.read()
+        match = FRONT_MATTER.match(content)
         if not match:
             continue
         raw = match.group(1)
@@ -85,6 +122,7 @@ def read_posts(repo):
         if not post.get('title') or not post.get('date') or post.get('draft'):
             continue
         post.setdefault('slug', path.stem)
+        post.update(_path=path, _file=content, _raw=raw, _body=match.group(2) or '')
         # The public address is /year/month/slug/, with year and month as written in the file.
         written = re.search(r'^date:\s*["\']?(\d{4})-(\d{2})', raw, re.M)
         year, month = written.groups() if written else (f'{post["date"].year:04}', f'{post["date"].month:02}')

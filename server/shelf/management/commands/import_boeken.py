@@ -29,7 +29,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
 
-from shelf import boeken, covers
+from shelf import boeken, covers, publish
 from shelf.models import Book, List
 
 READING_GROUP = 'Reading status'
@@ -120,6 +120,7 @@ class Command(BaseCommand):
                                      if l.data.get('group') == READING_GROUP}
         counts = {'books in the booklog': len(incoming), 'added': 0, 'joined with a scanned book': 0,
                   'updated': 0, 'unchanged': 0, 'left deleted': 0,
+                  'waiting to be published': 0,
                   'reviews': sum(len(b['reviews']) for b in incoming), 'reviews kept as edited in the app': 0}
 
         for book in incoming:
@@ -143,6 +144,21 @@ class Command(BaseCommand):
             on = {k: v for k, v in on.items() if k not in either_or}
             on[book['list']] = {'at': book['at']}
             data['lists'] = on
+            # What was changed in the app and not published yet stays as the app has it;
+            # everything else is, from here on, what the app and the booklog agree on.
+            waiting = publish.changed_keys(old) if row else set()
+            for key in waiting:
+                for name in {'list': [], 'cover': ['cover', 'coverRatio', 'coverSource']}.get(key, [key]):
+                    data.pop(name, None)
+                    if name in old:
+                        data[name] = old[name]
+            if 'list' in waiting:
+                data['lists'] = old.get('lists') or {}
+            if waiting:
+                counts['waiting to be published'] += 1
+                data['boekenState'] = old['boekenState']
+            else:
+                data['boekenState'] = boeken.state_of(data)
             data['reviews'], kept = merged_reviews(old.get('reviews'), book['reviews'])
             counts['reviews kept as edited in the app'] += kept
             if not data['reviews']:
@@ -181,7 +197,7 @@ class Command(BaseCommand):
                 row.data, row.deleted = {}, True   # a tombstone, so it leaves every device
                 counts['deleted'] += 1
             else:
-                keep = {k: v for k, v in row.data.items() if k not in boeken.FIELDS or k in scanned}
+                keep = {k: v for k, v in row.data.items() if (k not in boeken.FIELDS and k not in ('boekenState', 'boekenError')) or k in scanned}
                 keep['lists'] = {k: v for k, v in (keep.get('lists') or {}).items() if k not in READING_LISTS}
                 keep['reviews'] = [r for r in keep.get('reviews') or [] if not r.get('boeken')]
                 if not keep['reviews']:
