@@ -31,6 +31,13 @@ FIELDS = ['title', 'author', 'publisher', 'date', 'pages', 'isbn', 'cover', 'cov
 FRONT_MATTER = re.compile(r'^---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n(.*))?$', re.S)
 
 
+def fold(text):
+    """For comparing names and titles: no case, no accents, no punctuation."""
+    import unicodedata
+    plain = ''.join(c for c in unicodedata.normalize('NFKD', str(text or '')) if not unicodedata.combining(c))
+    return ' '.join(re.findall(r'[a-z0-9]+', plain.lower()))
+
+
 def stamp(value):
     """A date from front matter as the app writes timestamps: UTC, to the millisecond."""
     if not isinstance(value, datetime):

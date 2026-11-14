@@ -21,7 +21,9 @@ def git(folder, *args):
     return done.stdout
 
 
-class PublishTests(TestCase):
+class BooklogCase(TestCase):
+    """A booklog in a git repository with a remote, imported into a user's shelf."""
+
     def setUp(self):
         self.user = get_user_model().objects.create_user('reader', password='x')
         self.tmp = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -76,7 +78,8 @@ class PublishTests(TestCase):
         diff = git(self.repo, 'show', '--format=', '--unified=0', 'HEAD', '--', f'site/content/posts/{slug}.md')
         return sorted(line for line in diff.splitlines() if line[:1] in '+-' and not line.startswith(('+++', '---')))
 
-    # ── tests
+
+class PublishTests(BooklogCase):
 
     def test_a_shelf_nobody_touched_publishes_nothing(self):
         counts, said = self.publish()
@@ -256,3 +259,121 @@ class PublishTests(TestCase):
             call_command('sync_boeken', '--user', 'reader', '--delay', '0', stdout=out)
         imported.assert_not_called()
         self.assertEqual(out.getvalue(), '')
+
+
+class AddToBooklogTests(BooklogCase):
+    """A book that is only in the app is added to the booklog when it is asked for."""
+
+    def setUp(self):
+        super().setUp()
+        for kind, slug in (('categories', 'sf'), ('categories', 'fictie'), ('tags', 'desert')):
+            page = self.repo / 'site' / 'content' / kind / slug / '_index.md'
+            page.parent.mkdir(parents=True)
+            page.write_text(f'---\ntitle: "{slug}"\nslug: "{slug}"\n---\n', encoding='utf-8', newline='')
+        git(self.repo, 'add', '.')
+        git(self.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.org', 'commit', '--quiet', '-m', 'Categories')
+
+    def scan(self, uid='s1', **data):
+        """A scanned book, as the app keeps it, changed long enough ago to be published."""
+        when = timezone.now() - timedelta(hours=1)
+        book = {'id': uid, 'added': '2026-11-01T10:00:00.000Z', 'title': 'Children of Dune', 'author': 'Frank Herbert',
+                'publisher': 'Ace', 'date': '1987', 'pages': 408, 'isbn': '9780441104024',
+                'lists': {'library': {'at': '2026-11-01T10:00:00.000Z'}, 'to-read': {'at': '2026-11-01T10:00:00.000Z'}},
+                'language': 'en', 'categories': ['sf'], 'tags': ['desert', 'Space opera'], 'boekenWanted': True, **data}
+        return Book.objects.create(user=self.user, uid=uid, data=book, title=book['title'], modified=when, changed=when)
+
+    def test_surnames_first(self):
+        self.assertEqual(publish.author_slug('Rebecca Yarros'), ('yarros-rebecca', 'Yarros - Rebecca'))
+        self.assertEqual(publish.author_slug('Ursula K. Le Guin'), ('le-guin-ursula-k', 'Le Guin - Ursula K.'))
+        self.assertEqual(publish.author_slug('Jan van der Meer'), ('van-der-meer-jan', 'van der Meer - Jan'))
+        self.assertEqual(publish.author_slug('Plato'), ('plato', 'Plato'))
+
+    def test_a_book_to_read_becomes_a_post_with_its_pages(self):
+        self.scan(author='Frank Herbert, Jane Q. Newcomer', series='Dune', seriesNumber=3)
+        counts, said = self.publish()
+        self.assertEqual(counts['published'], 1)
+        self.assertEqual(self.log()[0], 'Te lezen: Children of Dune')
+        post = self.post('children-of-dune')
+        self.assertTrue(post.startswith('---\ntitle: "Children of Dune"\nseries: ["Dune"]\nseries_number: 3\ndate: '))
+        self.assertTrue(post.endswith('slug: "children-of-dune"\npublisher: "Ace"\nyear: 1987\npages: 408\nisbn: "9780441104024"\n'
+                                      'language: "en"\nstatus: "to-read"\ncategories: ["sf"]\ntags: ["desert", "space-opera"]\n'
+                                      'authors: ["herbert-frank", "newcomer-jane-q"]\n---\n'))
+        content = self.repo / 'site' / 'content'
+        self.assertEqual((content / 'authors' / 'newcomer-jane-q' / '_index.md').read_text(encoding='utf-8'),
+                         '---\ntitle: "Jane Q. Newcomer"\nslug: "newcomer-jane-q"\nwpName: "Newcomer - Jane Q."\n---\n')
+        self.assertEqual((content / 'tags' / 'space-opera' / '_index.md').read_text(encoding='utf-8'),
+                         '---\ntitle: "Space opera"\nslug: "space-opera"\n---\n')
+        self.assertIn('    site/content/posts/children-of-dune.md', said)
+        # The book in the app now belongs to that post; importing it back changes nothing that matters.
+        book = Book.objects.get(uid='s1').data
+        self.assertEqual((book['boeken'], 'boekenWanted' in book), ('children-of-dune', False))
+        self.assertRegex(book['url'], r'^https://boeken.tsuk.org/\d{4}/\d{2}/children-of-dune/$')
+        self.import_booklog()
+        book = Book.objects.get(uid='s1').data
+        self.assertEqual(set(book['lists']), {'library', 'to-read'})
+        self.assertEqual(book['author'], 'Frank Herbert, Jane Q. Newcomer')
+        self.assertEqual(Book.objects.filter(user=self.user, deleted=False).count(), 4)
+        self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
+
+    def test_a_read_book_is_added_with_its_review_and_cover(self):
+        own = Path(self.tmp.name, 'covers', 'own')
+        own.mkdir(parents=True)
+        (own / 'abc.jpg').write_bytes(png(300, 450))
+        self.scan(lists={'read': {'at': '2026-11-05T10:00:00.000Z'}}, cover='covers/own/abc-320.webp', coverFull='covers/own/abc.jpg',
+                  reviews=[{'id': 'r1', 'date': '2026-11-05', 'rating': 7, 'text': 'The twins. ' * 30}])
+        self.publish()
+        self.assertEqual(self.log()[0], 'Uitgelezen: Children of Dune')
+        post = self.post('children-of-dune')
+        self.assertIn('date: 2026-11-05T20:00:00+01:00\nslug: "children-of-dune"\nrating: 7\nreview: true\n', post)
+        self.assertNotIn('status:', post)
+        self.assertIn('cover: "/wp-content/uploads/2026/11/children-of-dune.jpg"\n', post)
+        self.assertTrue((self.repo / 'media/wp-content/uploads/2026/11/children-of-dune.jpg').is_file())
+        self.assertTrue(post.rstrip().endswith('The twins.'))
+        self.assertEqual(Book.objects.get(uid='s1').data['reviews'][0]['boeken'], 'children-of-dune')
+
+    def test_a_book_being_read_starts_with_its_progress(self):
+        self.scan(lists={'reading': {'at': '2026-11-05T10:00:00.000Z'}}, pagesRead=40)
+        self.publish()
+        self.assertEqual(self.log()[0], 'Lezende: Children of Dune')
+        self.assertIn('pages: 408\npagesRead: 40\n', self.post('children-of-dune'))
+
+    def test_a_book_that_lacks_something_waits_and_says_what(self):
+        self.scan(language='', categories=[])
+        counts, said = self.publish()
+        self.assertEqual(counts['failed'], 1)
+        self.assertEqual(Book.objects.get(uid='s1').data['boekenError'], 'It needs a language, a category.')
+        self.assertFalse((self.repo / 'site/content/posts/children-of-dune.md').exists())
+        self.assertEqual(self.log()[0], 'Categories')
+
+    def test_only_what_was_asked_for_is_added(self):
+        row = self.scan()
+        row.data = {k: v for k, v in row.data.items() if k != 'boekenWanted'}
+        row.save()
+        self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
+
+    def test_a_book_that_is_in_the_booklog_and_on_the_shelf_is_not_added_again(self):
+        self.scan(title='Dune', isbn='9780441172719')
+        counts, said = self.publish()
+        self.assertEqual((counts['published'], counts['settled'], counts['failed']), (0, 0, 1))
+        self.assertFalse((self.repo / 'site/content/posts/dune-2.md').exists())
+        book = Book.objects.get(uid='s1').data
+        self.assertEqual(book['boekenError'], 'The booklog already has this book: it is "Dune" on your shelf.')
+        self.assertNotIn('boekenWanted', book)      # said once; not tried again
+        self.assertNotIn('boeken', book)
+        self.assertEqual(self.publish()[0]['failed'], 0)
+
+    def test_a_book_the_booklog_has_but_the_shelf_lost_is_tied_to_its_post(self):
+        # Dune is in the booklog as read, but was deleted from the shelf; the scanned copy is being read again.
+        Book.objects.filter(uid='boeken-dune').update(deleted=True, data={})
+        self.scan(title='Dune', isbn='9780441172719', lists={'reading': {'at': '2026-11-14T10:00:00.000Z'}})
+        counts, said = self.publish()
+        self.assertFalse((self.repo / 'site/content/posts/dune-2.md').exists())
+        self.assertEqual(Book.objects.get(uid='s1').data['boeken'], 'dune')
+        # That it is on Reading now is a change like any other: a reread begins, in the same run.
+        self.assertEqual((counts['published'], counts['settled']), (1, 1))
+        self.assertEqual(self.log()[0], 'Herlezen: Dune')
+
+    def test_a_second_book_with_the_same_title_gets_its_own_address(self):
+        self.scan(title='Dune', author='Someone Else', isbn='9780000000002')
+        self.publish()
+        self.assertIn('title: "Dune"\n', self.post('dune-2'))

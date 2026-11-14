@@ -196,9 +196,26 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
   what it turns down is not committed, and the book's page in the app says why.
 - **Not at once.** A book is published once it has been left alone for two minutes
   (`--delay`), so a tap on the wrong list can be undone before it is public.
-- **Not yet:** books that are not in the booklog are never published (adding a book to the
-  booklog still happens there), and a review without a reading date on a book that is already
-  read stays in the app.
+- **Not yet:** a review without a reading date on a book that is already read stays in the app.
+
+### Adding a book to the booklog
+
+A book that is only in the app (scanned, typed in) is never published by itself. Its page has
+*Add to boeken.tsuk.org*, which asks what a post there needs: where you are with it (*To read*,
+*Reading* or *Read*), the language of the edition, one or more of the booklog's categories, and
+optionally tags. Saying yes there is what makes the book public; a few minutes later it has a
+post of its own, and from then on it is a booklog book like the others.
+
+- The post gets the book's title, authors, series, publisher, year, pages, ISBN and cover. A
+  read book takes its first dated review along: reading date, rating and text. A book being
+  read starts at the page the app has for it.
+- Authors are matched to the booklog's author pages by name; an author it doesn't have yet
+  gets a page, filed by surname (*Ursula K. Le Guin* → `le-guin-ursula-k`). New tags and a new
+  series get their pages too. Categories are the booklog's own, fixed set.
+- The cover is the picture you gave the book, or the catalogue's cover fetched once more at
+  full size.
+- A book the booklog already has (same ISBN, or the same title by the same author) is not
+  added a second time: the app says which book on your shelf it is.
 
 Settings, in `server/.env`: `BOEKEN_REPO_PATH` (a clone of the booklog that only this server
 writes to, outside the web root), `BOEKEN_GIT_AUTHOR` (`Name <address>` for its commits) and

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.9.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.10.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1494,8 +1494,8 @@ const longDate = (day) => new Date(`${day}T12:00:00`).toLocaleDateString(LOCALE,
  * For a book that is in the booklog: the link to its page there, and that changes made here
  * are published to it. When the last attempt to publish failed, what the booklog said.
  */
-function sourceNote(book, explain) {
-  if (!book.boeken || !book.url) return null;
+function sourceNote(book, explain, again) {
+  if (!book.boeken || !book.url) return again ? addToBooklog(book, again) : null;
   let host = '';
   try { host = new URL(book.url).host; } catch {}
   if (!host) return null;
@@ -1505,6 +1505,91 @@ function sourceNote(book, explain) {
       explain && h('br'),
       explain && t('This book is in the booklog at {host}. What you change here is published there within a few minutes.', { host })),
     book.boekenError && h('p', { class: 'field-error', text: t('Not published to {host}: {why}', { host, why: book.boekenError }) }));
+}
+
+/* Adding a book to the booklog */
+
+/** The booklog this shelf belongs to ("boeken.tsuk.org"), or '' when it has none. */
+function booklogHost() {
+  const known = books.find((b) => b.boeken && b.url);
+  try { return known ? new URL(known.url).host : ''; } catch { return ''; }
+}
+
+/** The booklog's categories, most used first: it has a small, fixed set, and the books carry them. */
+function booklogCategories() {
+  const count = new Map();
+  for (const b of books) if (b.boeken) for (const c of b.categories || []) count.set(c, (count.get(c) || 0) + 1);
+  return [...count].sort((a, b) => b[1] - a[1]).map(([name]) => name);
+}
+
+/** On the page of a book that isn't in the booklog: the way in, or that it is on its way. */
+function addToBooklog(book, again) {
+  const host = booklogHost();
+  if (!host) return null;
+  const open = () => openBooklogForm(book, again);
+  return h('div', { class: 'from-site' },
+    book.boekenWanted
+      ? h('p', { class: 'sheet-note' }, t('This book will be added to {host} within a few minutes.', { host }), ' ',
+        h('button', { class: 'link-btn', type: 'button', text: t('Change'), onclick: open }))
+      : h('button', { class: 'link-btn', type: 'button', onclick: open }, icon('plus'), t('Add to {host}', { host })),
+    book.boekenError && h('p', { class: 'field-error', text: t('Not published to {host}: {why}', { host, why: book.boekenError }) }));
+}
+
+/**
+ * What the booklog wants to know before a book gets a page there: where you are with it,
+ * the language of the edition, and its categories. Saying yes here is what makes it public.
+ */
+function openBooklogForm(book, back) {
+  const host = booklogHost();
+  const status = lists.filter((l) => l.group === READING);
+  const on = {};
+  for (const { list, at, note } of listsOf(book)) on[list.id] = note ? { at, note } : { at };
+  let language = book.language || '';
+  const chosen = new Set(book.categories || []);
+  const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off' });
+  const error = h('p', { class: 'field-error', hidden: true });
+  const rows = { status: h('div', { class: 'chips' }), language: h('div', { class: 'chips' }), categories: h('div', { class: 'chips' }) };
+  const chip = (text, pressed, onclick) => h('button', { class: 'chip', type: 'button', text, 'aria-pressed': String(pressed), onclick });
+  function draw() {
+    rows.status.replaceChildren(...status.map((l) => chip(show(l.name), !!on[l.id], () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); })));
+    rows.language.replaceChildren(...Object.entries({ nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' })
+      .map(([code, name]) => chip(name, language === code, () => { language = code; draw(); })));
+    rows.categories.replaceChildren(...booklogCategories()
+      .map((name) => chip(name, chosen.has(name), () => { if (!chosen.delete(name)) chosen.add(name); draw(); })));
+  }
+  draw();
+
+  async function submit(e) {
+    e.preventDefault();
+    const fail = (message) => { error.textContent = message; error.hidden = false; };
+    if (!status.some((l) => on[l.id])) return fail(t('Choose a reading status.'));
+    if (!language) return fail(t('Choose a language.'));
+    if (!chosen.size) return fail(t('Choose at least one category.'));
+    Object.assign(book, {
+      lists: on, language, categories: [...chosen],
+      tags: tags.value.split(',').map((tag) => tag.replace(/\s+/g, ' ').trim()).filter(Boolean),
+      boekenWanted: true, boekenError: '',
+    });
+    await saveBook(book);
+    back();
+  }
+
+  sheet.open(h('form', { class: 'list-picker', novalidate: true, onsubmit: submit },
+    sheetHead(t('Add to {host}', { host }), displayTitle(book)),
+    h('p', { class: 'sheet-note booklog-note', text: t('The book gets a page of its own there, which anyone can see. A book you have read takes its review, rating and reading date along.') }),
+    h('div', { class: 'sheet-section' }, h('h3', { text: show(READING) }), rows.status),
+    h('div', { class: 'sheet-section' }, h('h3', { text: t('Language of this edition') }), rows.language),
+    h('div', { class: 'sheet-section' }, h('h3', { text: t('Categories') }), rows.categories),
+    h('div', { class: 'sheet-section' }, h('h3', { text: t('Tags') }),
+      h('label', { class: 'field' }, tags), h('p', { class: 'sheet-note', text: t('Optional. Separate tags with commas.') })),
+    error,
+    h('div', { class: 'btn-row sheet-actions' },
+      book.boekenWanted && h('button', {
+        class: 'btn btn-quiet btn-danger', type: 'button', text: t('Don’t add'),
+        onclick: async () => { book.boekenWanted = false; book.boekenError = ''; await saveBook(book); back(); },
+      }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Add')))));
 }
 
 /** How far along a book on the Reading list is: the page reached, or for an audiobook the time left. */
@@ -1564,7 +1649,7 @@ function openBook(book) {
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
         listTags(book, null)),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x'))),
-    sourceNote(book, false),
+    sourceNote(book, false, again),
     progressBox(book, again),
     h('div', { class: 'sheet-section' },
       h('div', { class: 'section-head' },

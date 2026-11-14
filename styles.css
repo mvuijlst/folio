@@ -400,6 +400,8 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .from-site a { font-weight: 600; text-decoration: none; }
 .from-site .sheet-note { margin-top: 0; }
 .from-site .field-error { margin: 6px 0 0; }
+.from-site .link-btn { padding: 2px 0; }
+.booklog-note { margin: -8px 0 0; }
 .progress-form { display: grid; grid-template-columns: minmax(0, 160px) auto; gap: 0 10px; align-items: end; margin-top: 16px; }
 .progress-form .field { margin-bottom: 0; }
 .progress-form .btn { min-height: 46px; justify-self: start; }

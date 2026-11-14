@@ -131,6 +131,45 @@ def keep_upload(data):
     return {'cover': f'covers/own/{small.name}', 'coverFull': f'covers/own/{full.name}', 'coverRatio': ratio}
 
 
+def original(book):
+    """The best picture the server can get of a book's cover, for the booklog. → (bytes, '.jpg') or None
+
+    A cover the user supplied is kept large already. One that came from a book catalogue is
+    only kept small, so it is fetched once more at its full size; failing that, the small
+    copy has to do.
+    """
+    from PIL import Image
+
+    base = Path(settings.COVERS_DIR).parent
+    full = base / str(book.get('coverFull') or '-')
+    if book.get('coverFull') and full.is_file():
+        return full.read_bytes(), '.jpg'
+    data = None
+    if wanted(book.get('coverSource')):
+        for address in candidates(book['coverSource']):
+            try:
+                data = download(address)
+                break
+            except (urllib.error.URLError, OSError, ValueError):
+                continue
+    small = base / str(book.get('cover') or '-')
+    if data is None and str(book.get('cover') or '').startswith('covers/') and small.is_file():
+        data = small.read_bytes()
+    if data is None:
+        return None
+    try:
+        with Image.open(io.BytesIO(data)) as image:
+            image = image.convert('RGB')
+            if image.width < 20 or image.height < 20:
+                return None
+            image.thumbnail((FULL, FULL))
+            out = io.BytesIO()
+            image.save(out, 'JPEG', quality=90)
+            return out.getvalue(), '.jpg'
+    except Exception:
+        return None
+
+
 def adopt(user, limit=4):
     """Give up to `limit` of this user's books a server-kept cover. Returns the books changed.
 

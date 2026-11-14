@@ -23,6 +23,8 @@ What a change in the app means in the booklog:
   title, series, publisher, year,    the post's (for title and series: every read's) front matter
     pages, ISBN change
   the cover is replaced              the picture goes into media/ and the post points at it
+  a book that is not in the booklog  a new post, with its cover and whatever author, tag and
+    is added to it (`boekenWanted`)    series pages do not exist yet (see plan_new)
 
 The front-matter editing is boeggn's (apps/core/services/books.py), which wrote these posts
 before: changes are made line by line, never by re-serialising the YAML.
@@ -38,7 +40,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
 
-from . import boeken
+from . import boeken, covers
 from .boeken import BRUSSELS
 
 FRONT = re.compile(r'\A---\r?\n(.*?)\r?\n---\r?\n?', re.S)
@@ -161,6 +163,7 @@ class Plan:
     links: list = field(default_factory=list)      # (review id, post slug, post address): these are now in step
     deferred: set = field(default_factory=set)     # changes that can't be published yet (a cover still on its way)
     notes: list = field(default_factory=list)      # what it does, in words
+    url: str = ''                                  # for a book new to the booklog: where its post will be
 
     @property
     def writes(self):
@@ -421,6 +424,160 @@ def plan_book(repo, data, group, taken, now):
     return plan
 
 
+# ───────────────────────── A book the booklog doesn't have yet ─────────────────────────
+
+PARTICLES = {'van', 'de', 'der', 'den', 'ter', 'ten', 'te', 'von', 'zu', 'du', 'des', 'le', 'la', 'di', 'da', 'del', 'della', 'el', 'al'}
+
+
+def author_slug(name):
+    """"Rebecca Yarros" → ("yarros-rebecca", "Yarros - Rebecca"): the booklog files authors by surname.
+
+    The surname is the last word, with the particles before it ("Ursula K. Le Guin" →
+    le-guin-ursula-k); a single name stays as it is.
+    """
+    words = str(name).split()
+    if len(words) < 2:
+        return slugify(name), str(name).strip()
+    cut = len(words) - 1
+    while cut > 1 and words[cut - 1].lower() in PARTICLES:
+        cut -= 1
+    first, last = ' '.join(words[:cut]), ' '.join(words[cut:])
+    return slugify(f'{last} {first}'), f'{last} - {first}'
+
+
+def needs(data):
+    """What a book still lacks before it can be a post in the booklog; empty when it is ready."""
+    lacking = []
+    if not str(data.get('title') or '').strip():
+        lacking.append('a title')
+    if not str(data.get('author') or '').strip():
+        lacking.append('an author')
+    if not boeken.state_of(data).get('list'):
+        lacking.append('a place on To read, Reading or Read')
+    if not re.fullmatch(r'[a-z]{2}', str(data.get('language') or '')):
+        lacking.append('a language')
+    if not data.get('categories'):
+        lacking.append('a category')
+    return lacking
+
+
+def plan_new(repo, data, posts, taken, now):
+    """The Plan that adds a book to the booklog: its post, its cover, and the author, tag and
+    series pages that don't exist yet. → (plan, slug of the post it is or becomes)
+
+    If the booklog already has the book (the same ISBN, or the same title by the same
+    author), nothing is added: the book is tied to that post instead, and what differs is
+    then a change like any other.
+    """
+    lacking = needs(data)
+    if lacking:
+        raise ValueError('It needs ' + ', '.join(lacking) + '.')
+    plan = Plan()
+    content = Path(repo, 'site', 'content')
+    title = str(data['title']).strip()
+    names = [name.strip() for name in re.split(r',| & | and | en ', str(data['author'])) if name.strip()]
+
+    known = {boeken.fold(display): slug for slug, display in boeken.author_names(repo).items()}
+    authors = []
+    for name in names:
+        slug = known.get(boeken.fold(name))
+        if not slug:
+            slug, filed = author_slug(name)
+            page = content / 'authors' / slug / '_index.md'
+            if not page.exists():
+                plan.files[page] = f'---\ntitle: {quote(name)}\nslug: {quote(slug)}\nwpName: {quote(filed)}\n---\n'
+        authors.append(slug)
+
+    # Already there?
+    isbn = str(data.get('isbn') or '')
+    for post in posts:
+        same_isbn = isbn and str(post.get('isbn') or '') == isbn
+        same_book = boeken.fold(post['title']) == boeken.fold(title) and set(post.get('authors') or []) & set(authors)
+        if same_isbn or same_book:
+            plan.files.clear()
+            plan.notes.append(f'already in the booklog as {post["slug"]}')
+            return plan, str(post.get('rereadOf') or post['slug'])
+
+    state = boeken.state_of(data)
+    shelf = state['list']
+    today = now.astimezone(BRUSSELS).date().isoformat()
+    reviews = [r for r in data.get('reviews') or [] if isinstance(r, dict) and not r.get('boeken')]
+    dated = sorted((r for r in reviews if r.get('date')), key=lambda r: r['date'])
+    # A read book's post is its first read; a book not read yet can carry a note.
+    review = dated[0] if shelf in ('read', 'abandoned') and dated else next((r for r in reviews if not r.get('date')), None)
+    day = review['date'] if review and review.get('date') else today
+
+    slug, n = slugify(title), 1
+    while slug in taken or not slug:
+        n += 1
+        slug = f'{slugify(title) or "boek"}-{n}'
+    taken.add(slug)
+
+    categories = [str(c) for c in data['categories']]
+    for category in categories:
+        if not (content / 'categories' / category / '_index.md').exists():
+            raise ValueError(f'The booklog has no category "{category}".')
+    tags = []
+    for tag in data.get('tags') or []:
+        tag_slug = slugify(tag)
+        if not tag_slug:
+            continue
+        tags.append(tag_slug)
+        page = content / 'tags' / tag_slug / '_index.md'
+        if not page.exists():
+            plan.files[page] = f'---\ntitle: {quote(str(tag).strip())}\nslug: {quote(tag_slug)}\n---\n'
+    series = str(data.get('series') or '').strip()
+    if series:
+        page = content / 'series' / slugify(series) / '_index.md'
+        if not page.exists():
+            plan.files[page] = f'---\ntitle: {quote(series)}\nslug: {quote(slugify(series))}\n---\n'
+
+    years = re.fullmatch(r'(\d{4})(?:\s*[–-]\s*(\d{4}))?', str(data.get('date') or '').strip())
+    text = boeken.body_text(review.get('text') or '') if review else ''
+    fields = {
+        'title': title,
+        'series': [series] if series else None,
+        'series_number': data.get('seriesNumber') if series else None,
+        'series_number_label': (data.get('seriesLabel') or None) if series else None,
+        'date': local(now) if day == today else on_day(day, time(20)),
+        'slug': slug,
+        'rating': review.get('rating') if review and shelf in ('read', 'abandoned') else None,
+        'review': (shelf == 'read' and len(text) > 200) or None,
+        'publisher': str(data.get('publisher') or '').strip(),
+        'year': int(years.group(1)) if years else None,
+        'year_until': int(years.group(2)) if years and years.group(2) else None,
+        'pages': data.get('pages') if isinstance(data.get('pages'), int) else None,
+        'isbn': isbn if re.fullmatch(r'\d{9}[\dXx]|\d{13}', isbn) else None,
+        'language': data['language'],
+        'status': None if shelf == 'read' else shelf,
+        'categories': categories,
+        'tags': tags,
+        'authors': authors,
+    }
+    if shelf == 'reading':
+        page = data.get('pagesRead')
+        fields['pagesRead'] = page if isinstance(page, int) and page > 0 else 1
+
+    picture = covers.original(data)
+    if picture:
+        folder = f'wp-content/uploads/{day[:4]}/{day[5:7]}'
+        name, n = f'{slug}{picture[1]}', 1
+        while Path(repo, 'media', folder, name).exists():
+            n += 1
+            name = f'{slug}-{n}{picture[1]}'
+        plan.pictures[Path(repo, 'media', folder, name)] = picture[0]
+        fields['cover'] = f'/{folder}/{name}'
+
+    plan.files[content / 'posts' / f'{slug}.md'] = new_post_text(fields, text)
+    plan.slugs.add(slug)
+    if review:
+        plan.links.append((review.get('id'), slug, f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'))
+    plan.url = f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'
+    plan.message = {'to-read': 'Te lezen', 'reading': 'Lezende', 'abandoned': 'Niet uit'}.get(shelf, 'Uitgelezen') + f': {title}'
+    plan.notes.append('new in the booklog')
+    return plan, slug
+
+
 # ───────────────────────── Git ─────────────────────────
 
 class RepoError(Exception):
@@ -546,6 +703,62 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
         group.sort(key=lambda p: p['_when'])
 
     counts = {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0}
+
+    def failed(row, err):
+        counts['failed'] += 1
+        message = str(err).strip()[:500] or err.__class__.__name__
+        say(f'NOT published: {row.title}: {message}')
+        if not dry_run and row.data.get('boekenError') != message:
+            row.data = {**row.data, 'boekenError': message}
+            row.changed = timezone.now()
+            row.save(update_fields=['data', 'changed'])
+
+    # Books that are to be added to the booklog.
+    every = [post for group in groups.values() for post in group]
+    for row in Book.objects.filter(user=user, deleted=False, data__boekenWanted=True):
+        if row.data.get('boeken'):
+            continue
+        if row.modified > now - timedelta(seconds=delay):
+            counts['waiting'] += 1
+            continue
+        try:
+            plan, key = plan_new(repo, row.data, every, taken, now)
+            twin = None if plan.writes else Book.objects.filter(user=user, deleted=False, data__boeken=key).exclude(pk=row.pk).first()
+            if twin:
+                # The booklog has this book and so does the shelf, as another entry: adding it
+                # again would make two of one book. Say so once, and stop asking.
+                counts['failed'] += 1
+                message = f'The booklog already has this book: it is "{twin.title}" on your shelf.'
+                say(f'NOT added: {row.title}: {message}')
+                if not dry_run:
+                    row.data = {**{k: v for k, v in row.data.items() if k != 'boekenWanted'}, 'boekenError': message}
+                    row.changed = timezone.now()
+                    row.save(update_fields=['data', 'changed'])
+                continue
+            say((plan.message or f'{row.title}:') + f'  [{", ".join(plan.notes)}]')
+            for path in [*plan.files, *plan.pictures]:
+                say(f'    {path.relative_to(repo).as_posix()}')
+            if plan.writes and not dry_run:
+                commit(repo, plan)
+            counts['published' if plan.writes else 'settled'] += 1
+            if not dry_run:
+                data = {k: v for k, v in row.data.items() if k not in ('boekenWanted', 'boekenError')}
+                data['boeken'] = key
+                if plan.writes:
+                    data['url'] = plan.url
+                    data = stamp(data, plan)
+                else:
+                    # Tied to a post that was there already. What the booklog says about it comes
+                    # with the import; the list the app has it on counts as a change to publish.
+                    there = groups.get(key, [{}])[-1]
+                    data['url'] = there.get('_url', '')
+                    data['boekenState'] = {**boeken.state_of(data), 'list': boeken.STATUS_LISTS.get(str(there.get('status') or 'read'))}
+                row.data = data
+                row.changed = timezone.now()
+                row.save(update_fields=['data', 'changed'])
+        except Exception as err:
+            failed(row, err)
+
     for row in Book.objects.filter(user=user, deleted=False, data__boeken__isnull=False):
         group = groups.get(str(row.data.get('boeken')))
         if not group or not is_pending(row.data):
@@ -569,11 +782,5 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 row.changed = timezone.now()   # `modified` stays: nobody edited the book
                 row.save(update_fields=['data', 'changed'])
         except Exception as err:   # one book that can't be published doesn't stop the others
-            counts['failed'] += 1
-            message = str(err).strip()[:500] or err.__class__.__name__
-            say(f'NOT published: {row.title}: {message}')
-            if not dry_run and row.data.get('boekenError') != message:
-                row.data = {**row.data, 'boekenError': message}
-                row.changed = timezone.now()
-                row.save(update_fields=['data', 'changed'])
+            failed(row, err)
     return counts
