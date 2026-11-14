@@ -56,7 +56,8 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {'init_command': 'PRAGMA journal_mode=WAL;', 'transaction_mode': 'IMMEDIATE'},
+        # A request that finds the database busy waits for it (up to 20 s) rather than failing.
+        'OPTIONS': {'init_command': 'PRAGMA journal_mode=WAL;', 'transaction_mode': 'IMMEDIATE', 'timeout': 20},
     }
 }
 

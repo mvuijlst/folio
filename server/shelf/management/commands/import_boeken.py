@@ -72,13 +72,13 @@ class Command(BaseCommand):
         if not remove and not repo:
             raise CommandError('Give the path of the boeken repository.')
 
+        # Reading the booklog and making thumbnails takes minutes the first time. That happens
+        # before the database is touched: a transaction here holds up every device's sync.
+        if not remove:
+            incoming = boeken.books(repo)
+            made = self.thumbnails(incoming, Path(covers_dir) if covers_dir else covers.folder('boeken'), dry_run)
         with transaction.atomic():
-            if remove:
-                counts = self.remove(user)
-            else:
-                incoming = boeken.books(repo)
-                made = self.thumbnails(incoming, Path(covers_dir) if covers_dir else covers.folder('boeken'), dry_run)
-                counts = {**self.merge(user, incoming), 'cover thumbnails made': made}
+            counts = self.remove(user) if remove else {**self.merge(user, incoming), 'cover thumbnails made': made}
             if dry_run:
                 transaction.set_rollback(True)
         summary = ', '.join(f'{n} {what}' for what, n in counts.items())
