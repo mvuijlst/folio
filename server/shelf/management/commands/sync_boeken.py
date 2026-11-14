@@ -7,12 +7,15 @@ In this order, in the server's own clone of the booklog (BOEKEN_REPO_PATH):
   1. fetch what others pushed (boeggn, an edit at a desk);
   2. publish what was changed in the app: one commit per book (shelf/publish.py);
   3. push, if BOEKEN_PUSH=1, which is what makes boeken.tsuk.org rebuild;
-  4. import the booklog, so what others changed reaches the app (import_boeken).
+  4. import the booklog, so what others changed reaches the app (import_boeken) — skipped
+     when the booklog is at the commit that was imported last and nothing was published,
+     which is nearly every run: the import reads every post and every cover.
 
 Meant to be run every few minutes by a timer. It says nothing when there was nothing to do.
 """
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 
@@ -64,8 +67,13 @@ class Command(BaseCommand):
                                  else f'; {unpushed} commit(s) not pushed (BOEKEN_PUSH is off)' if unpushed and not dry_run else ''))
 
         # The booklog as it now is, with whatever others changed, back into the app.
-        import_out = self.stdout if (happened or verbose or dry_run) else open_null()
-        call_command('import_boeken', repo, user=user, dry_run=dry_run, stdout=import_out, stderr=self.stderr)
+        head = publish.git(repo, 'rev-parse', 'HEAD').strip()
+        seen = f'boeken-imported:{account.pk}'
+        if happened or dry_run or cache.get(seen) != head:
+            import_out = self.stdout if (happened or verbose or dry_run) else open_null()
+            call_command('import_boeken', repo, user=user, dry_run=dry_run, stdout=import_out, stderr=self.stderr)
+            if not dry_run:
+                cache.set(seen, head, None)
 
 
 def open_null():

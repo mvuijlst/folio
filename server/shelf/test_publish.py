@@ -246,3 +246,13 @@ class PublishTests(TestCase):
         self.assertEqual(git(self.origin, 'log', '--format=%s', 'main').splitlines()[:2], ['Bewerkt: Dune', 'Bewerkt: Gilgamesh'])
         self.assertEqual(self.book('gilgamesh').data['reviews'][0]['text'], 'Because.')   # the other's change reached the app
         self.assertEqual(self.book('dune').data['rating'], 10)   # the book's rating is still its latest read's
+
+    def test_a_quiet_run_says_nothing_and_does_not_import_again(self):
+        from unittest import mock
+        from django.core.management import call_command as real
+        call_command('sync_boeken', '--user', 'reader', '--delay', '0', stdout=StringIO())   # the first run imports
+        out = StringIO()
+        with mock.patch('shelf.management.commands.sync_boeken.call_command', wraps=real) as imported:
+            call_command('sync_boeken', '--user', 'reader', '--delay', '0', stdout=out)
+        imported.assert_not_called()
+        self.assertEqual(out.getvalue(), '')
