@@ -38,8 +38,9 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
   // Book lookups and cover images go straight to the network.
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
-  // The sync server (API, admin and its assets) is never cached.
-  if (/\/(api|admin|django-static)\//.test(url.pathname)) return;
+  // The sync server (API, admin and its assets) is never cached. Nor are cover thumbnails:
+  // there can be thousands, and the browser's own cache keeps the ones it has seen.
+  if (/\/(api|admin|django-static|covers)\//.test(url.pathname)) return;
 
   if (url.pathname.includes('/vendor/')) {
     event.respondWith(cacheFirst(request));

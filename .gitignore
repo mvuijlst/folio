@@ -5,3 +5,4 @@ server/staticfiles/
 server/.env
 server/.dev-credentials
 setup-deploy-secrets.sh
+covers/

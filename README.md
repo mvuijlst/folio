@@ -115,6 +115,32 @@ notice at the top that points to the new one (`MOVED` in `app.js`). A shelf live
 browser per address, so it only comes along by signing in at the new address. Once nobody
 opens the old address any more, its nginx site can become a redirect.
 
+## The booklog (boeken.tsuk.org)
+
+The books of the booklog at [boeken.tsuk.org](https://boeken.tsuk.org) (the
+[mvuijlst/boeken](https://github.com/mvuijlst/boeken) repository) can be brought into an
+account's shelf:
+
+```bash
+cd server
+venv/bin/python manage.py import_boeken /path/to/boeken --user NAME --dry-run   # what would happen
+venv/bin/python manage.py import_boeken /path/to/boeken --user NAME
+venv/bin/python manage.py import_boeken --user NAME --remove                    # undo
+```
+
+- Each post becomes a book on *To read*, *Reading* or *Read* (or *Abandoned*, a list that is
+  made when first needed), dated as in the booklog. A reread is the same book, not a second one.
+- A book comes with its rating, series, how far along it is, and a link to its page in the
+  booklog; the app shows these in the list and in the book's form.
+- A booklog book that is already on the shelf (same ISBN) is joined with it and keeps its other
+  lists and notes. A booklog book deleted in the app stays deleted.
+- Covers are written as small images to `covers/boeken/` next to the app (the booklog's own are
+  full-size) and served as plain files.
+- **For now the booklog is the source**: run the import again and titles, ratings and reading
+  status are set from it once more, overwriting changes made to those in the app. Other lists,
+  notes and scanned books are never touched. On the server the booklog's checkout is the one
+  boeggn keeps, `/home/django/boeggn-yusupov/repo`.
+
 ## Updating
 
 Pushing to the repository deploys to the server (`.github/workflows/deploy.yml`, which lists the
@@ -149,7 +175,8 @@ and that deletes the shelf.
 | `index.html`, `styles.css`, `app.js` | the whole app |
 | `lang-nl.js` | the app's text in Dutch |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
-| `server/` | optional Django sync server (accounts, a copy of each shelf and its lists) |
+| `server/` | optional Django sync server (accounts, a copy of each shelf and its lists), and the booklog import |
+| `covers/` | cover thumbnails made by the import (not in the repository) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
 | `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and language data (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.4.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.5.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -627,8 +627,13 @@ function normDate(raw) {
 const yearOf = (date) => (String(date || '').match(/\b(1[4-9]\d\d|20\d\d)\b/) || [])[1] || '';
 
 function metaLine(b) {
-  return [b.publisher, yearOf(b.date) || b.date, b.pages && t('{n} pp', { n: b.pages })].filter(Boolean).join(' · ');
+  // Rating (0–10) and how far along come with books from the booklog at boeken.tsuk.org.
+  const progress = b.pagesRead && b.pages ? t('{n}% read', { n: Math.min(100, Math.round((b.pagesRead / b.pages) * 100)) }) : '';
+  return [b.publisher, yearOf(b.date) || b.date, b.pages && t('{n} pp', { n: b.pages }), progress, b.rating != null && `★ ${b.rating}`]
+    .filter(Boolean).join(' · ');
 }
+
+const seriesLine = (b) => (b.series ? `${b.series}${b.seriesNumber ? ` #${b.seriesNumber}` : ''}` : '');
 
 /* ───────────────────────── Lookups ───────────────────────── */
 
@@ -909,7 +914,7 @@ function bookRow(b, onPick, extra, tags) {
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title' }, extra, displayTitle(b)),
-      h('div', { class: 'book-author', text: b.author || (b.title ? '' : b.isbn && !b.pending ? `ISBN ${b.isbn}` : '') }),
+      h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') || (b.title ? '' : b.isbn && !b.pending ? `ISBN ${b.isbn}` : '') }),
       meta, tags));
 }
 
@@ -919,6 +924,8 @@ function dayLabel(iso) {
   const days = Math.round((start(now) - start(d)) / 864e5);
   if (days <= 0) return t('Today');
   if (days === 1) return t('Yesterday');
+  // Further back, a month is fine enough (and keeps years of reading from being all headings).
+  if (days > 45) return d.toLocaleDateString(LOCALE, { month: 'long', year: 'numeric' });
   return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
@@ -948,6 +955,31 @@ function renderNav() {
   }
 }
 
+// A shelf can hold thousands of books, so the library is drawn a page at a time: more rows
+// are added as you scroll towards the end.
+const PAGE = 120;
+let shown = { rows: [], next: 0, lastDay: '', key: '', current: null, query: '', when: null };
+window.addEventListener('scroll', () => {
+  const more = $('more');
+  if (more && more.getBoundingClientRect().top < window.innerHeight + 800) appendRows();
+}, { passive: true });
+
+function appendRows(upTo = shown.next + PAGE) {
+  $('more')?.remove();
+  const frag = document.createDocumentFragment();
+  const end = Math.min(shown.rows.length, upTo);
+  for (const b of shown.rows.slice(shown.next, end)) {
+    const day = dayLabel(shown.when(b));
+    if (!shown.query && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
+    frag.append(bookRow(b, (book) => openBookForm({ book }), null, listTags(b, shown.current)));
+  }
+  shown.next = end;
+  const more = end < shown.rows.length
+    && h('button', { id: 'more', class: 'btn btn-outline btn-block more', type: 'button', onclick: () => appendRows() }, t('Show more'));
+  if (more) frag.append(more);   // also a button, for when scrolling isn't how you get there
+  $('library').append(frag);
+}
+
 function renderLibrary() {
   if (view.list && !listById(view.list)) view.list = null;   // the open list was deleted
   const current = view.list ? listById(view.list) : null;
@@ -963,20 +995,18 @@ function renderLibrary() {
   $('searchWrap').hidden = inView.length < 8 && !query;
 
   const found = query
-    ? inView.filter((b) => fold([b.title, b.author, b.publisher, b.isbn, b.date, ...listsOf(b).map((m) => m.note)].join(' ')).includes(query))
+    ? inView.filter((b) => fold([b.title, b.author, b.series, b.publisher, b.isbn, b.date, ...listsOf(b).map((m) => m.note)].join(' ')).includes(query))
     : inView;
-  const frag = document.createDocumentFragment();
-  let lastDay = '';
-  for (const b of found) {
-    const day = dayLabel(when(b));
-    if (!query && day !== lastDay) { frag.append(h('h2', { class: 'day', text: day })); lastDay = day; }
-    frag.append(bookRow(b, (book) => openBookForm({ book }), null, listTags(b, current)));
-  }
-  if (query && !found.length) frag.append(h('p', { class: 'no-results', text: t('No books match that search.') }));
+  // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
+  const key = `${view.list}|${query}`;
+  const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
+  shown = { rows: found, next: 0, lastDay: '', key, current, query, when };
+  $('library').replaceChildren();
+  appendRows(rows);
+  if (query && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that search.') }));
   else if (current && !found.length && books.length) {
-    frag.append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.', { list: show(current.name) }) }));
+    $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.', { list: show(current.name) }) }));
   }
-  $('library').replaceChildren(frag);
 }
 
 /* ───────────────────────── Book form ───────────────────────── */
@@ -1071,9 +1101,21 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     onclick: () => { [f.title.value, f.author.value] = [f.author.value, f.title.value]; },
   }, icon('swap'), t('Swap title and author'));
 
+  // A book that came from the booklog: where to read about it, and who has the last word.
+  let source = null;
+  if (book.boeken && book.url) {
+    let host = '';
+    try { host = new URL(book.url).host; } catch {}
+    source = host && h('p', { class: 'sheet-note from-site' },
+      h('a', { href: book.url, target: '_blank', rel: 'noopener' }, book.reviewed ? t('Review on {host}', { host }) : t('On {host}', { host }), ' ↗'),
+      h('br'),
+      t('This book comes from {host}. Its details and reading status are set from there again at the next import.', { host }));
+  }
+
   const form = h('form', { novalidate: true, onsubmit: submit },
     sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null,
       (book.cover || book.thumb) ? coverEl(book) : null),
+    source,
     ocrBox,
     field(t('Title'), f.title),
     field(t('Author'), f.author),
@@ -1232,7 +1274,7 @@ function openListForm(list) {
 function exportJson() {
   const rows = [...books].reverse().map((b) => ({
     title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
-    isbn: b.isbn || '', cover: b.cover || '', added: b.added,
+    isbn: b.isbn || '', cover: b.cover ? abs(b.cover) : '', added: b.added,
     lists: listsOf(b).map(({ list, at, note }) => ({ list: show(list.name), since: at, ...(note && { note }) })),
   }));
   return JSON.stringify(rows, null, 2);

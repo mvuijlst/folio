@@ -33,12 +33,19 @@ export default {
   'Will be looked up when you’re online': 'Wordt opgezocht zodra je online bent',
   'No match found — tap to fill in': 'Niets gevonden — tik om in te vullen',
   '{n} pp': '{n} blz.',
+  '{n}% read': '{n}% gelezen',
+  'Show more': 'Meer tonen',
   'Note': 'Notitie',
   'Close': 'Sluiten',
   'Could not save to this device’s storage': 'Opslaan op dit toestel is mislukt',
   'Bookscan is now Folio, at {host}. Sign in there and your shelf comes along. This old address will be switched off.':
     'Bookscan heet nu Folio en staat op {host}. Meld je daar aan en je boekenkast komt mee. Dit oude adres verdwijnt.',
   'Open Folio': 'Folio openen',
+
+  'Review on {host}': 'Bespreking op {host}',
+  'On {host}': 'Op {host}',
+  'This book comes from {host}. Its details and reading status are set from there again at the next import.':
+    'Dit boek komt van {host}. De gegevens en de leesstatus worden bij de volgende import opnieuw van daar overgenomen.',
 
   // Book form
   'New book': 'Nieuw boek',

@@ -215,6 +215,7 @@ img { display: block; max-width: 100%; }
 .book-meta { color: var(--faint); font-size: .8rem; margin-top: 3px; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .book-meta.flag { color: var(--accent); display: flex; align-items: center; gap: 6px; }
 .book-meta.flag .icon { width: 14px; height: 14px; }
+.more { margin: 22px 0 8px; }
 .book-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 7px; }
 .tag {
   max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -339,6 +340,8 @@ img { display: block; max-width: 100%; }
 .sheet-section > h3 { font-size: .76rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin-bottom: 10px; }
 .sheet-note { color: var(--muted); font-size: .88rem; margin-top: 8px; }
 .sheet-note a { color: var(--accent); }
+.from-site { margin: -8px 0 18px; }
+.from-site a { font-weight: 600; text-decoration: none; }
 .stack { display: flex; flex-direction: column; gap: 10px; }
 
 /* Choosing and managing lists */

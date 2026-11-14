@@ -1,2 +1,4 @@
 django>=5.2,<6
 gunicorn>=23
+PyYAML>=6
+Pillow>=10
