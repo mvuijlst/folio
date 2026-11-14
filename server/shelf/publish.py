@@ -200,6 +200,37 @@ def is_pending(data):
                 or any(r.get('boeken') and r.get('sum') and not boeken.in_step(r) for r in reviews))
 
 
+def known_authors(repo):
+    """Every way a name may be written → the slug of that author's page in the booklog."""
+    from .intake import name_key   # "Hamilton, Peter F." is "Peter F. Hamilton" is hamilton-peter-f
+    known = {}
+    for slug, display in boeken.author_names(repo).items():
+        known[name_key(display.split())] = slug
+        known.setdefault(name_key(slug.split('-')), slug)
+    return known
+
+
+def people_front(repo, people, plan, known=None):
+    """People as the app has them → (authors, roles) as a post has them. Someone the booklog
+    doesn't know yet gets an author page, added to the plan."""
+    from .intake import name_key
+    known = known_authors(repo) if known is None else known
+    authors, roles = [], {}
+    for person in boeken.tidy_people(people):
+        slug = known.get(name_key(person['name'].split()))
+        if not slug:
+            slug, filed = author_slug(person['name'])
+            page = Path(repo, 'site', 'content', 'authors', slug, '_index.md')
+            if not page.exists():
+                plan.files[page] = f'---\ntitle: {quote(person["name"])}\nslug: {quote(slug)}\nwpName: {quote(filed)}\n---\n'
+            known[name_key(person['name'].split())] = slug
+        if slug not in authors:
+            authors.append(slug)
+            if person['role']:
+                roles[slug] = person['role']
+    return authors, roles
+
+
 def plan_book(repo, data, group, taken, now):
     """→ the Plan for one book, or None when the booklog already has everything.
 
@@ -260,6 +291,25 @@ def plan_book(repo, data, group, taken, now):
         plan.notes.append('new cover')
         return f'/{folder}/{name}'
 
+    def set_people(post, people):
+        """Who made the book as that post has it: its authors, and the role of each who has one."""
+        people = boeken.tidy_people(people)
+        names = boeken.author_names(repo)
+        if not people or people == boeken.tidy_people(boeken.people_of(post.get('authors'), post.get('roles'), names)):
+            return False
+        authors, roles = people_front(repo, people, plan, known_with(post, names))
+        edit(post)['front'].update(authors=authors, roles=roles or None)
+        return True
+
+    def known_with(post, names):
+        """The booklog's authors, where the people this post already names keep the page they have
+        (a few authors have two pages, and a name alone doesn't say which)."""
+        from .intake import name_key
+        known = known_authors(repo)
+        for slug in post.get('authors') or []:
+            known[name_key(str(names.get(str(slug), slug)).split())] = str(slug)
+        return known
+
     def set_edition(post, review):
         """The edition read that time, on that read's own post."""
         if not isinstance(review.get('edition'), dict):
@@ -267,6 +317,8 @@ def plan_book(repo, data, group, taken, now):
         for key, value in edition_fields(review['edition']).items():
             if value != (post.get(key) or None):
                 edit(post)['front'][key] = value
+        if 'people' in review['edition']:
+            set_people(post, review['edition']['people'])
         cover = edition_picture(review['edition'], post['slug'], post['_day'])
         if cover:
             edit(post)['front']['cover'] = cover
@@ -300,6 +352,9 @@ def plan_book(repo, data, group, taken, now):
             own = edition_fields(review['edition'])
             if any(own.values()):
                 fields.update(own)
+            if boeken.tidy_people(review['edition'].get('people')):
+                authors, roles = people_front(repo, review['edition']['people'], plan, known_with(latest, boeken.author_names(repo)))
+                fields.update(authors=authors, roles=roles or None)
             fields['cover'] = edition_picture(review['edition'], slug, review['date']) or fields.get('cover')
         if review:
             day = review['date']
@@ -423,6 +478,8 @@ def plan_book(repo, data, group, taken, now):
         years = re.fullmatch(r'(\d{4})(?:\s*[–-]\s*(\d{4}))?', str(state.get('date') or ''))
         if years:
             edit(latest)['front'].update(year=int(years.group(1)), year_until=int(years.group(2)) if years.group(2) else None)
+    if 'people' in changed and set_people(latest, state.get('people')):
+        kinds.append('edit')
     if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date'}:
         kinds.append('edit')
 
@@ -540,22 +597,10 @@ def plan_new(repo, data, posts, taken, now):
     plan = Plan()
     content = Path(repo, 'site', 'content')
     title = str(data['title']).strip()
-    names = [name.strip() for name in re.split(r',| & | and | en ', str(data['author'])) if name.strip()]
-
-    from .intake import name_key   # "Hamilton, Peter F." is "Peter F. Hamilton" is hamilton-peter-f
-    known = {}
-    for slug, display in boeken.author_names(repo).items():
-        known[name_key(display.split())] = slug
-        known.setdefault(name_key(slug.split('-')), slug)
-    authors = []
-    for name in names:
-        slug = known.get(name_key(name.split()))
-        if not slug:
-            slug, filed = author_slug(name)
-            page = content / 'authors' / slug / '_index.md'
-            if not page.exists():
-                plan.files[page] = f'---\ntitle: {quote(name)}\nslug: {quote(slug)}\nwpName: {quote(filed)}\n---\n'
-        authors.append(slug)
+    # Everyone who made it, with what each did; for a book that only names its writers, those.
+    people = boeken.tidy_people(data.get('people')) or [
+        {'name': name.strip(), 'role': ''} for name in re.split(r',| & | and | en ', str(data['author'])) if name.strip()]
+    authors, roles = people_front(repo, people, plan)
 
     # Already there?
     isbn = str(data.get('isbn') or '')
@@ -618,6 +663,7 @@ def plan_new(repo, data, posts, taken, now):
         'pages': data.get('pages') if isinstance(data.get('pages'), int) else None,
         'isbn': isbn if re.fullmatch(r'\d{9}[\dXx]|\d{13}', isbn) else None,
         'language': data['language'],
+        'roles': roles or None,
         'status': None if shelf == 'read' else shelf,
         'categories': categories,
         'tags': tags,

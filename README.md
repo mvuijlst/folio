@@ -67,7 +67,14 @@ Books scanned before lists existed count as being in the *Library*.
 - **A book's page takes a little of its cover's colour**, as its page in the booklog does: the
   first of the cover's main colours that is neither nearly white nor nearly black. Only that
   sheet is tinted.
-- **Authors.** An author's name on a book's page leads to all of their books (`#/author/<name>`).
+- **Authors and others.** A book has people: those who wrote it, and those who drew, coloured,
+  lettered, translated or read it, each with what they did (*beeld*, *kleur*, *stem*,
+  *vertaling*: the booklog's own free words). No role means an author. A book shows its
+  writers, then the others by role; each read's edition has its own people, so the audiobook
+  has a voice and the paperback read before it has not. They are edited as rows of name and
+  role, in a book's details (for the book, which is its latest read) and under *Edition read*
+  in a review (for that read). Any name leads to all of that person's books
+  (`#/author/<name>`), whatever they did on them.
 - **A book without a cover** offers *Search for a cover*: a picture search for its title and
   author, large pictures only, in a new tab. Copy one and paste it in the book's details.
 - **The menu shows the lists that have books on them.** An empty list is still there to put
@@ -263,6 +270,7 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | --- | --- |
 | a review is edited | its post gets the new text, rating and reading date (a date in another month keeps the old address as an alias) |
 | the edition of a read is changed | that read's own post gets the publisher, year, pages or length, ISBN, language and cover |
+| the people of a read, or of the book, change | `authors` and `roles` of that read's post (the book's: its latest read); someone new gets an author page, and people who didn't change keep the page they had |
 | *To read* → *Reading* | the post's status, with progress started |
 | the page reached changes (on the book's page) | `pagesRead` and a line in `progressLog` |
 | a book being read gets a dated review, or moves to *Read* | the post is finished: no status, the reading date, rating and text |

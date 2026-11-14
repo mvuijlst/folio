@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.20.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.21.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -321,6 +321,72 @@ const seriesNo = (b) => String(b.seriesLabel || (b.seriesNumber ?? ''));
 
 /** A book's authors, one by one ("John Scalzi, Wil Wheaton" is two). */
 const authorsOf = (b) => String(b.author || '').split(',').map((name) => name.trim()).filter(Boolean);
+
+/* The people of a book: who wrote it, and who drew, coloured, lettered, translated or read
+   it. `people` is [{name, role}], the role empty for someone who simply wrote it; `author`
+   stays the names of the writers, for lists and searching. A book has the people of its
+   latest read, and each read's edition its own: the audiobook has a voice, the paperback not.
+   A book that only has `author` (scanned, nothing more said) has those as its people. */
+const WRITER_ROLES = new Set(['auteur', 'auteurs', 'author', 'schrijver', 'tekst', 'writer']);   // as the booklog has it
+const isWriter = (person) => !person.role || WRITER_ROLES.has(person.role.trim().toLowerCase());
+const peopleOf = (x) => (Array.isArray(x.people) && x.people.length ? x.people : authorsOf(x).map((name) => ({ name, role: '' })));
+/** Those who wrote it; where nobody is said to have, everybody. */
+const writersIn = (people) => { const wrote = people.filter(isWriter); return (wrote.length ? wrote : people).map((person) => person.name); };
+/** The others, by what they did: [[role, [names]]]. */
+function contributorsIn(people) {
+  const by = new Map();
+  if (people.some(isWriter)) for (const person of people) if (!isWriter(person)) (by.get(person.role) || by.set(person.role, []).get(person.role)).push(person.name);
+  return [...by];
+}
+/** Everyone named on a book or on any edition of it that was read, folded for comparing. */
+const everyoneIn = (b) => new Set([b, ...(b.reviews || []).map((r) => r.edition || {})].flatMap((x) => peopleOf(x).map((person) => fold(person.name))).concat(authorsOf(b).map(fold)));
+
+/** A name that leads to all of that person's books. */
+const personLink = (name) => h('a', {
+  class: 'author-link', href: `#/author/${encodeURIComponent(name)}`, text: name,
+  onclick: (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
+    e.preventDefault();
+    closeLayersThen(() => setView({ author: name }));
+  },
+});
+
+/** The people editor of a form: a row of name and role each. → { el, first, value() } */
+function peopleEditor(people) {
+  const known = new Set(), roles = new Set(['tekst', 'beeld', 'kleur', 'inkt', 'letters', 'stem', 'vertaling', 'redactie', 'illustraties', 'voorwoord']);
+  for (const b of books) for (const x of [b, ...(b.reviews || []).map((r) => r.edition || {})]) for (const person of peopleOf(x)) { known.add(person.name); if (person.role) roles.add(person.role); }
+  const rows = h('div', { class: 'people-rows' });
+  const add = (person = {}) => {
+    const name = h('input', { name: 'person', value: person.name || '', placeholder: t('Name'), list: 'peopleNames', autocomplete: 'off', autocapitalize: 'words' });
+    const role = h('input', { name: 'role', value: person.role || '', placeholder: t('role, if any'), list: 'peopleRoles', autocomplete: 'off', autocapitalize: 'none' });
+    const row = h('div', { class: 'people-row' }, name, role, h('button', {
+      class: 'icon-btn', type: 'button', 'aria-label': t('Remove'), title: t('Remove'),
+      onclick: () => { if (rows.children.length > 1) row.remove(); else name.value = role.value = ''; },
+    }, icon('x')));
+    rows.append(row);
+    return name;
+  };
+  (people.length ? people : [{}]).forEach(add);
+  const el = h('div', { class: 'people' }, rows,
+    h('button', { class: 'link-btn', type: 'button', onclick: () => add().focus() }, icon('plus'), t('Add a person')),
+    h('datalist', { id: 'peopleNames' }, [...known].sort().map((value) => h('option', { value }))),
+    h('datalist', { id: 'peopleRoles' }, [...roles].sort().map((value) => h('option', { value }))));
+  return {
+    el,
+    get first() { return rows.querySelector('input'); },
+    /** [{name, role}], nobody twice; several names in one field ("A, B") are several people. */
+    value() {
+      const out = [], seen = new Set();
+      for (const row of rows.children) {
+        const [name, role] = [...row.querySelectorAll('input')].map((input) => input.value.replace(/\s+/g, ' ').trim());
+        for (const one of name.split(',').map((part) => part.trim()).filter(Boolean)) {
+          if (!seen.has(fold(one))) { seen.add(fold(one)); out.push({ name: one, role }); }
+        }
+      }
+      return out;
+    },
+  };
+}
 const seriesOrder = (b) => { const n = parseFloat(b.seriesNumber); return Number.isFinite(n) ? n : Infinity; };
 const bySeriesOrder = (a, b) => (seriesOrder(a) - seriesOrder(b)) || (a.added < b.added ? -1 : 1);
 
@@ -1047,6 +1113,7 @@ function mainEdition(b) {
   for (const key of ['publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'coverRatio', 'thumb']) {
     if (b[key] != null && b[key] !== '') edition[key] = b[key];
   }
+  if (Array.isArray(b.people) && b.people.length) edition.people = b.people;
   return edition;
 }
 
@@ -1062,7 +1129,8 @@ function editionCovers(b) {
 }
 
 function editionLine(e) {
-  return [e.duration ? `${t('Audiobook')} · ${e.duration}` : e.pages && t('{n} pp', { n: e.pages }), e.publisher, yearOf(e.date) || e.date]
+  return [e.duration ? `${t('Audiobook')} · ${e.duration}` : e.pages && t('{n} pp', { n: e.pages }), e.publisher, yearOf(e.date) || e.date,
+    ...contributorsIn(e.people || []).map(([role, names]) => `${role}: ${names.join(', ')}`)]
     .filter(Boolean).join(' · ');
 }
 
@@ -1193,7 +1261,7 @@ const searchCache = new WeakMap();
 function searchText(b) {
   const cached = searchCache.get(b);
   if (cached?.modified === b.modified) return cached.text;
-  const text = fold([b.title, b.author, b.series, b.publisher, b.isbn, b.date,
+  const text = fold([b.title, b.author, ...peopleOf(b).map((person) => person.name), b.series, b.publisher, b.isbn, b.date,
     ...listsOf(b).map((m) => m.note), ...(b.reviews || []).map((r) => r.text)].join(' '));
   searchCache.set(b, { modified: b.modified, text });
   return text;
@@ -1253,7 +1321,7 @@ function renderLibrary() {
   const when = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
   const writer = view.author && fold(view.author);
   const inView = view.series ? books.filter((b) => b.series === view.series).sort(bySeriesOrder)
-    : writer ? books.filter((b) => authorsOf(b).some((name) => fold(name) === writer))
+    : writer ? books.filter((b) => everyoneIn(b).has(writer))
     : current ? books.filter((b) => shelves(b)[current.id]).sort((a, b) => (when(a) < when(b) ? 1 : -1)) : books;
   $('searchWrap').hidden = inView.length < 8 && !query;
 
@@ -1440,6 +1508,9 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   };
   const seriesNames = h('datalist', { id: 'seriesNames' }, [...seriesMap().keys()].sort().map((value) => h('option', { value })));
   f.title.value = book.title || '';
+  // Who made it: a row each. `f.author` is the first name, which the cover's text and Swap fill.
+  const who = peopleEditor(peopleOf(book));
+  Object.defineProperty(f, 'author', { get: () => who.first });
   f.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); f.author.focus(); } });
   const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
   const error = h('p', { class: 'field-error', hidden: true });
@@ -1495,7 +1566,8 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     source,
     ocrBox,
     field(t('Title'), f.title),
-    field(t('Author'), f.author),
+    h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
+    h('p', { class: 'sheet-note people-hint', text: t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') }),
     swap,
     field(t('Publisher'), f.publisher),
     h('div', { class: 'field-row' }, field(t('Published'), f.date), field(t('Pages'), f.pages)),
@@ -1512,8 +1584,12 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   async function submit(e) {
     e.preventDefault();
     const v = (k) => f[k].value.replace(/\s+/g, ' ').trim();
+    // A book from the booklog always has someone; emptied here, it keeps who it had.
+    const people = who.value().length || !book.boeken ? who.value() : peopleOf(book);
+    // Said as people where someone has a role (or it was already said so); a book of writers alone just names them.
+    const asPeople = people.length > 0 && (people.some((person) => person.role) || Array.isArray(book.people));
     const data = {
-      title: v('title'), author: v('author'), publisher: v('publisher'), date: normDate(v('date')),
+      title: v('title'), author: writersIn(people).join(', '), publisher: v('publisher'), date: normDate(v('date')),
       pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
       isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
       lists: {},
@@ -1538,9 +1614,10 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     }
     let result = book;
     if (isNew) {
-      result = await addBook({ ...book, ...data });
+      result = await addBook({ ...book, ...data, ...(asPeople && { people }) });
     } else {
       Object.assign(book, data, { pending: false, unresolved: false });
+      if (asPeople) book.people = people; else delete book.people;
       await saveBook(book);
     }
     saved = true;
@@ -2313,15 +2390,10 @@ function openBook(book, rows) {
       coverEl(book, true),
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
-        // Each author leads to all of their books.
-        book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', h('a', {
-          class: 'author-link', href: `#/author/${encodeURIComponent(name)}`, text: name,
-          onclick: (e) => {
-            if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
-            e.preventDefault();
-            closeLayersThen(() => setView({ author: name }));
-          },
-        })])),
+        // Each name leads to all of that person's books: the writers, then the others by what they did.
+        book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', personLink(name)])),
+        contributorsIn(peopleOf(book)).length > 0 && h('p', { class: 'page-people' },
+          contributorsIn(peopleOf(book)).flatMap(([role, names], i) => [i > 0 && ' · ', `${role}: `, ...names.flatMap((name, j) => [j > 0 && ', ', personLink(name)])])),
         seriesLine(book) && h('button', {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
           onclick: () => closeLayersThen(() => setView({ series: book.series })),
@@ -2367,6 +2439,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     duration: h('input', { name: 'duration', value: edition.duration || '', placeholder: '11u 36m', autocomplete: 'off' }),
     isbn: h('input', { name: 'isbn', value: edition.isbn || '', inputmode: 'numeric', autocomplete: 'off' }),
   };
+  const who = peopleEditor(edition.people || peopleOf(book));
   let language = edition.language || '';
   const languages = h('div', { class: 'chips' });
   const drawLanguages = () => languages.replaceChildren(...['nl', 'en', 'fr', 'de'].map((code) => h('button', {
@@ -2389,6 +2462,11 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
       language,
       ...(cover.picture && { thumb: cover.picture.thumb, cover: '', coverRatio: cover.picture.ratio, coverFull: '' }),
     };
+    // Who made this edition, where that was said before, someone has a role, or it isn't the book's writers.
+    const people = who.value();
+    const same = (a, b) => a.length === b.length && a.every((person, i) => fold(person.name) === fold(b[i].name) && (person.role || '') === (b[i].role || ''));
+    if (people.length && (Array.isArray(edition.people) || people.some((person) => person.role) || !same(people, peopleOf(book)))) read.people = people;
+    else delete read.people;
     for (const key of Object.keys(read)) if (read[key] == null || read[key] === '') delete read[key];
     if (Object.keys(read).length) data.edition = read;
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
@@ -2435,7 +2513,9 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
       h('div', { class: 'field-row' },
         h('label', { class: 'field' }, h('span', { text: t('Pages') }), ed.pages),
         h('label', { class: 'field' }, h('span', { text: t('Length (audiobook)') }), ed.duration)),
-      h('div', { class: 'field' }, h('span', { text: t('Language') }), languages)),
+      h('div', { class: 'field' }, h('span', { text: t('Language') }), languages),
+      h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
+      h('p', { class: 'sheet-note people-hint', text: t('Who made this edition: an audiobook has a voice (stem), a translation a translator (vertaling).') })),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),

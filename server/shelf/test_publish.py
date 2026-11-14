@@ -175,9 +175,45 @@ class PublishTests(BooklogCase):
     def test_every_read_has_its_own_edition(self):
         first, second = self.book('dune').data['reviews']
         self.assertEqual(first['edition'], {'publisher': 'Ace', 'date': '1990', 'pages': 535, 'isbn': '9780441172719', 'language': 'en',
-                                            'cover': 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg'})
-        self.assertEqual(second['edition'], {'date': '1990', 'pages': 535})    # what the reread's own post says, no more
-        self.assertTrue(first['sum'].startswith('2:'))
+                                            'cover': 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg',
+                                            'people': [{'name': 'Frank Herbert', 'role': 'auteur'}, {'name': 'Some Translator', 'role': 'vertaling'}]})
+        # what the reread's own post says, no more: it names the author alone
+        self.assertEqual(second['edition'], {'date': '1990', 'pages': 535, 'people': [{'name': 'Frank Herbert', 'role': ''}]})
+        self.assertTrue(first['sum'].startswith('3:'))
+
+    # ── people: who wrote, drew, translated or read it, per read
+
+    def test_a_voice_added_to_one_read_goes_to_that_reads_post(self):
+        def narrated(data):
+            data['reviews'][1]['edition'] = {**data['reviews'][1]['edition'], 'duration': '21u 2m',
+                                             'people': [{'name': 'Frank Herbert', 'role': ''}, {'name': 'Ned Narrator', 'role': 'stem'}]}
+        self.change('dune', narrated)
+        self.publish()
+        self.assertEqual(self.changed_lines('dune-herlezing'), [
+            '+  narrator-ned: "stem"', '+authors: ["herbert-frank", "narrator-ned"]', '+duration: "21u 2m"', '+roles:',
+            '-authors: ["herbert-frank"]', '-pages: 535'])
+        page = self.repo / 'site' / 'content' / 'authors' / 'narrator-ned' / '_index.md'
+        self.assertEqual(page.read_text(encoding='utf-8'), '---\ntitle: "Ned Narrator"\nslug: "narrator-ned"\nwpName: "Narrator - Ned"\n---\n')
+        self.assertEqual(git(self.repo, 'show', '--stat', '--format=', 'HEAD').count('posts/'), 1)   # the first read's post is left alone
+        self.import_booklog()
+        book = self.book('dune').data
+        self.assertEqual(book['people'], [{'name': 'Frank Herbert', 'role': ''}, {'name': 'Ned Narrator', 'role': 'stem'}])
+        self.assertEqual(book['author'], 'Frank Herbert')   # a voice is not an author
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_the_books_own_people_go_to_its_latest_read(self):
+        self.change('katabasis', lambda data: data.update(people=[{'name': 'R.F. Kuang', 'role': ''}, {'name': 'Some Translator', 'role': 'vertaling'}]))
+        self.publish()
+        self.assertEqual(self.changed_lines('katabasis'), [
+            '+  someone-else: "vertaling"', '+authors: ["kuang-r-f", "someone-else"]', '+roles:', '-authors: ["kuang-r-f"]'])
+        self.import_booklog()
+        self.assertIn('3 unchanged', self.import_booklog())
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_people_that_did_not_change_are_not_published(self):
+        # Saved in the app as it was: the same people in other words is no change.
+        self.change('dune', lambda data: data.update(people=[{'name': ' Frank  Herbert ', 'role': 'auteur', 'extra': 1}]))
+        self.assertEqual(self.publish()[0]['published'], 0)
 
     def test_an_edition_changed_on_an_earlier_read_goes_to_that_reads_post(self):
         def edit(data):
@@ -336,6 +372,13 @@ class AddToBooklogTests(BooklogCase):
                 'lists': {'library': {'at': '2026-11-01T10:00:00.000Z'}, 'to-read': {'at': '2026-11-01T10:00:00.000Z'}},
                 'language': 'en', 'categories': ['sf'], 'tags': ['desert', 'Space opera'], 'boekenWanted': True, **data}
         return Book.objects.create(user=self.user, uid=uid, data=book, title=book['title'], modified=when, changed=when)
+
+    def test_a_new_book_names_everyone_with_what_they_did(self):
+        self.scan(people=[{'name': 'Frank Herbert', 'role': 'tekst'}, {'name': 'Ann Artist', 'role': 'beeld'}, {'name': 'Plain Co-writer', 'role': ''}])
+        self.publish()
+        post = self.post('children-of-dune')
+        self.assertIn('roles:\n  herbert-frank: "tekst"\n  artist-ann: "beeld"\n', post)
+        self.assertIn('authors: ["herbert-frank", "artist-ann", "co-writer-plain"]\n', post)
 
     def test_surnames_first(self):
         self.assertEqual(publish.author_slug('Rebecca Yarros'), ('yarros-rebecca', 'Yarros - Rebecca'))

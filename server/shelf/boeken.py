@@ -22,7 +22,7 @@ STATUS_LISTS = {'read': 'read', 'reading': 'reading', 'to-read': 'to-read', 'aba
 # People with one of these roles (or none) wrote the book; anyone else contributed to it.
 AUTHOR_ROLES = {'auteur', 'auteurs', 'author', 'schrijver', 'tekst', 'writer'}
 # What the import owns in a book: on every run these are set from the booklog, or removed.
-FIELDS = ['title', 'author', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource', 'rating',
+FIELDS = ['title', 'author', 'people', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource', 'rating',
           'series', 'seriesNumber', 'seriesLabel', 'language', 'olid', 'duration', 'durationLeft', 'issues', 'pagesRead',
           'categories', 'tags', 'boeken', 'url', 'reviewed', 'reads']
 # The reads of a book also become its reviews (`reviews` in a book), which the app can add to
@@ -96,24 +96,52 @@ def body_text(text, relative=()):
 
 # What of a book can be changed in the app and is then published to the booklog (shelf/publish.py).
 PUBLISHED = ('title', 'publisher', 'date', 'pages', 'isbn', 'series', 'seriesNumber', 'seriesLabel',
-             'pagesRead', 'durationLeft', 'cover')
+             'pagesRead', 'durationLeft', 'cover', 'people')
+
+
+# The people of a book: who wrote it, and who drew, coloured, lettered, translated or read it.
+# In the booklog a post lists them all under `authors` (their slugs) and says under `roles`
+# what each did, where that is worth saying. Here they are `people`: [{'name', 'role'}], in
+# the same order, the role '' for someone who simply wrote it. A book has the people of its
+# latest read; each read's edition has its own (the audiobook has a voice, the paperback not).
+
+def tidy_people(people):
+    """`people` as it is compared and published: names and roles as plain text, no one twice or nameless."""
+    out, seen = [], set()
+    for person in people if isinstance(people, list) else []:
+        name = ' '.join(str((person or {}).get('name') or '').split()) if isinstance(person, dict) else ''
+        if name and fold(name) not in seen:
+            seen.add(fold(name))
+            out.append({'name': name, 'role': ' '.join(str(person.get('role') or '').split())})
+    return out
+
+
+def people_of(slugs, roles, names):
+    """The `authors` and `roles` of a post, as people."""
+    roles = roles if isinstance(roles, dict) else {}
+    return [{'name': names.get(str(slug), str(slug)), 'role': str(roles.get(slug) or '').strip()} for slug in slugs or []]
 
 
 def state_of(book):
     """Those facts of a book, and the reading list it is on. Kept in the book as `boekenState`
     whenever the app and the booklog agree; a difference later on is a change made in the app."""
     state = {key: book[key] for key in PUBLISHED if book.get(key) not in (None, '')}
+    state.pop('people', None)
+    if tidy_people(book.get('people')):
+        state['people'] = tidy_people(book['people'])
     state['list'] = next((name for name in STATUS_LISTS.values() if name in (book.get('lists') or {})), None)
     return state
 
 
 # A read is of an edition: the paperback the first time, the audiobook the next. Each review
 # carries the edition that was read in `edition`, with these facts (and `coverRatio`).
-EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover')
+EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people')
+EDITION_BEFORE_PEOPLE = EDITION[:-1]
 
 
-def edition_of(post):
-    """The edition a post says was read, as a review keeps it."""
+def edition_of(post, names=None):
+    """The edition a post says was read, as a review keeps it. `names`: author slug → name;
+    with it the edition also says who made it."""
     year = post.get('year')
     cover = str(post.get('cover') or '')
     edition = {
@@ -125,25 +153,36 @@ def edition_of(post):
         'language': str(post.get('language') or ''),
         'cover': SITE + cover if cover.startswith('/') else '',
     }
-    return {key: value for key, value in edition.items() if value not in ('', None)}
+    if names is not None:
+        edition['people'] = people_of(post.get('authors'), post.get('roles'), names)
+    return {key: value for key, value in edition.items() if value not in ('', None, [])}
 
 
-def review_sum(review):
+def review_sum(review, version=3):
     """Fingerprint of a review as the import (or the last publish) left it. A review that no
     longer matches its `sum` was edited in the app: the import leaves it alone, and it is
-    published. Covers the reading date, the rating, the text and the edition read."""
-    edition = review.get('edition') or {}
+    published. Covers the reading date, the rating, the text and the edition read, its people
+    included (version 2, from before editions had people, leaves those out)."""
+    edition = dict(review.get('edition') or {})
+    if 'people' in edition:
+        edition['people'] = tidy_people(edition['people'])
+    keys = EDITION if version >= 3 else EDITION_BEFORE_PEOPLE
     told = json.dumps([review.get('date') or '', review.get('rating'), review.get('text') or '',
-                       {key: edition[key] for key in EDITION if edition.get(key) not in ('', None)}],
+                       {key: edition[key] for key in keys if edition.get(key) not in ('', None, [])}],
                       ensure_ascii=False, sort_keys=True)
-    return '2:' + hashlib.sha1(told.encode()).hexdigest()[:12]
+    return f'{version}:' + hashlib.sha1(told.encode()).hexdigest()[:12]
 
 
 def in_step(review):
-    """Is the review as its `sum` says it was left? (Sums from before reviews had editions
-    cover the date, rating and text only.)"""
-    if str(review.get('sum') or '').startswith('2:'):
-        return review_sum(review) == review['sum']
+    """Is the review as its `sum` says it was left? (Older sums cover less: before reviews had
+    editions the date, rating and text only; then the edition without its people.)"""
+    left = str(review.get('sum') or '')
+    if left.startswith('3:'):
+        return review_sum(review) == left
+    if 'people' in (review.get('edition') or {}):
+        return False   # its people were said in the app, after that sum was made
+    if left.startswith('2:'):
+        return review_sum(review, version=2) == left
     told = json.dumps([review.get('date') or '', review.get('rating'), review.get('text') or ''], ensure_ascii=False)
     return hashlib.sha1(told.encode()).hexdigest()[:12] == review.get('sum')
 
@@ -224,6 +263,7 @@ def books(repo):
         fields = {
             'title': str(latest['title']),
             'author': ', '.join(names.get(s, s) for s in writers),
+            'people': people_of(slugs, fact('roles'), names),
             'publisher': str(fact('publisher') or ''),
             'date': f'{year}–{fact("year_until")}' if year and fact('year_until') else str(year or ''),
             'pages': fact('pages') if isinstance(fact('pages'), int) else None,
@@ -256,7 +296,7 @@ def books(repo):
                 'date': post['_day'] if was_read else '',
                 'rating': post['rating'] if isinstance(post.get('rating'), int) else None,
                 'text': post['_text'],
-                'edition': edition_of(post),   # what was read that time: its own publisher, length, cover
+                'edition': edition_of(post, names),   # what was read that time: its own publisher, length, cover, people
                 'boeken': str(post['slug']),
                 'url': post['_url'],
             }

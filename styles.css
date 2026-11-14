@@ -521,6 +521,11 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 /* On a touch screen the page is swiped; the arrows would only take room from the title. */
 @media (hover: none) and (pointer: coarse) { .page-turn { display: none; } }
 .page-author { margin-top: 6px; }
+.page-people { margin-top: 3px; color: var(--muted); font-size: .9rem; }
+.people-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 36%) auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.people-row .icon-btn { width: 40px; height: 40px; margin-right: -8px; }
+.people .link-btn { padding: 2px 0 4px; }
+.people-hint { margin: -8px 0 16px; font-size: .84rem; }
 .author-link { color: inherit; text-decoration: underline; text-decoration-color: var(--border); text-decoration-thickness: 1px; text-underline-offset: 4px; }
 .author-link:hover { color: var(--accent); text-decoration-color: currentColor; }
 .page-series { color: var(--muted); font-size: .93rem; }

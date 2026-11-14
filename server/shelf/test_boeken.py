@@ -14,7 +14,7 @@ from django.utils.dateparse import parse_datetime
 
 from django.test import override_settings
 
-from shelf import boeken, covers
+from shelf import boeken, covers, publish
 from shelf.models import Book, List
 
 POSTS = {
@@ -138,6 +138,38 @@ class ImportTests(TestCase):
         self.assertEqual(self.book('katabasis')['lists'], {'reading': {'at': '2026-10-11T14:37:13.000Z'}})
         self.assertEqual(list(self.book('gilgamesh')['lists']), ['to-read'])
         self.assertEqual(self.book('gilgamesh')['author'], 'unknown-slug')
+
+    def test_people_come_with_what_they_did(self):
+        self.run_import()
+        dune = self.book('dune')
+        # The book has the people of its latest read; each read's edition has its own.
+        self.assertEqual(dune['people'], [{'name': 'Frank Herbert', 'role': 'auteur'}])
+        self.assertEqual([r['edition']['people'] for r in dune['reviews']], [
+            [{'name': 'Frank Herbert', 'role': 'auteur'}, {'name': 'Some Translator', 'role': 'vertaling'}],
+            [{'name': 'Frank Herbert', 'role': ''}]])
+        self.assertEqual(self.book('katabasis')['people'], [{'name': 'R.F. Kuang', 'role': ''}])
+
+    def test_reviews_from_before_people_get_them(self):
+        self.run_import()
+        row = Book.objects.get(uid='boeken-dune')
+        # As the import left them before editions had people: no people, and the older fingerprint.
+        old = []
+        for review in row.data['reviews']:
+            review = {**review, 'edition': {k: v for k, v in review['edition'].items() if k != 'people'}}
+            old.append({**review, 'sum': boeken.review_sum(review, version=2)})
+        row.data = {**{k: v for k, v in row.data.items() if k != 'people'}, 'reviews': old,
+                    'boekenState': {k: v for k, v in row.data['boekenState'].items() if k != 'people'}}
+        row.save()
+        self.assertTrue(all(boeken.in_step(r) for r in old))
+        self.assertFalse(publish.is_pending(row.data))
+        # People said in the app on such a review are a change, though its fingerprint knows nothing of them.
+        said = {**old[1], 'edition': {**old[1]['edition'], 'people': [{'name': 'Frank Herbert', 'role': ''}, {'name': 'A Voice', 'role': 'stem'}]}}
+        self.assertFalse(boeken.in_step(said))
+        self.assertIn('1 updated', self.run_import())
+        dune = self.book('dune')
+        self.assertEqual(len(dune['reviews'][0]['edition']['people']), 2)
+        self.assertTrue(all(r['sum'].startswith('3:') for r in dune['reviews']))
+        self.assertEqual(dune['boekenState']['people'], [{'name': 'Frank Herbert', 'role': 'auteur'}])
 
     def test_a_reread_is_the_same_book(self):
         self.run_import()
