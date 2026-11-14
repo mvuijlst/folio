@@ -921,7 +921,7 @@ function cropVideo(region, scale) {
   return canvas;
 }
 
-/** Where an ISBN is usually printed relative to a barcode: just above it, else just below. */
+/** Where an ISBN is usually printed relative to a barcode: just above it or just below it. */
 function readingPlan(box, lastTry) {
   const w = box.width;
   const thin = box.height < w * 0.3; // some detectors report a scan line, not the whole symbol
@@ -930,10 +930,12 @@ function readingPlan(box, lastTry) {
   const x = box.x - w * 0.25, width = w * 2.05;
   const above = { x, y: top - w * 0.45, w: width, h: w * 0.5 };
   const below = { x, y: bottom - w * 0.05, w: width, h: w * 0.5 };
+  // Two sizes each, because this lettering reads differently at different scales.
   const plan = [
     { region: above, scale: 650 / w, psm: '6' },
-    { region: above, scale: 520 / w, psm: '6' },
     { region: below, scale: 650 / w, psm: '6' },
+    { region: above, scale: 520 / w, psm: '6' },
+    { region: below, scale: 520 / w, psm: '6' },
   ];
   if (lastTry) plan.push({ region: { x, y: top - w * 0.55, w: width, h: bottom - top + w * 1.1 }, scale: 520 / w, psm: '11' });
   return plan;
