@@ -54,18 +54,17 @@
    under it. --accent is for text and lines; --accent-fill, the pages' own gradient, for what
    is filled (the main button, the list you are on), always with --on-accent on top. */
 :root {
-  --bg: #17133a;
-  --glow: #221d54;
-  --surface: #221d50;
-  --surface-2: #2d2763;
-  --border: #393272;
-  --text: #f3f0fb;
-  --muted: #b4add6;
-  --faint: #8982b8;
+  --bg: #100d2a;
+  --glow: #1a1645;
+  --surface: #1b1744;
+  --surface-2: #29235d;
+  --border: #3b3477;
+  --text: #f8f6ff;
+  --muted: #c8c3ea;
+  --faint: #a09ad0;
   --accent: #fdb563;
   --accent-hover: #ffc971;
   --accent-fill: linear-gradient(115deg, #ffc971 0%, #fdb563 40%, #fd856c 100%);
-  --accent-ink: linear-gradient(100deg, #ffc971, #fd856c);
   --on-accent: #251a45;
   --star: #fdb563;
   --mint: #85e5b5;
@@ -93,7 +92,6 @@
   --faint: #827cab;
   --accent: #c2410c;
   --accent-hover: #a8370a;
-  --accent-ink: linear-gradient(100deg, #f08a1c, #e8483a);
   --star: #f0a024;
   --mint: #2fae84;
   --gold: #cf9f2f;
@@ -155,10 +153,6 @@ img { display: block; max-width: 100%; }
   font-variation-settings: 'opsz' 144;
   letter-spacing: -.025em;
   line-height: 1.05;
-}
-.wordmark em {
-  font-style: italic; font-weight: 400; padding-right: .06em;
-  background: var(--accent-ink); -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .mark { width: 56px; height: 56px; flex: none; border-radius: 50%; box-shadow: 0 6px 18px rgba(10, 6, 36, .35); }
