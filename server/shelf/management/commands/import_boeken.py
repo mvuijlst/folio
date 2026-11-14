@@ -43,7 +43,7 @@ def merged_reviews(old, incoming):
     out, kept = [r for r in old if not r.get('boeken')], 0
     for review in incoming:
         before = previous.get(review['boeken'])
-        if before and before.get('sum') and boeken.review_sum(before) != before['sum']:
+        if before and before.get('sum') and not boeken.in_step(before):
             out.append(before)
             kept += 1
         else:
@@ -85,24 +85,38 @@ class Command(BaseCommand):
         self.stdout.write(('Would be: ' if dry_run else 'Done: ') + summary)
 
     def thumbnails(self, incoming, folder, dry_run):
-        """Point each book at a small copy of its cover, making the copies that don't exist yet."""
-        made = 0
+        """Point each book, and each read's edition, at a small copy of its cover, making the
+        copies that don't exist yet. Then every review gets its fingerprint."""
+        made, seen = 0, {}
+
+        def small(source):
+            """→ ('covers/boeken/….webp', ratio), or None for a picture that can't be read."""
+            nonlocal made
+            if source not in seen:
+                target = folder / (hashlib.sha1(source.read_bytes()).hexdigest()[:16] + f'-{covers.WIDTH}.webp')
+                try:
+                    if target.exists():
+                        ratio = covers.ratio_of(target)
+                    else:
+                        ratio = covers.ratio_of(source) if dry_run else covers.write_thumbnail(source, target)
+                        made += 1
+                    # Relative, so it is fetched from wherever the app is served.
+                    seen[source] = (f'covers/boeken/{target.name}', ratio)
+                except Exception as err:   # the book keeps pointing at the booklog's own
+                    self.stderr.write(f'No thumbnail for {source.name}: {err}')
+                    seen[source] = None
+            return seen[source]
+
         for book in incoming:
-            source = book['cover_file']
-            if not source:
-                continue
-            target = folder / (hashlib.sha1(source.read_bytes()).hexdigest()[:16] + f'-{covers.WIDTH}.webp')
-            try:
-                if target.exists():
-                    ratio = covers.ratio_of(target)
-                else:
-                    ratio = covers.ratio_of(source) if dry_run else covers.write_thumbnail(source, target)
-                    made += 1
-            except Exception as err:   # an image that can't be read: the book keeps the booklog's own
-                self.stderr.write(f'No thumbnail for {source.name}: {err}')
-                continue
-            # Relative, so it is fetched from wherever the app is served.
-            book['fields'].update(cover=f'covers/boeken/{target.name}', coverRatio=ratio)
+            kept = book['cover_file'] and small(book['cover_file'])
+            if kept:
+                book['fields'].update(cover=kept[0], coverRatio=kept[1])
+            for review in book['reviews']:
+                source = book['review_covers'].get(review['id'])
+                kept = source and small(source)
+                if kept:
+                    review['edition'].update(cover=kept[0], coverRatio=kept[1])
+                review['sum'] = boeken.review_sum(review)
         return made
 
     def merge(self, user, incoming):

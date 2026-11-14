@@ -51,6 +51,13 @@ Books scanned before lists existed count as being in the *Library*.
 - **Reviews.** A book can have any number, each with an optional reading date and an optional
   rating from 0 to 10, written in Markdown (emphasis, links, quotes, lists, images). The rating
   shown in lists is that of the latest review that gives one. Reviews are searched too.
+- **Editions.** A read is of an edition: the paperback the first time, the audiobook the
+  next. Each review carries the edition that was read (publisher, year, pages or length, ISBN,
+  language and its own cover), under *Edition read* in the review's form; a new read starts
+  from the book's own edition, so only what differs needs saying. A book's page shows each
+  read with its cover and edition. In the covers view a book read in several editions shows
+  their covers standing together, the latest in front, with its rating in stars; on a series'
+  page also its number and when it was read.
 - **Series.** Books that share a series name form a series: *Series* in the navigation lists
   them all, and a series page shows its books in order. Set the series and its number in a
   book's details; a number such as 4.5 sorts between 4 and 5.
@@ -175,8 +182,9 @@ venv/bin/python manage.py import_boeken --user NAME --remove                    
 - Each post becomes a book on *To read*, *Reading* or *Read* (or *Abandoned*, a list that is
   made when first needed), dated as in the booklog. A reread is the same book, not a second one.
 - A book comes with its rating, series, how far along it is, and a link to its page in the
-  booklog. Every read becomes a **review** of the book: the day it was read, the rating and the
-  text (Hugo shortcodes for images and videos become plain Markdown). A book that is not read
+  booklog. Every read becomes a **review** of the book: the day it was read, the rating, the
+  text (Hugo shortcodes for images and videos become plain Markdown) and the **edition** that
+  read's post describes, with that post's own cover. A book that is not read
   yet gets its note as a review without a date.
 - A booklog book that is already on the shelf (same ISBN) is joined with it and keeps its other
   lists and notes. A booklog book deleted in the app stays deleted.
@@ -199,10 +207,11 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | In the app | In the booklog |
 | --- | --- |
 | a review is edited | its post gets the new text, rating and reading date (a date in another month keeps the old address as an alias) |
+| the edition of a read is changed | that read's own post gets the publisher, year, pages or length, ISBN, language and cover |
 | *To read* → *Reading* | the post's status, with progress started |
 | the page reached changes (on the book's page) | `pagesRead` and a line in `progressLog` |
 | a book being read gets a dated review, or moves to *Read* | the post is finished: no status, the reading date, rating and text |
-| a read book gets another dated review, or moves back to *Reading* | a new post, a reread of the first |
+| a read book gets another dated review, or moves back to *Reading* | a new post, a reread of the first, with the edition read that time |
 | title, series, publisher, year, pages or ISBN change | the front matter (title and series on every read of the book) |
 | the cover is replaced | the picture goes into `media/` and the post points at it |
 

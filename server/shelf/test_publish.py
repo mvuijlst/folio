@@ -168,7 +168,62 @@ class PublishTests(BooklogCase):
         self.assertIn('pages: 535\n', self.post('dune'))
         term = self.repo / 'site' / 'content' / 'series' / 'dune-chronicles' / '_index.md'
         self.assertEqual(term.read_text(encoding='utf-8'), '---\ntitle: "Dune Chronicles"\nslug: "dune-chronicles"\n---\n')
+        self.import_booklog()   # the latest read's edition now says 600 pages too
         self.assertIn('3 unchanged', self.import_booklog())
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_every_read_has_its_own_edition(self):
+        first, second = self.book('dune').data['reviews']
+        self.assertEqual(first['edition'], {'publisher': 'Ace', 'date': '1990', 'pages': 535, 'isbn': '9780441172719', 'language': 'en',
+                                            'cover': 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg'})
+        self.assertEqual(second['edition'], {'date': '1990', 'pages': 535})    # what the reread's own post says, no more
+        self.assertTrue(first['sum'].startswith('2:'))
+
+    def test_an_edition_changed_on_an_earlier_read_goes_to_that_reads_post(self):
+        def edit(data):
+            data['reviews'][0]['edition'] = {**data['reviews'][0]['edition'], 'publisher': 'Gollancz', 'date': '2007', 'pages': 577}
+        self.change('dune', edit)
+        self.publish()
+        self.assertEqual(self.changed_lines('dune'), ['+pages: 577', '+publisher: "Gollancz"', '+year: 2007',
+                                                      '-pages: 535', '-publisher: "Ace"', '-year: 1990'])
+        self.assertEqual(git(self.repo, 'show', '--stat', '--format=', 'HEAD').count('.md'), 1)   # the reread's post is left alone
+        self.import_booklog()   # the book's own publisher follows: the reread's post names none
+        self.assertIn('3 unchanged', self.import_booklog())
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_a_reread_in_another_edition_gets_that_editions_facts_and_cover(self):
+        own = Path(self.tmp.name, 'covers', 'own')
+        own.mkdir(parents=True)
+        (own / 'audio.jpg').write_bytes(png(500, 500))
+        self.change('dune', lambda data: data['reviews'].append({
+            'id': 'r3', 'date': '2026-06-01', 'rating': 9, 'text': 'Listened to it.',
+            'edition': {'publisher': 'Macmillan Audio', 'date': '2007', 'duration': '21u 2m', 'language': 'en',
+                        'pages': 535, 'cover': 'covers/own/audio-320.webp', 'coverFull': 'covers/own/audio.jpg'}}))
+        self.publish()
+        self.assertEqual(self.log()[0], 'Herlezen: Dune')
+        new = self.post('dune-herlezing-2')
+        self.assertIn('publisher: "Macmillan Audio"\nyear: 2007\nduration: "21u 2m"\n', new)
+        self.assertNotIn('pages:', new)                                # an audiobook has a length, not pages
+        self.assertIn('cover: "/wp-content/uploads/2026/06/dune-herlezing-2.jpg"\n', new)
+        self.assertEqual((self.repo / 'media/wp-content/uploads/2026/06/dune-herlezing-2.jpg').read_bytes(), png(500, 500))
+        self.assertNotIn('Macmillan', self.post('dune'))               # the earlier reads keep their own edition
+        self.import_booklog()
+        editions = [r['edition'] for r in self.book('dune').data['reviews']]
+        self.assertEqual(editions[2]['duration'], '21u 2m')
+        self.assertRegex(editions[2]['cover'], r'^covers/boeken/[0-9a-f]{16}-320[.]webp$')   # its own thumbnail
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_a_review_from_before_editions_is_not_mistaken_for_an_edited_one(self):
+        import hashlib, json
+        row = self.book('dune')
+        old = dict(row.data['reviews'][0])
+        del old['edition']
+        old['sum'] = hashlib.sha1(json.dumps([old['date'], old['rating'], old['text']], ensure_ascii=False).encode()).hexdigest()[:12]
+        row.data = {**row.data, 'reviews': [old, row.data['reviews'][1]]}
+        row.save()
+        self.assertFalse(publish.is_pending(self.book('dune').data))
+        self.assertIn('0 reviews kept as edited in the app', self.import_booklog())
+        self.assertIn('edition', self.book('dune').data['reviews'][0])   # and the import gives it its edition
 
     def test_a_new_cover_goes_into_the_media_folder(self):
         own = Path(self.tmp.name, 'covers', 'own')

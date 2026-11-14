@@ -193,7 +193,7 @@ def is_pending(data):
     reviews = [r for r in data.get('reviews') or [] if isinstance(r, dict)]
     return bool(changed_keys(data)
                 or any(not r.get('boeken') and r.get('date') for r in reviews)
-                or any(r.get('boeken') and r.get('sum') and boeken.review_sum(r) != r['sum'] for r in reviews))
+                or any(r.get('boeken') and r.get('sum') and not boeken.in_step(r) for r in reviews))
 
 
 def plan_book(repo, data, group, taken, now):
@@ -229,6 +229,44 @@ def plan_book(repo, data, group, taken, now):
         if rating != (post['rating'] if isinstance(post.get('rating'), int) else None):
             edit(post)['front']['rating'] = rating
 
+    def edition_fields(edition):
+        """An edition as front matter: {key: value}, None where the edition doesn't say."""
+        years = re.fullmatch(r'(\d{4})(?:\s*[–-]\s*(\d{4}))?', str(edition.get('date') or '').strip())
+        return {
+            'publisher': str(edition.get('publisher') or '').strip() or None,
+            'year': int(years.group(1)) if years else None,
+            'year_until': int(years.group(2)) if years and years.group(2) else None,
+            'pages': edition['pages'] if isinstance(edition.get('pages'), int) and not edition.get('duration') else None,
+            'duration': str(edition.get('duration') or '').strip() or None,
+            'isbn': str(edition.get('isbn') or '').strip() or None,
+            'language': str(edition.get('language') or '').strip() or None,
+        }
+
+    def edition_picture(edition, slug, day):
+        """A cover the user gave this edition, filed in the booklog's media folder. → its address there, or None"""
+        picture = Path(settings.COVERS_DIR).parent / str(edition.get('coverFull') or '-')
+        if not edition.get('coverFull') or not picture.is_file():
+            return None
+        folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
+        name, n = f'{slug}.jpg', 1
+        while Path(repo, 'media', folder, name).exists() or Path(repo, 'media', folder, name) in plan.pictures:
+            n += 1
+            name = f'{slug}-{n}.jpg'
+        plan.pictures[Path(repo, 'media', folder, name)] = picture.read_bytes()
+        plan.notes.append('new cover')
+        return f'/{folder}/{name}'
+
+    def set_edition(post, review):
+        """The edition read that time, on that read's own post."""
+        if not isinstance(review.get('edition'), dict):
+            return   # a review from before reviews had editions
+        for key, value in edition_fields(review['edition']).items():
+            if value != (post.get(key) or None):
+                edit(post)['front'][key] = value
+        cover = edition_picture(review['edition'], post['slug'], post['_day'])
+        if cover:
+            edit(post)['front']['cover'] = cover
+
     def move_date(post, day):
         """A read was on another day than the post says. The post's address has its month in it,
         so when that changes the old address is kept as an alias."""
@@ -253,6 +291,12 @@ def plan_book(repo, data, group, taken, now):
         fields = {k: latest.get(k) for k in BOOK_FACTS}
         fields.update(slug=slug, rereadOf=root)
         text = ''
+        if review and isinstance(review.get('edition'), dict) and review['edition']:
+            # Read in another edition this time: its own publisher, length and cover.
+            own = edition_fields(review['edition'])
+            if any(own.values()):
+                fields.update(own)
+            fields['cover'] = edition_picture(review['edition'], slug, review['date']) or fields.get('cover')
         if review:
             day = review['date']
             fields['date'] = local(now) if day == today else on_day(day, time(20))
@@ -277,10 +321,11 @@ def plan_book(repo, data, group, taken, now):
     # 1. Reviews that belong to a post and were edited.
     for review in reviews:
         post = by_slug.get(review.get('boeken'))
-        if not post or not review.get('sum') or boeken.review_sum(review) == review['sum']:
+        if not post or not review.get('sum') or boeken.in_step(review):
             continue
         set_text(post, review.get('text') or '')
         set_rating(post, review.get('rating'))
+        set_edition(post, review)
         if review.get('date') and review['date'] != post['_day'] and str(post.get('status') or 'read') in ('read', 'abandoned'):
             move_date(post, review['date'])
         plan.links.append((review.get('id'), post['slug'], None))
@@ -299,6 +344,7 @@ def plan_book(repo, data, group, taken, now):
             if closing:
                 set_text(latest, closing.get('text') or '')
                 set_rating(latest, closing.get('rating'))
+                set_edition(latest, closing)
                 plan.links.append((closing.get('id'), latest['slug'], address(latest['slug'], day)))
             kinds.append('read')
         elif target == 'abandoned':
@@ -677,6 +723,10 @@ def stamp(data, plan):
             slug, url = links[review['id']]
             review = {**review, 'boeken': slug, **({'url': url} if url else {})}
             review['sum'] = boeken.review_sum(review)
+            if isinstance(review.get('edition'), dict):
+                # The picture is in the booklog now; the import brings its thumbnail.
+                review['edition'] = {k: v for k, v in review['edition'].items() if k != 'coverFull'}
+                review['sum'] = boeken.review_sum(review)
         reviews.append(review)
     if reviews:
         data['reviews'] = reviews

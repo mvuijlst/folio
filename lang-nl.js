@@ -93,6 +93,12 @@ export default {
   'That picture couldn’t be opened': 'Die afbeelding kon niet geopend worden',
   'There is no picture on the clipboard': 'Er staat geen afbeelding op het klembord',
 
+  // Editions
+  'Edition read': 'Gelezen editie',
+  'Audiobook': 'Audioboek',
+  'Length (audiobook)': 'Duur (audioboek)',
+  'The cover of this edition. Tap it to choose a picture, or paste or drop one.': 'De cover van deze editie. Tik erop om een afbeelding te kiezen, of plak of sleep er een.',
+
   // Series
   'Series': 'Series',
   'All series': 'Alle series',

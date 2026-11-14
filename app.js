@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.11.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.12.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -982,10 +982,60 @@ function bookRow(b, onPick, extra, tags) {
 }
 
 /** A book in the covers view: its cover and its rating. */
+/* Editions: a read is of an edition (the paperback first, the audiobook the next time), and
+   each review says which in `edition`: publisher, date, pages or duration, ISBN, language, cover. */
+
+/** The book's own edition (the copy on the shelf, or the one read last), for a read that doesn't say. */
+function mainEdition(b) {
+  const edition = {};
+  for (const key of ['publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'coverRatio', 'thumb']) {
+    if (b[key] != null && b[key] !== '') edition[key] = b[key];
+  }
+  return edition;
+}
+
+/** The different covers the book was read in, oldest read first; just the book itself when there is one. */
+function editionCovers(b) {
+  const seen = new Set(), covers = [];
+  const reads = (b.reviews || []).filter((r) => r.edition && (r.edition.cover || r.edition.thumb));
+  for (const r of reads.sort((x, y) => (!x.date - !y.date) || (x.date < y.date ? -1 : x.date > y.date ? 1 : 0))) {
+    const key = r.edition.cover || r.edition.thumb;
+    if (!seen.has(key)) { seen.add(key); covers.push({ title: b.title, ...r.edition }); }
+  }
+  return covers.length > 1 ? covers.slice(-3) : [b];
+}
+
+function editionLine(e) {
+  return [e.duration ? `${t('Audiobook')} · ${e.duration}` : e.pages && t('{n} pp', { n: e.pages }), e.publisher, yearOf(e.date) || e.date]
+    .filter(Boolean).join(' · ');
+}
+
+/** A rating out of ten as five stars, filled as far as it goes (9 is four and a half). */
+const stars = (rating) => h('span', { class: 'stars', style: `--v:${Math.max(0, Math.min(10, rating)) / 10}`, title: `${rating}/10`, 'aria-label': `${rating}/10`, text: '★★★★★' });
+
+/** When the book was read: "May 2013 · Apr 2018". */
+function readDates(b) {
+  return sortedReviews(b).filter((r) => r.date).reverse()
+    .map((r) => new Date(`${r.date}T12:00:00`).toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' })).join(' · ');
+}
+
+/**
+ * A book in the covers view: its cover (when it was read in several editions, each one's
+ * cover, the latest in front), its rating in stars and, on a series' page, its number and
+ * when it was read.
+ */
 function bookTile(b, onPick, numbered) {
+  const covers = editionCovers(b);
+  const front = covers.length > 1
+    ? h('div', { class: 'cover-stack', style: `--n:${covers.length}` }, covers.map((c, i) => { const el = coverEl(c); el.style.setProperty('--i', i); return el; }))
+    : coverEl(b, false, true);
+  const dates = numbered ? readDates(b) : '';
   return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: () => onPick(b) },
-    coverEl(b, false, true),
-    h('div', { class: 'tile-rating', text: [numbered && seriesNo(b) && `#${seriesNo(b)}`, b.rating != null && `★ ${b.rating}`].filter(Boolean).join(' · ') }));
+    front,
+    h('div', { class: 'tile-foot' },
+      b.rating != null ? stars(b.rating) : h('span'),
+      numbered && seriesNo(b) && h('span', { class: 'tile-no', text: seriesNo(b) })),
+    dates && h('div', { class: 'tile-dates', text: dates }));
 }
 
 /** The start of the latest review, as plain text. */
@@ -1232,7 +1282,55 @@ async function readCover(file) {
  * server's copy. Without an account or a connection, the small copy inside the book stays
  * the cover, and the server makes a file of that when the book next syncs.
  */
-async function uploadCover(book, picture) {
+/**
+ * The cover of a book, or of one edition of it, as a button that takes a new picture: tap to
+ * choose one, or paste or drop one while no text field has the cursor. `subject()` is what to
+ * draw (anything with a cover); `host()` the form it sits in, for as long as pasting applies.
+ * → {button, file, paste, pick, pictureIn, picture}: `picture` is the new one, once there is one.
+ */
+function coverControl(subject, host) {
+  const control = { picture: null };
+  const draw = () => control.button.replaceChildren(
+    coverEl(control.picture ? { ...subject(), cover: '', thumb: control.picture.thumb, coverRatio: control.picture.ratio } : subject(), true),
+    h('span', { class: 'cover-pick-badge' }, icon('camera')));
+  control.button = h('button', { class: 'cover-pick', type: 'button', title: t('Change the cover'), 'aria-label': t('Change the cover'), onclick: () => control.file.click() });
+  control.pick = async (file) => {
+    const read = file && await readCover(file);
+    if (!read) { toast(t('That picture couldn’t be opened')); return; }
+    control.picture = read;
+    draw();
+  };
+  control.file = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) control.pick(file); } });
+  control.pictureIn = (transfer) => [...(transfer?.files || [])].find((file) => file.type.startsWith('image/'));
+  const onPaste = (e) => {
+    if (!host()?.isConnected) { document.removeEventListener('paste', onPaste); return; }
+    const focus = document.activeElement;
+    if (focus?.tagName === 'TEXTAREA' || (focus?.tagName === 'INPUT' && focus.type !== 'file')) return;   // the text field gets it
+    const file = control.pictureIn(e.clipboardData);
+    if (!file) return;
+    e.preventDefault();
+    control.pick(file);
+  };
+  document.addEventListener('paste', onPaste);
+  // Phones have no Ctrl+V: a button that reads the clipboard does the same there.
+  control.paste = navigator.clipboard?.read && h('button', {
+    class: 'link-btn', type: 'button', text: t('Paste'),
+    onclick: async () => {
+      try {
+        for (const item of await navigator.clipboard.read()) {
+          const type = item.types.find((kind) => kind.startsWith('image/'));
+          if (type) { control.pick(await item.getType(type)); return; }
+        }
+        toast(t('There is no picture on the clipboard'));
+      } catch { toast(t('Couldn’t reach the clipboard')); }
+    },
+  });
+  draw();
+  return control;
+}
+
+/** `target` is what the cover belongs to: the book itself, or the edition of one of its reads. */
+async function uploadCover(target, picture, book) {
   if (!sync.user || navigator.onLine === false || !picture.large) return;
   try {
     if (!csrfToken()) await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' });
@@ -1242,8 +1340,8 @@ async function uploadCover(book, picture) {
     });
     if (!res.ok) return;
     const kept = await res.json();
-    if (book.thumb !== picture.thumb || !books.includes(book)) return;   // the cover was changed again meanwhile
-    Object.assign(book, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio });
+    if (target.thumb !== picture.thumb || !books.includes(book)) return;   // the cover was changed again meanwhile
+    Object.assign(target, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio });
     await saveBook(book);
   } catch (err) {
     console.warn('Cover not uploaded', err);
@@ -1314,52 +1412,16 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   const source = sourceNote(book, true);
 
   // The cover: tap it to choose a picture; or paste or drop one while no text field has the cursor.
-  let picture = null;
-  const coverPick = h('button', { class: 'cover-pick', type: 'button', title: t('Change the cover'), 'aria-label': t('Change the cover'), onclick: () => coverFile.click() });
-  const drawCover = () => coverPick.replaceChildren(
-    coverEl(picture ? { ...book, cover: '', thumb: picture.thumb, coverRatio: picture.ratio } : book, true),
-    h('span', { class: 'cover-pick-badge' }, icon('camera')));
-  const pickCover = async (file) => {
-    const read = file && await readCover(file);
-    if (!read) { toast(t('That picture couldn’t be opened')); return; }
-    picture = read;
-    drawCover();
-  };
-  const coverFile = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) pickCover(file); } });
-  const pictureIn = (transfer) => [...(transfer?.files || [])].find((file) => file.type.startsWith('image/'));
-  const onPaste = (e) => {
-    if (!form.isConnected) { document.removeEventListener('paste', onPaste); return; }
-    const focus = document.activeElement;
-    if (focus?.tagName === 'TEXTAREA' || (focus?.tagName === 'INPUT' && focus.type !== 'file')) return;   // the text field gets it
-    const file = pictureIn(e.clipboardData);
-    if (!file) return;
-    e.preventDefault();
-    pickCover(file);
-  };
-  document.addEventListener('paste', onPaste);
-  // Phones have no Ctrl+V: a button that reads the clipboard does the same there.
-  const pasteButton = navigator.clipboard?.read && h('button', {
-    class: 'link-btn', type: 'button', text: t('Paste'),
-    onclick: async () => {
-      try {
-        for (const item of await navigator.clipboard.read()) {
-          const type = item.types.find((kind) => kind.startsWith('image/'));
-          if (type) { pickCover(await item.getType(type)); return; }
-        }
-        toast(t('There is no picture on the clipboard'));
-      } catch { toast(t('Couldn’t reach the clipboard')); }
-    },
-  });
-  drawCover();
+  const cover = coverControl(() => book, () => form);
 
   const form = h('form', {
     novalidate: true, onsubmit: submit,
     ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
-    ondrop: (e) => { const file = pictureIn(e.dataTransfer); if (file) { e.preventDefault(); pickCover(file); } },
+    ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
   },
-    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null, coverPick),
-    coverFile,
-    h('p', { class: 'sheet-note cover-hint' }, t('Tap the cover to choose a picture, or paste or drop one here.'), ' ', pasteButton),
+    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null, cover.button),
+    cover.file,
+    h('p', { class: 'sheet-note cover-hint' }, t('Tap the cover to choose a picture, or paste or drop one here.'), ' ', cover.paste),
     source,
     ocrBox,
     field(t('Title'), f.title),
@@ -1387,7 +1449,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       lists: {},
       series: v('series'), seriesNumber: null, seriesLabel: '',
       // A new cover: the small copy is the cover until the server has kept the larger one.
-      ...(picture && { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverSource: '', coverFull: '' }),
+      ...(cover.picture && { thumb: cover.picture.thumb, cover: '', coverRatio: cover.picture.ratio, coverSource: '', coverFull: '' }),
     };
     // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
     const typed = data.series ? v('seriesNumber') : '';
@@ -1412,7 +1474,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       await saveBook(book);
     }
     saved = true;
-    if (picture) uploadCover(result, picture);
+    if (cover.picture) uploadCover(result, cover.picture, result);
     leave();
     onSaved?.(result);
   }
@@ -1766,11 +1828,19 @@ function progressBox(book, again) {
 
 function openBook(book) {
   const again = () => { if (books.includes(book)) openBook(book); else sheet.close(); };
-  const reviewEl = (review) => h('article', { class: 'review' },
-    h('div', { class: 'review-head' },
-      h('span', { text: [review.date && longDate(review.date), review.rating != null && `★ ${review.rating}`].filter(Boolean).join(' · ') || t('Note') }),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Edit review'), onclick: () => openReviewForm(book, review, again) }, icon('pencil'))),
-    review.text && h('div', { class: 'prose' }, renderMarkdown(review.text)));
+  // With more than one read, each says which edition it was: its cover and a line about it.
+  const several = (book.reviews || []).filter((r) => r.date).length > 1;
+  const reviewEl = (review) => {
+    const e = several && review.edition;
+    return h('article', { class: 'review' },
+      h('div', { class: 'review-head' },
+        e && (e.cover || e.thumb) && coverEl({ title: book.title, ...e }),
+        h('div', { class: 'review-what' },
+          h('span', { text: [review.date && longDate(review.date), review.rating != null && `★ ${review.rating}`].filter(Boolean).join(' · ') || t('Note') }),
+          e && editionLine(e) && h('small', { text: editionLine(e) })),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Edit review'), onclick: () => openReviewForm(book, review, again) }, icon('pencil'))),
+      review.text && h('div', { class: 'prose' }, renderMarkdown(review.text)));
+  };
   const reviews = sortedReviews(book);
 
   sheet.open(h('div', { class: 'book-page' },
@@ -1807,17 +1877,49 @@ function openReviewForm(book, review, back) {
   const rating = h('input', { name: 'rating', type: 'number', min: 0, max: 10, step: 1, inputmode: 'numeric', placeholder: '–', value: review?.rating ?? '' });
   const error = h('p', { class: 'field-error', hidden: true });
 
+  // The edition read this time. A new read starts from the book's own, so only what differs needs saying.
+  const edition = { ...(review?.edition || mainEdition(book)) };
+  const cover = coverControl(() => ({ title: book.title, ...edition }), () => form);
+  const ed = {
+    publisher: h('input', { name: 'publisher', value: edition.publisher || '', autocomplete: 'off', autocapitalize: 'words' }),
+    date: h('input', { name: 'published', value: edition.date || '', inputmode: 'numeric', autocomplete: 'off' }),
+    pages: h('input', { name: 'pages', value: edition.pages ?? '', inputmode: 'numeric', autocomplete: 'off' }),
+    duration: h('input', { name: 'duration', value: edition.duration || '', placeholder: '11u 36m', autocomplete: 'off' }),
+    isbn: h('input', { name: 'isbn', value: edition.isbn || '', inputmode: 'numeric', autocomplete: 'off' }),
+  };
+  let language = edition.language || '';
+  const languages = h('div', { class: 'chips' });
+  const drawLanguages = () => languages.replaceChildren(...['nl', 'en', 'fr', 'de'].map((code) => h('button', {
+    class: 'chip', type: 'button', text: code.toUpperCase(), 'aria-pressed': String(language === code),
+    onclick: () => { language = language === code ? '' : code; drawLanguages(); },
+  })));
+  drawLanguages();
+
   async function submit(e) {
     e.preventDefault();
     const stars = rating.value.trim() === '' ? null : Math.round(Number(rating.value));
     const data = { date: date.value || '', rating: stars, text: text.value.replace(/\r\n?/g, '\n').trim() };
+    const said = (input) => input.value.replace(/\s+/g, ' ').trim();
+    const read = {
+      ...edition,
+      publisher: said(ed.publisher), date: normDate(said(ed.date)),
+      pages: parseInt(said(ed.pages), 10) > 0 ? parseInt(said(ed.pages), 10) : null,
+      duration: said(ed.duration).toLowerCase().replace(/h/g, 'u'),
+      isbn: toIsbn13(said(ed.isbn)) || said(ed.isbn).replace(/[^0-9Xx]/g, ''),
+      language,
+      ...(cover.picture && { thumb: cover.picture.thumb, cover: '', coverRatio: cover.picture.ratio, coverFull: '' }),
+    };
+    for (const key of Object.keys(read)) if (read[key] == null || read[key] === '') delete read[key];
+    if (Object.keys(read).length) data.edition = read;
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
     if (stars != null && !(stars >= 0 && stars <= 10)) return fail(t('A rating goes from 0 to 10.'), rating);
     if (!data.text && !data.date && stars == null) return fail(t('Write something, or give a reading date or a rating.'), text);
+    if (review && !data.edition) delete review.edition;
     if (review) Object.assign(review, data);
     else (book.reviews ||= []).push({ id: newId(), ...data });
     settleRating(book);
     await saveBook(book);
+    if (cover.picture && data.edition) uploadCover(data.edition, cover.picture, book);
     back();
   }
 
@@ -1829,18 +1931,35 @@ function openReviewForm(book, review, back) {
     toast(t('Review removed'), { action: t('Undo'), onAction: () => { (book.reviews ||= []).push(review); settleRating(book); saveBook(book); if (sheet.isOpen) back(); } });
   }
 
-  sheet.open(h('form', { novalidate: true, onsubmit: submit },
+  const form = h('form', {
+    novalidate: true, onsubmit: submit,
+    ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
+    ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
+  },
     sheetHead(isNew ? t('New review') : t('Edit review'), displayTitle(book)),
     h('label', { class: 'field' }, h('span', { text: t('Review') }), text),
     h('p', { class: 'sheet-note md-hint', text: t('Markdown works: *italic*, **bold**, > quote, [link](https://…).') }),
     h('div', { class: 'field-row' },
       h('label', { class: 'field' }, h('span', { text: t('Read on') }), date),
       h('label', { class: 'field' }, h('span', { text: t('Rating (0–10)') }), rating)),
+    h('details', { class: 'edition-box', open: !!(review?.edition && Object.keys(review.edition).length && !isNew) && false },
+      h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(edition) })),
+      h('div', { class: 'edition-cover' }, cover.button, cover.file,
+        h('p', { class: 'sheet-note' }, t('The cover of this edition. Tap it to choose a picture, or paste or drop one.'), ' ', cover.paste)),
+      h('label', { class: 'field' }, h('span', { text: t('Publisher') }), ed.publisher),
+      h('div', { class: 'field-row' },
+        h('label', { class: 'field' }, h('span', { text: t('Published') }), ed.date),
+        h('label', { class: 'field' }, h('span', { text: 'ISBN' }), ed.isbn)),
+      h('div', { class: 'field-row' },
+        h('label', { class: 'field' }, h('span', { text: t('Pages') }), ed.pages),
+        h('label', { class: 'field' }, h('span', { text: t('Length (audiobook)') }), ed.duration)),
+      h('div', { class: 'field' }, h('span', { text: t('Language') }), languages)),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
-      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save')))));
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save'))));
+  sheet.open(form);
   if (isNew) text.focus();
 }
 

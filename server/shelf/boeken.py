@@ -107,11 +107,45 @@ def state_of(book):
     return state
 
 
+# A read is of an edition: the paperback the first time, the audiobook the next. Each review
+# carries the edition that was read in `edition`, with these facts (and `coverRatio`).
+EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover')
+
+
+def edition_of(post):
+    """The edition a post says was read, as a review keeps it."""
+    year = post.get('year')
+    cover = str(post.get('cover') or '')
+    edition = {
+        'publisher': str(post.get('publisher') or ''),
+        'date': f'{year}–{post["year_until"]}' if year and post.get('year_until') else str(year or ''),
+        'pages': post.get('pages') if isinstance(post.get('pages'), int) else None,
+        'duration': str(post.get('duration') or ''),
+        'isbn': str(post.get('isbn') or ''),
+        'language': str(post.get('language') or ''),
+        'cover': SITE + cover if cover.startswith('/') else '',
+    }
+    return {key: value for key, value in edition.items() if value not in ('', None)}
+
+
 def review_sum(review):
-    """Fingerprint of a review as the import wrote it. A review whose text, date or rating no
-    longer matches its `sum` was edited in the app, and the import leaves it alone."""
+    """Fingerprint of a review as the import (or the last publish) left it. A review that no
+    longer matches its `sum` was edited in the app: the import leaves it alone, and it is
+    published. Covers the reading date, the rating, the text and the edition read."""
+    edition = review.get('edition') or {}
+    told = json.dumps([review.get('date') or '', review.get('rating'), review.get('text') or '',
+                       {key: edition[key] for key in EDITION if edition.get(key) not in ('', None)}],
+                      ensure_ascii=False, sort_keys=True)
+    return '2:' + hashlib.sha1(told.encode()).hexdigest()[:12]
+
+
+def in_step(review):
+    """Is the review as its `sum` says it was left? (Sums from before reviews had editions
+    cover the date, rating and text only.)"""
+    if str(review.get('sum') or '').startswith('2:'):
+        return review_sum(review) == review['sum']
     told = json.dumps([review.get('date') or '', review.get('rating'), review.get('text') or ''], ensure_ascii=False)
-    return hashlib.sha1(told.encode()).hexdigest()[:12]
+    return hashlib.sha1(told.encode()).hexdigest()[:12] == review.get('sum')
 
 
 def read_posts(repo):
@@ -154,7 +188,8 @@ def author_names(repo):
 
 
 def books(repo):
-    """The booklog as Folio books: [{'key', 'list', 'at', 'added', 'isbns', 'cover_file', 'reviews', 'fields'}], oldest first.
+    """The booklog as Folio books: [{'key', 'list', 'at', 'added', 'isbns', 'cover_file', 'reviews',
+    'review_covers', 'fields'}], oldest first.
 
     `fields` holds the FIELDS that have a value; `list` is the reading list the book is on
     and `at` since when (both taken from the latest read).
@@ -213,7 +248,7 @@ def books(repo):
         }
         # One review per read: when it was read, the rating, and what was written about it. A
         # book not read yet has no reading date, and only an entry if something was written.
-        reviews = []
+        reviews, review_covers = [], {}
         for post in reads:
             was_read = str(post.get('status') or 'read') in ('read', 'abandoned')
             review = {
@@ -221,11 +256,16 @@ def books(repo):
                 'date': post['_day'] if was_read else '',
                 'rating': post['rating'] if isinstance(post.get('rating'), int) else None,
                 'text': post['_text'],
+                'edition': edition_of(post),   # what was read that time: its own publisher, length, cover
                 'boeken': str(post['slug']),
                 'url': post['_url'],
             }
             if was_read or review['text']:
-                reviews.append({**review, 'sum': review_sum(review)})
+                reviews.append(review)   # its `sum` follows once its cover has a thumbnail (import_boeken)
+                own = str(post.get('cover') or '')
+                picture = Path(repo, 'media', own.lstrip('/')) if own.startswith('/') else None
+                if picture and picture.is_file():
+                    review_covers[review['id']] = picture
         status = str(latest.get('status') or 'read')
         out.append({
             'key': key,
@@ -236,6 +276,7 @@ def books(repo):
             # The original image, when the repository has it (covers live in its media/ folder).
             'cover_file': cover_file if cover_file and cover_file.is_file() else None,
             'reviews': reviews,
+            'review_covers': review_covers,   # review id → the original picture of the edition read
             'fields': {k: v for k, v in fields.items() if v not in ('', None, [])},
         })
     out.sort(key=lambda b: b['added'])
