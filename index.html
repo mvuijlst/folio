@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
-  <title>Bookscan</title>
-  <meta name="description" content="Catalog your books by scanning their barcodes, and keep them on lists.">
+  <title>Folio</title>
+  <meta name="description" content="Your books on lists: library, to read, reading, read, lent out. Scan a barcode to add one.">
   <meta name="theme-color" content="#131210">
   <meta name="color-scheme" content="dark light">
   <meta name="mobile-web-app-capable" content="yes">
@@ -57,11 +57,14 @@
   </defs>
 </svg>
 
+<!-- Shown only at the address the app used to have -->
+<div class="moved" id="moved" hidden></div>
+
 <!-- Library -->
 <div class="app" id="app">
   <header class="top">
     <div class="brand">
-      <h1 class="wordmark">Book<em>scan</em></h1>
+      <h1 class="wordmark">Fol<em>io</em></h1>
       <p class="count" id="count">&nbsp;</p>
     </div>
     <div class="top-actions">
@@ -95,8 +98,8 @@
         <path class="art-accent" d="M85 84v10M89 84v10M93 84v10"/>
       </g>
     </svg>
-    <h2>Your shelf is empty</h2>
-    <p>Scan the barcode on the back of a book and it lands here, with its title, author, publisher, date and page count.</p>
+    <h2 data-t>Your shelf is empty</h2>
+    <p data-t>Scan the barcode on the back of a book and it lands here, with its title, author, publisher, date and page count.</p>
   </div>
 
 </div>
@@ -104,7 +107,7 @@
 <div class="dock">
   <button class="fab" id="scanBtn">
     <svg class="icon" aria-hidden="true"><use href="#i-scan"/></svg>
-    <span>Scan a book</span>
+    <span data-t>Scan a book</span>
   </button>
 </div>
 
@@ -137,13 +140,13 @@
     <div class="scan-card" id="scanCard" aria-live="polite"></div>
     <p class="scan-hint" id="scanHint"></p>
     <div class="scan-controls for-barcode">
-      <button class="glass-pill" id="typeIsbnBtn"><svg class="icon" aria-hidden="true"><use href="#i-keyboard"/></svg><span>Type ISBN</span></button>
-      <button class="glass-pill" id="noBarcodeBtn"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span>No barcode?</span></button>
+      <button class="glass-pill" id="typeIsbnBtn"><svg class="icon" aria-hidden="true"><use href="#i-keyboard"/></svg><span data-t>Type ISBN</span></button>
+      <button class="glass-pill" id="noBarcodeBtn"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span data-t>No barcode?</span></button>
     </div>
     <div class="scan-controls for-cover">
-      <button class="glass-pill" id="backToBarcodeBtn"><svg class="icon" aria-hidden="true"><use href="#i-barcode"/></svg><span>Barcode</span></button>
+      <button class="glass-pill" id="backToBarcodeBtn"><svg class="icon" aria-hidden="true"><use href="#i-barcode"/></svg><span data-t>Barcode</span></button>
       <button class="shutter" id="shutterBtn" aria-label="Photograph cover"><span></span></button>
-      <button class="glass-pill" id="byHandBtn"><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg><span>By hand</span></button>
+      <button class="glass-pill" id="byHandBtn"><svg class="icon" aria-hidden="true"><use href="#i-pencil"/></svg><span data-t>By hand</span></button>
     </div>
   </div>
   <input type="file" id="coverFile" accept="image/*" capture="environment" hidden>

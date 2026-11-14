@@ -2,8 +2,8 @@ from django.conf import settings
 from django.contrib import admin
 from django.urls import include, path
 
-admin.site.site_header = 'Bookscan'
-admin.site.site_title = 'Bookscan'
+admin.site.site_header = 'Folio'
+admin.site.site_title = 'Folio'
 admin.site.index_title = 'Accounts and shelves'
 
 urlpatterns = [

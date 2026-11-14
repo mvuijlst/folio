@@ -1,9 +1,9 @@
-"""Bookscan sync server: accounts and a copy of each user's shelf.
+"""Folio sync server: accounts and a copy of each user's shelf.
 
 Configuration comes from environment variables (see .env.example):
   DJANGO_SECRET_KEY   required in production
   DJANGO_DEBUG        "1" for local development
-  DJANGO_ALLOWED_HOSTS  comma-separated, e.g. bookscan.yusupov.cloud
+  DJANGO_ALLOWED_HOSTS  comma-separated, e.g. folio.yusupov.cloud
 """
 import os
 from pathlib import Path

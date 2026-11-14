@@ -1,9 +1,13 @@
-// Bookscan — catalog books by scanning their ISBN barcode, and keep them on lists
-// (library, to read, reading, read, lent out, …).
+// Folio — your books on lists (library, to read, reading, read, lent out, …), added by
+// scanning their ISBN barcode. It began as Bookscan, which is why the names of things kept
+// in the browser (storage keys, databases, caches) still start with "bookscan": renaming
+// those would cut existing installs off from their shelf.
 // Plain ES module, no build step. The shelf is stored on the device (IndexedDB) and, for
 // signed-in users, synced with the small Django server in server/.
 
-const APP_VERSION = '1.3.0'; // shown under Settings, so you can tell which build is running
+import NL from './lang-nl.js';
+
+const APP_VERSION = '1.4.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -36,7 +40,6 @@ function icon(name) {
 }
 
 const fold = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
-const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const buzz = (ms = 35) => { try { navigator.vibrate?.(ms); } catch {} };
 const abs = (path) => new URL(path, document.baseURI).href;
 
@@ -49,6 +52,41 @@ const store = {
   },
   set(key, value) { try { localStorage.setItem('bookscan.' + key, JSON.stringify(value)); } catch {} },
 };
+
+/* ───────────────────────── Language ───────────────────────── */
+
+// The app's own text is written in English in the code; other languages are a dictionary
+// from those English sentences (lang-nl.js). The choice is made under Settings and takes
+// effect by reloading, so nothing here has to cope with the language changing midway.
+const LANGS = { en: 'English', nl: 'Nederlands' };
+const DICTIONARIES = { nl: NL };
+const langChoice = store.get('lang', 'auto');   // 'auto' follows the device
+const lang = langChoice in LANGS
+  ? langChoice
+  : (navigator.languages || [navigator.language || 'en']).map((l) => l.slice(0, 2).toLowerCase()).find((l) => l in LANGS) || 'en';
+/** For dates: the device's own habits when the language follows the device. */
+const LOCALE = langChoice in LANGS ? { en: 'en-GB', nl: 'nl-BE' }[lang] : undefined;
+
+/** t('Saved {name}', {name}) → that sentence in the chosen language, with the blanks filled in. */
+function t(text, values) {
+  const out = DICTIONARIES[lang]?.[text] ?? text;
+  return values ? out.replace(/\{(\w+)\}/g, (match, key) => values[key] ?? match) : out;
+}
+
+const COUNTED = {
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'] },
+};
+const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
+
+/** Fills the text that is written out in index.html. */
+function localize() {
+  document.documentElement.lang = lang;
+  for (const el of document.querySelectorAll('[data-t]')) el.textContent = t(el.textContent.trim());
+  for (const attr of ['aria-label', 'title', 'placeholder']) {
+    for (const el of document.querySelectorAll(`[${attr}]`)) el.setAttribute(attr, t(el.getAttribute(attr)));
+  }
+}
 
 const OCR_LANGS = { eng: 'English', nld: 'Nederlands', fra: 'Français', deu: 'Deutsch' };
 const settings = {
@@ -146,7 +184,7 @@ const sortBooks = () => books.sort((a, b) => (a.added < b.added ? 1 : -1));
 
 function storageFailed(err) {
   console.error(err);
-  toast('Could not save to this device’s storage');
+  toast(t('Could not save to this device’s storage'));
 }
 
 /* ───────────────────────── Lists ───────────────────────── */
@@ -171,6 +209,12 @@ const STANDARD_LISTS = [
 let lists = [];
 /** What the library shows: one list, or every book when `list` is null. */
 const view = { list: null };
+
+// The standard lists (and their group and note) are stored under their English names, so
+// they are the same list on a Dutch and an English device. Until they are renamed, they
+// are shown in the device's language.
+const STANDARD_TEXT = new Set([READING, ...STANDARD_LISTS.flatMap((l) => [l.name, l.noteLabel])].filter(Boolean));
+const show = (text) => (STANDARD_TEXT.has(text) ? t(text) : text);
 
 const sortLists = () => lists.sort((a, b) => ((a.order ?? 0) - (b.order ?? 0)) || String(a.name).localeCompare(b.name));
 const listById = (id) => lists.find((l) => l.id === id);
@@ -322,7 +366,7 @@ async function api(path, data) {
     if (res.status === 403) { await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' }); res = await post(); }
   }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(json.error || `Server error ${res.status}`), { status: res.status });
+  if (!res.ok) throw Object.assign(new Error(json.error ? t(json.error) : t('Server error {n}', { n: res.status })), { status: res.status });
   return json;
 }
 
@@ -330,7 +374,7 @@ const time = (iso) => Date.parse(iso) || 0;
 
 async function runSync({ loud = false } = {}) {
   if (!sync.user) return;
-  if (navigator.onLine === false) { if (loud) toast('You’re offline — changes will sync later'); return; }
+  if (navigator.onLine === false) { if (loud) toast(t('You’re offline — changes will sync later')); return; }
   if (sync.running) { sync.again = true; return sync.running; }
   clearTimeout(sync.timer);
   sync.running = (async () => {
@@ -362,13 +406,13 @@ async function runSync({ loud = false } = {}) {
         sync.error = '';
         saveSyncState();
       } while (sync.again);
-      if (loud) toast('Shelf synced');
+      if (loud) toast(t('Shelf synced'));
     } catch (err) {
       if (err.status === 401) {
         forgetAccount();
-        toast('Signed out — sign in again to keep syncing', { action: 'Sign in', onAction: openSettings });
+        toast(t('Signed out — sign in again to keep syncing'), { action: t('Sign in'), onAction: openSettings });
       } else {
-        sync.error = err.status ? err.message : 'Couldn’t reach the server';
+        sync.error = err.status ? err.message : t('Couldn’t reach the server');
         if (loud) toast(sync.error);
       }
     } finally {
@@ -441,7 +485,7 @@ async function signIn(username, password) {
   saveSyncState();
   renderAccount();
   await runSync();
-  toast(sync.error || `Signed in — ${plural(books.length, 'book')} on your shelf`);
+  toast(sync.error || t('Signed in — {n} on your shelf', { n: plural(books.length, 'book') }));
 }
 
 function forgetAccount() {
@@ -456,7 +500,7 @@ async function signOut({ clearShelf }) {
   if (!sync.user) return;   // the session had already ended
   const waiting = waitingChanges();
   if (clearShelf && waiting) {
-    toast(`${plural(waiting, 'change')} haven’t reached the server yet — sync before clearing this device`);
+    toast(t('{n} haven’t reached the server yet — sync before clearing this device', { n: plural(waiting, 'change') }));
     return;
   }
   try { await api('logout', {}); } catch {}
@@ -471,15 +515,15 @@ async function signOut({ clearShelf }) {
     await seedLists().catch(storageFailed);   // back to the lists a new device starts with
     renderLibrary();
   }
-  toast(clearShelf ? 'Signed out and cleared this device' : 'Signed out — your shelf stays on this device');
+  toast(clearShelf ? t('Signed out and cleared this device') : t('Signed out — your shelf stays on this device'));
 }
 
 function agoText(iso) {
   const s = Math.round((Date.now() - time(iso)) / 1000);
-  if (s < 45) return 'just now';
-  if (s < 3600) return `${Math.round(s / 60)} min ago`;
-  if (s < 86400) return plural(Math.round(s / 3600), 'hour') + ' ago';
-  return new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+  if (s < 45) return t('just now');
+  if (s < 3600) return t('{n} min ago', { n: Math.round(s / 60) });
+  if (s < 86400) return t('{n} ago', { n: plural(Math.round(s / 3600), 'hour') });
+  return new Date(iso).toLocaleDateString(LOCALE, { day: 'numeric', month: 'short' });
 }
 
 /** The account part of the settings sheet; re-rendered whenever sync state changes. */
@@ -491,51 +535,51 @@ function renderAccount() {
     const user = h('input', { name: 'username', autocomplete: 'username', autocapitalize: 'off', spellcheck: 'false', required: true });
     const pass = h('input', { name: 'password', type: 'password', autocomplete: 'current-password', required: true });
     const error = h('p', { class: 'field-error', hidden: true });
-    const button = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, 'Sign in');
+    const button = h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, t('Sign in'));
     const form = h('form', {
       class: 'account-form',
       onsubmit: async (e) => {
         e.preventDefault();
-        if (!user.value.trim() || !pass.value) { error.textContent = 'Enter your username and password.'; error.hidden = false; return; }
+        if (!user.value.trim() || !pass.value) { error.textContent = t('Enter your username and password.'); error.hidden = false; return; }
         button.disabled = true;
         error.hidden = true;
         try {
           await signIn(user.value.trim(), pass.value);
         } catch (err) {
-          error.textContent = err.status ? err.message : 'Couldn’t reach the server. Are you online?';
+          error.textContent = err.status ? err.message : t('Couldn’t reach the server. Are you online?');
           error.hidden = false;
           button.disabled = false;
         }
       },
     },
     h('div', { class: 'field-row' },
-      h('label', { class: 'field' }, h('span', { text: 'Username' }), user),
-      h('label', { class: 'field' }, h('span', { text: 'Password' }), pass)),
+      h('label', { class: 'field' }, h('span', { text: t('Username') }), user),
+      h('label', { class: 'field' }, h('span', { text: t('Password') }), pass)),
     error, button);
     box.replaceChildren(
-      h('h3', { text: 'Account' }),
+      h('h3', { text: t('Account') }),
       form,
-      h('p', { class: 'sheet-note', text: 'Optional. Signed in, your shelf is also kept on the server, so you can open it on your other devices. Ask the person who runs this site for an account.' }));
+      h('p', { class: 'sheet-note', text: t('Optional. Signed in, your shelf is also kept on the server, so you can open it on your other devices. Ask the person who runs this site for an account.') }));
     return;
   }
 
   const waiting = waitingChanges();
   let status;
-  if (sync.running) status = 'Syncing…';
-  else if (sync.error) status = `${sync.error}.${waiting ? ` ${plural(waiting, 'change')} waiting.` : ''}`;
-  else if (waiting) status = `${plural(waiting, 'change')} waiting to sync.`;
-  else status = sync.last ? `Synced ${agoText(sync.last)}.` : 'Not synced yet.';
+  if (sync.running) status = t('Syncing…');
+  else if (sync.error) status = `${sync.error}.${waiting ? ` ${t('{n} waiting.', { n: plural(waiting, 'change') })}` : ''}`;
+  else if (waiting) status = t('{n} waiting to sync.', { n: plural(waiting, 'change') });
+  else status = sync.last ? t('Synced {when}.', { when: agoText(sync.last) }) : t('Not synced yet.');
 
   box.replaceChildren(
-    h('h3', { text: 'Account' }),
-    h('p', { class: 'account-line' }, 'Signed in as ', h('strong', { text: sync.user })),
+    h('h3', { text: t('Account') }),
+    h('p', { class: 'account-line' }, t('Signed in as '), h('strong', { text: sync.user })),
     h('p', { class: 'sheet-note account-status' + (sync.error ? ' is-error' : ''), text: status }),
     h('div', { class: 'stack account-actions' },
-      h('button', { class: 'btn btn-outline btn-block', type: 'button', disabled: !!sync.running, onclick: () => runSync({ loud: true }) }, icon('sync'), 'Sync now'),
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', disabled: !!sync.running, onclick: () => runSync({ loud: true }) }, icon('sync'), t('Sync now')),
       h('div', { class: 'btn-row' },
-        h('button', { class: 'btn btn-outline', type: 'button', text: 'Sign out', onclick: () => signOut({ clearShelf: false }) }),
-        h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: 'Sign out & clear', title: 'Sign out and remove the shelf from this device (it stays on the server)', onclick: () => signOut({ clearShelf: true }) }))),
-    h('p', { class: 'sheet-note', text: '“Sign out & clear” removes the shelf from this device only; it stays on the server.' }));
+        h('button', { class: 'btn btn-outline', type: 'button', text: t('Sign out'), onclick: () => signOut({ clearShelf: false }) }),
+        h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: t('Sign out & clear'), title: t('Sign out and remove the shelf from this device (it stays on the server)'), onclick: () => signOut({ clearShelf: true }) }))),
+    h('p', { class: 'sheet-note', text: t('“Sign out & clear” removes the shelf from this device only; it stays on the server.') }));
 }
 
 /* ───────────────────────── ISBN & dates ───────────────────────── */
@@ -583,7 +627,7 @@ function normDate(raw) {
 const yearOf = (date) => (String(date || '').match(/\b(1[4-9]\d\d|20\d\d)\b/) || [])[1] || '';
 
 function metaLine(b) {
-  return [b.publisher, yearOf(b.date) || b.date, b.pages && `${b.pages} pp`].filter(Boolean).join(' · ');
+  return [b.publisher, yearOf(b.date) || b.date, b.pages && t('{n} pp', { n: b.pages })].filter(Boolean).join(' · ');
 }
 
 /* ───────────────────────── Lookups ───────────────────────── */
@@ -797,7 +841,7 @@ $('backdrop').addEventListener('click', () => sheet.close());
 function sheetHead(title, sub, extra) {
   return h('div', { class: 'sheet-head' },
     h('div', null, h('h2', { class: 'sheet-title', text: title }), sub && h('p', { class: 'sheet-sub', text: sub })),
-    extra || h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close', onclick: () => sheet.close() }, icon('x')));
+    extra || h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')));
 }
 
 let toastTimer;
@@ -844,22 +888,22 @@ function coverEl(book, large) {
 
 function displayTitle(b) {
   if (b.title) return b.title;
-  return b.pending ? `ISBN ${b.isbn}` : 'Unknown book';
+  return b.pending ? `ISBN ${b.isbn}` : t('Unknown book');
 }
 
 /** Small labels for the lists a book is on; in a list's own view only its note ("Lent to: …"). */
 function listTags(book, current) {
   const tags = listsOf(book).map(({ list, note }) => {
-    if (list === current) return note && `${list.noteLabel || 'Note'}: ${note}`;
-    return note ? `${list.name}: ${note}` : list.name;
+    if (list === current) return note && `${show(list.noteLabel) || t('Note')}: ${note}`;
+    return note ? `${show(list.name)}: ${note}` : show(list.name);
   }).filter(Boolean);
   return tags.length ? h('div', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text }))) : null;
 }
 
 function bookRow(b, onPick, extra, tags) {
   let meta;
-  if (b.pending) meta = h('div', { class: 'book-meta flag' }, icon('cloud-off'), 'Will be looked up when you’re online');
-  else if (b.unresolved) meta = h('div', { class: 'book-meta flag', text: 'No match found — tap to fill in' });
+  if (b.pending) meta = h('div', { class: 'book-meta flag' }, icon('cloud-off'), t('Will be looked up when you’re online'));
+  else if (b.unresolved) meta = h('div', { class: 'book-meta flag', text: t('No match found — tap to fill in') });
   else meta = h('div', { class: 'book-meta', text: metaLine(b) });
   return h('button', { class: 'book', type: 'button', onclick: () => onPick(b) },
     coverEl(b),
@@ -873,9 +917,9 @@ function dayLabel(iso) {
   const d = new Date(iso), now = new Date();
   const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const days = Math.round((start(now) - start(d)) / 864e5);
-  if (days <= 0) return 'Today';
-  if (days === 1) return 'Yesterday';
-  return d.toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+  if (days <= 0) return t('Today');
+  if (days === 1) return t('Yesterday');
+  return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
 function renderNav() {
@@ -891,12 +935,12 @@ function renderNav() {
   }, h('span', { text: name }), h('b', { text: String(count) }));
   const nav = $('lists');
   nav.replaceChildren(
-    h('div', { class: 'nav-group' }, item(null, 'All books', books.length)),
+    h('div', { class: 'nav-group' }, item(null, t('All books'), books.length)),
     ...listSections().map((section) => h('div', { class: 'nav-group' },
-      section.label && h('span', { class: 'nav-label', text: section.label }),
-      section.members.map((l) => item(l.id, l.name, counts.get(l.id))))),
+      section.label && h('span', { class: 'nav-label', text: show(section.label) }),
+      section.members.map((l) => item(l.id, show(l.name), counts.get(l.id))))),
     h('div', { class: 'nav-group' },
-      h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: 'Edit lists' }))));
+      h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }))));
   // On a phone the lists are one scrolling row: keep the open one in sight.
   const active = nav.querySelector('[aria-current]');
   if (active && (active.offsetLeft < nav.scrollLeft || active.offsetLeft + active.offsetWidth > nav.scrollLeft + nav.clientWidth)) {
@@ -908,8 +952,8 @@ function renderLibrary() {
   if (view.list && !listById(view.list)) view.list = null;   // the open list was deleted
   const current = view.list ? listById(view.list) : null;
   const query = fold($('search').value.trim());
-  $('count').textContent = books.length ? plural(books.length, 'book') : 'Nothing scanned yet';
-  $('search').placeholder = current ? `Search ${current.name}` : 'Search your shelf';
+  $('count').textContent = books.length ? plural(books.length, 'book') : t('Nothing scanned yet');
+  $('search').placeholder = current ? t('Search {list}', { list: show(current.name) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   renderNav();
 
@@ -928,9 +972,9 @@ function renderLibrary() {
     if (!query && day !== lastDay) { frag.append(h('h2', { class: 'day', text: day })); lastDay = day; }
     frag.append(bookRow(b, (book) => openBookForm({ book }), null, listTags(b, current)));
   }
-  if (query && !found.length) frag.append(h('p', { class: 'no-results', text: 'No books match that search.' }));
+  if (query && !found.length) frag.append(h('p', { class: 'no-results', text: t('No books match that search.') }));
   else if (current && !found.length && books.length) {
-    frag.append(h('p', { class: 'no-results', text: `Nothing on “${current.name}” yet. Scan a book while this list is open, or open a book and put it here.` }));
+    frag.append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Scan a book while this list is open, or open a book and put it here.', { list: show(current.name) }) }));
   }
   $('library').replaceChildren(frag);
 }
@@ -953,18 +997,18 @@ function tidyCase(s) {
 function listPicker(on, { notes = true } = {}) {
   const box = h('div', { class: 'list-picker' });
   const chip = (l) => h('button', {
-    class: 'chip', type: 'button', text: l.name, 'aria-pressed': String(!!on[l.id]),
+    class: 'chip', type: 'button', text: show(l.name), 'aria-pressed': String(!!on[l.id]),
     onclick: () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); },
   });
   const noteField = (l) => {
     const input = h('input', { value: on[l.id].note || '', autocomplete: 'off', autocapitalize: 'words' });
     input.addEventListener('input', () => { on[l.id].note = input.value; });
-    return h('label', { class: 'field' }, h('span', { text: l.noteLabel }), input);
+    return h('label', { class: 'field' }, h('span', { text: show(l.noteLabel) }), input);
   };
   function draw() {
     box.replaceChildren(
       ...listSections().map((section) => h('div', { class: 'pick-row' },
-        section.label && h('span', { class: 'pick-label', text: section.label }),
+        section.label && h('span', { class: 'pick-label', text: show(section.label) }),
         h('div', { class: 'chips' }, section.members.map(chip)))),
       ...(notes ? lists.filter((l) => on[l.id] && l.noteLabel).map(noteField) : []));
   }
@@ -984,7 +1028,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     title: h('textarea', { name: 'title', rows: 2, class: 'serif', autocomplete: 'off', enterkeyhint: 'next' }),
     author: input('author', { autocapitalize: 'words' }),
     publisher: input('publisher', { autocapitalize: 'words' }),
-    date: input('date', { placeholder: 'e.g. 1998', inputmode: 'numeric' }),
+    date: input('date', { placeholder: t('e.g. 1998'), inputmode: 'numeric' }),
     pages: input('pages', { inputmode: 'numeric', pattern: '[0-9]*' }),
     isbn: input('isbn', { inputmode: 'numeric' }),
   };
@@ -1000,7 +1044,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   let ocrBox = null;
   if (ocrLines.length) {
     let target = 'title', run = null;
-    const seg = { title: h('button', { type: 'button', text: 'Title' }), author: h('button', { type: 'button', text: 'Author' }) };
+    const seg = { title: h('button', { type: 'button', text: t('Title') }), author: h('button', { type: 'button', text: t('Author') }) };
     const setTarget = (t) => { target = t; run = null; for (const k in seg) seg[k].setAttribute('aria-pressed', String(k === t)); };
     for (const k in seg) {
       seg[k].addEventListener('click', () => setTarget(k));
@@ -1018,31 +1062,31 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       },
     }));
     ocrBox = h('div', { class: 'ocr' },
-      h('div', { class: 'ocr-head' }, h('span', { text: 'Tap text from the cover to fill' }), h('div', { class: 'seg' }, seg.title, seg.author)),
+      h('div', { class: 'ocr-head' }, h('span', { text: t('Tap text from the cover to fill') }), h('div', { class: 'seg' }, seg.title, seg.author)),
       h('div', { class: 'chips' }, chips));
   }
 
   const swap = (isNew && ocrLines.length) && h('button', {
     class: 'swap', type: 'button',
     onclick: () => { [f.title.value, f.author.value] = [f.author.value, f.title.value]; },
-  }, icon('swap'), 'Swap title and author');
+  }, icon('swap'), t('Swap title and author'));
 
   const form = h('form', { novalidate: true, onsubmit: submit },
-    sheetHead(heading || (isNew ? 'New book' : 'Edit book'), subheading || null,
+    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null,
       (book.cover || book.thumb) ? coverEl(book) : null),
     ocrBox,
-    field('Title', f.title),
-    field('Author', f.author),
+    field(t('Title'), f.title),
+    field(t('Author'), f.author),
     swap,
-    field('Publisher', f.publisher),
-    h('div', { class: 'field-row' }, field('Published', f.date), field('Pages', f.pages)),
+    field(t('Publisher'), f.publisher),
+    h('div', { class: 'field-row' }, field(t('Published'), f.date), field(t('Pages'), f.pages)),
     field('ISBN', f.isbn),
-    lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: 'Lists' }), listPicker(on)),
+    lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: t('Lists') }), listPicker(on)),
     error,
     h('div', { class: 'btn-row sheet-actions' },
-      !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': 'Delete book', onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: 'Cancel', onclick: () => sheet.close() }),
-      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? 'Add to shelf' : 'Save')));
+      !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => sheet.close() }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add to shelf') : t('Save'))));
 
   async function submit(e) {
     e.preventDefault();
@@ -1058,7 +1102,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       data.lists[id] = { at: entry.at || new Date().toISOString(), ...(note && { note }) };
     }
     if (!data.title) {
-      error.textContent = 'A book needs at least a title.';
+      error.textContent = t('A book needs at least a title.');
       error.hidden = false;
       f.title.focus();
       return;
@@ -1078,7 +1122,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   function remove() {
     sheet.close();
     removeBook(book);
-    toast('Book removed', { action: 'Undo', onAction: () => restoreBook(book) });
+    toast(t('Book removed'), { action: t('Undo'), onAction: () => restoreBook(book) });
   }
 
   sheet.open(form, () => onClose?.(saved));
@@ -1100,15 +1144,15 @@ function openLists() {
   };
   const row = (list, i) => h('div', { class: 'list-row' },
     h('button', { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
-      h('span', { text: list.name }),
-      h('small', { text: [list.group && `One of: ${list.group}`, list.noteLabel && `Note: ${list.noteLabel}`].filter(Boolean).join(' · ') })),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Move ${list.name} up`, disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': `Move ${list.name} down`, disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
+      h('span', { text: show(list.name) }),
+      h('small', { text: [list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) })].filter(Boolean).join(' · ') })),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} up', { list: show(list.name) }), disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} down', { list: show(list.name) }), disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
   function draw() {
     sheet.open(h('div', null,
-      sheetHead('Lists', 'Tap a list to rename it or change how it works.'),
+      sheetHead(t('Lists'), t('Tap a list to rename it or change how it works.')),
       h('div', { class: 'list-rows' }, lists.map(row)),
-      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openListForm() }, icon('plus'), 'New list')));
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openListForm() }, icon('plus'), t('New list'))));
   }
   draw();
 }
@@ -1116,23 +1160,25 @@ function openLists() {
 /** Add a list, or edit one. Afterwards the sheet goes back to the overview of lists. */
 function openListForm(list) {
   const isNew = !list;
-  const name = h('input', { name: 'name', value: list?.name || '', autocomplete: 'off', autocapitalize: 'sentences', enterkeyhint: 'done' });
-  const noteLabel = h('input', { name: 'noteLabel', value: list?.noteLabel || '', placeholder: 'e.g. Lent to', autocomplete: 'off', autocapitalize: 'sentences' });
+  // A standard name is shown translated; left as it is, it is also stored as it was.
+  const kept = (input, stored) => { const typed = input.value.replace(/\s+/g, ' ').trim(); return stored && typed === show(stored) ? stored : typed; };
+  const name = h('input', { name: 'name', value: show(list?.name || ''), autocomplete: 'off', autocapitalize: 'sentences', enterkeyhint: 'done' });
+  const noteLabel = h('input', { name: 'noteLabel', value: show(list?.noteLabel || ''), placeholder: t('e.g. Lent to'), autocomplete: 'off', autocapitalize: 'sentences' });
   const error = h('p', { class: 'field-error', hidden: true });
 
   // Either-or sets: on its own, one of the sets that exist, or a new one.
   const NEW = Symbol('new set');
   let group = list?.group || '';
   const sets = [...new Set(lists.map((l) => l.group).filter(Boolean))];
-  const newSet = h('input', { name: 'group', placeholder: 'Name of the new set, e.g. Wishlist priority', autocomplete: 'off', autocapitalize: 'sentences' });
-  const newSetField = h('label', { class: 'field', hidden: true }, h('span', { text: 'New set' }), newSet);
+  const newSet = h('input', { name: 'group', placeholder: t('Name of the new set, e.g. Wishlist priority'), autocomplete: 'off', autocapitalize: 'sentences' });
+  const newSetField = h('label', { class: 'field', hidden: true }, h('span', { text: t('New set') }), newSet);
   const setChips = h('div', { class: 'chips' });
   const drawSets = () => {
     const chip = (value, text) => h('button', {
       class: 'chip', type: 'button', text, 'aria-pressed': String(group === value),
       onclick: () => { group = value; drawSets(); if (value === NEW) newSet.focus(); },
     });
-    setChips.replaceChildren(chip('', 'On its own'), ...sets.map((g) => chip(g, g)), chip(NEW, 'New set…'));
+    setChips.replaceChildren(chip('', t('On its own')), ...sets.map((g) => chip(g, show(g))), chip(NEW, t('New set…')));
     newSetField.hidden = group !== NEW;
   };
   drawSets();
@@ -1140,11 +1186,11 @@ function openListForm(list) {
   async function submit(e) {
     e.preventDefault();
     const clean = (input) => input.value.replace(/\s+/g, ' ').trim();
-    const data = { name: clean(name), group: group === NEW ? clean(newSet) : group, noteLabel: clean(noteLabel) };
+    const data = { name: kept(name, list?.name), group: group === NEW ? clean(newSet) : group, noteLabel: kept(noteLabel, list?.noteLabel) };
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
-    if (!data.name) return fail('A list needs a name.', name);
-    if (lists.some((l) => l !== list && fold(l.name) === fold(data.name))) return fail('There is already a list with that name.', name);
-    if (group === NEW && !data.group) return fail('Give the new set a name, or pick “On its own”.', newSet);
+    if (!data.name) return fail(t('A list needs a name.'), name);
+    if (lists.some((l) => l !== list && fold(show(l.name)) === fold(show(data.name)))) return fail(t('There is already a list with that name.'), name);
+    if (group === NEW && !data.group) return fail(t('Give the new set a name, or pick “On its own”.'), newSet);
     const target = list || { id: newId(), order: lists.reduce((max, l) => Math.max(max, l.order ?? 0), -1) + 1 };
     Object.assign(target, data);
     await saveList(target);
@@ -1156,26 +1202,28 @@ function openListForm(list) {
     removeList(list);
     openLists();
     // The books keep their place on the list, so undoing brings everything back.
-    toast(`Deleted “${list.name}”${count ? ` — the ${plural(count, 'book')} on it stay on your shelf` : ''}`, { action: 'Undo', onAction: () => saveList(list) });
+    toast(count
+      ? t('Deleted “{list}” — the {n} on it stay on your shelf', { list: show(list.name), n: plural(count, 'book') })
+      : t('Deleted “{list}”', { list: show(list.name) }), { action: t('Undo'), onAction: () => saveList(list) });
   }
 
   sheet.open(h('form', { novalidate: true, onsubmit: submit },
-    sheetHead(isNew ? 'New list' : 'Edit list'),
-    h('label', { class: 'field' }, h('span', { text: 'Name' }), name),
+    sheetHead(isNew ? t('New list') : t('Edit list')),
+    h('label', { class: 'field' }, h('span', { text: t('Name') }), name),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: 'Either-or' }),
+      h('h3', { text: t('Either-or') }),
       setChips,
       newSetField,
-      h('p', { class: 'sheet-note', text: 'Lists in the same set are either-or: putting a book on one takes it off the others, like To read, Reading and Read. A list on its own can hold any book.' })),
+      h('p', { class: 'sheet-note', text: t('Lists in the same set are either-or: putting a book on one takes it off the others, like To read, Reading and Read. A list on its own can hold any book.') })),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: 'Note' }),
+      h('h3', { text: t('Note') }),
       h('label', { class: 'field' }, noteLabel),
-      h('p', { class: 'sheet-note', text: 'Optional. If you name a note here, each book on this list can carry one — who you lent it to, where you left it.' })),
+      h('p', { class: 'sheet-note', text: t('Optional. If you name a note here, each book on this list can carry one — who you lent it to, where you left it.') })),
     error,
     h('div', { class: 'btn-row sheet-actions' },
-      !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': 'Delete list', onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: 'Cancel', onclick: () => openLists() }),
-      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? 'Add list' : 'Save'))));
+      !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete list'), onclick: remove }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => openLists() }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add list') : t('Save')))));
   if (isNew) name.focus();
 }
 
@@ -1185,15 +1233,15 @@ function exportJson() {
   const rows = [...books].reverse().map((b) => ({
     title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
     isbn: b.isbn || '', cover: b.cover || '', added: b.added,
-    lists: listsOf(b).map(({ list, at, note }) => ({ list: list.name, since: at, ...(note && { note }) })),
+    lists: listsOf(b).map(({ list, at, note }) => ({ list: show(list.name), since: at, ...(note && { note }) })),
   }));
   return JSON.stringify(rows, null, 2);
 }
 
 function openExport() {
-  if (!books.length) { toast('Nothing to export yet'); return; }
+  if (!books.length) { toast(t('Nothing to export yet')); return; }
   const json = exportJson();
-  const name = `bookscan-${new Date().toISOString().slice(0, 10)}.json`;
+  const name = `folio-${new Date().toISOString().slice(0, 10)}.json`;
   const file = typeof File === 'function' ? new File([json], name, { type: 'application/json' }) : null;
   const canShareFile = !!file && !!navigator.canShare?.({ files: [file] });
 
@@ -1205,27 +1253,27 @@ function openExport() {
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 30000);
     sheet.close();
-    toast(`Saved ${name}`);
+    toast(t('Saved {name}', { name }));
   };
   const share = async () => {
     try {
       await navigator.share(canShareFile ? { files: [file], title: name } : { title: name, text: json });
       sheet.close();
     } catch (err) {
-      if (err?.name !== 'AbortError') toast('Sharing didn’t work — try saving the file');
+      if (err?.name !== 'AbortError') toast(t('Sharing didn’t work — try saving the file'));
     }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(json); sheet.close(); toast('JSON copied to clipboard'); }
-    catch { toast('Couldn’t reach the clipboard'); }
+    try { await navigator.clipboard.writeText(json); sheet.close(); toast(t('JSON copied to clipboard')); }
+    catch { toast(t('Couldn’t reach the clipboard')); }
   };
 
   sheet.open(h('div', null,
-    sheetHead('Export', `${plural(books.length, 'book')} as JSON, oldest first.`),
+    sheetHead(t('Export'), t('{n} as JSON, oldest first.', { n: plural(books.length, 'book') })),
     h('div', { class: 'stack' },
-      h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: save }, icon('download'), 'Save file'),
-      navigator.share && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: share }, icon('share'), 'Share…'),
-      navigator.clipboard && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: copy }, icon('copy'), 'Copy to clipboard'))));
+      h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: save }, icon('download'), t('Save file')),
+      navigator.share && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: share }, icon('share'), t('Share…')),
+      navigator.clipboard && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: copy }, icon('copy'), t('Copy to clipboard')))));
 }
 
 /* ───────────────────────── Settings sheet ───────────────────────── */
@@ -1238,7 +1286,7 @@ function openSettings() {
     const chip = h('button', { class: 'chip', type: 'button', text: label, 'aria-pressed': String(settings.langs.includes(code)) });
     chip.addEventListener('click', () => {
       const on = !settings.langs.includes(code);
-      if (!on && settings.langs.length === 1) { toast('Keep at least one language'); return; }
+      if (!on && settings.langs.length === 1) { toast(t('Keep at least one language')); return; }
       settings.langs = Object.keys(OCR_LANGS).filter((l) => (l === code ? on : settings.langs.includes(l)));
       store.set('langs', settings.langs);
       chip.setAttribute('aria-pressed', String(on));
@@ -1246,29 +1294,37 @@ function openSettings() {
     return chip;
   });
 
-  const key = h('input', { type: 'text', value: settings.googleKey, placeholder: 'Optional', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  const key = h('input', { type: 'text', value: settings.googleKey, placeholder: t('Optional'), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
   key.addEventListener('change', () => { settings.googleKey = key.value.trim(); store.set('googleKey', settings.googleKey); });
+
+  const langChip = (code, label) => h('button', {
+    class: 'chip', type: 'button', text: label, 'aria-pressed': String(langChoice === code || (code === 'auto' && !(langChoice in LANGS))),
+    onclick: () => { store.set('lang', code); location.reload(); },
+  });
 
   sync.box = h('div', { class: 'sheet-section account' });
   sheet.open(h('div', null,
-    sheetHead('Settings'),
+    sheetHead(t('Settings')),
     installPrompt && h('button', {
       class: 'btn btn-primary btn-block', type: 'button',
       onclick: async () => { const p = installPrompt; installPrompt = null; sheet.close(); await p.prompt(); },
-    }, icon('download'), 'Install Bookscan on this phone'),
+    }, icon('download'), t('Install Folio on this phone')),
     sync.box,
     h('div', { class: 'sheet-section' },
-      h('h3', { text: 'Languages on your covers' }),
-      h('div', { class: 'chips' }, chips),
-      h('p', { class: 'sheet-note', text: 'Used when reading a photographed cover. Fewer languages read faster.' })),
+      h('h3', { text: t('Language') }),
+      h('div', { class: 'chips' }, langChip('auto', t('Same as this device')), Object.entries(LANGS).map(([code, label]) => langChip(code, label)))),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: 'Google Books API key' }),
+      h('h3', { text: t('Languages on your covers') }),
+      h('div', { class: 'chips' }, chips),
+      h('p', { class: 'sheet-note', text: t('Used when reading a photographed cover. Fewer languages read faster.') })),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Google Books API key') }),
       h('label', { class: 'field' }, key),
       h('p', { class: 'sheet-note' },
-        'Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.')),
+        t('Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.'))),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: `About · version ${APP_VERSION}` }),
-      h('p', { class: 'sheet-note', text: 'Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.' }))));
+      h('h3', { text: t('About · version {version}', { version: APP_VERSION }) }),
+      h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }))));
   renderAccount();
   if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
 }
@@ -1287,9 +1343,9 @@ const scanner = {
 const alive = (session) => scanner.open && scanner.session === session;
 
 const HINTS = {
-  barcode: 'Point at the barcode on the back cover',
-  cover: 'Fit the front cover in the frame',
-  coverNoCam: 'Tap the button to photograph the cover',
+  barcode: t('Point at the barcode on the back cover'),
+  cover: t('Fit the front cover in the frame'),
+  coverNoCam: t('Tap the button to photograph the cover'),
 };
 
 function setHint(text, ms) {
@@ -1366,10 +1422,10 @@ function stopCamera() {
 function cameraUnavailable(err) {
   const denied = err?.name === 'NotAllowedError' || err?.name === 'SecurityError';
   scannerEl.classList.add('no-camera');
-  $('scanMsgTitle').textContent = denied ? 'The camera is switched off' : 'No camera available';
+  $('scanMsgTitle').textContent = denied ? t('The camera is switched off') : t('No camera available');
   $('scanMsgBody').textContent = denied
-    ? 'Allow camera access for this site in your browser’s site settings. Until then you can type the ISBN, or photograph a cover with your camera app.'
-    : 'You can still add books by typing the ISBN or entering the details by hand.';
+    ? t('Allow camera access for this site in your browser’s site settings. Until then you can type the ISBN, or photograph a cover with your camera app.')
+    : t('You can still add books by typing the ISBN or entering the details by hand.');
   $('scanMsg').hidden = false;
   setHint();
 }
@@ -1403,7 +1459,7 @@ async function scanLoop(session) {
   catch (err) {
     console.error(err);
     scanner.detector = null;
-    if (alive(session)) setHint('Barcode reading isn’t available here — type the ISBN instead');
+    if (alive(session)) setHint(t('Barcode reading isn’t available here — type the ISBN instead'));
     return;
   }
   while (alive(session)) {
@@ -1534,7 +1590,7 @@ async function readPrintedIsbn(firstBox) {
   const ATTEMPTS = 3;
   scanner.busy = true;
   buzz(15);
-  showCard(busyCard('Reading the printed ISBN…'));
+  showCard(busyCard(t('Reading the printed ISBN…')));
   let isbn = null, worker = null;
   try {
     worker = await getOcrWorker();
@@ -1567,12 +1623,12 @@ async function readPrintedIsbn(firstBox) {
   if (isbn) { onIsbn(isbn); return; }
   // Scanning stays paused until one of these is chosen.
   showCard(card({
-    status: 'Not an ISBN barcode', tone: 'warn', title: 'Couldn’t read the ISBN beside it',
-    sub: 'Some older books carry a shop barcode. Hold the printed ISBN number sharp and level, or type it in.',
+    status: t('Not an ISBN barcode'), tone: 'warn', title: t('Couldn’t read the ISBN beside it'),
+    sub: t('Some older books carry a shop barcode. Hold the printed ISBN number sharp and level, or type it in.'),
     onDismiss: () => { scanner.busy = false; },
     actions: [
-      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => { scanner.lastCode = ''; scanner.busy = false; showCard(null); } }, icon('scan'), 'Try again'),
-      h('button', { class: 'btn btn-outline', type: 'button', onclick: openIsbnSheet }, icon('keyboard'), 'Type ISBN'),
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => { scanner.lastCode = ''; scanner.busy = false; showCard(null); } }, icon('scan'), t('Try again')),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: openIsbnSheet }, icon('keyboard'), t('Type ISBN')),
     ],
   }));
 }
@@ -1590,25 +1646,25 @@ function setMode(mode, isbn = '') {
 function updateScanCount() {
   $('scanCount').hidden = scanner.added < 1;
   $('scanCount').textContent = String(scanner.added);
-  $('scanCount').title = `${scanner.added} added`;
+  $('scanCount').title = t('{n} added', { n: scanner.added });
 }
 
-const listNames = (ids) => ids.map((id) => listById(id)?.name).filter(Boolean).join(' + ');
+const listNames = (ids) => ids.map((id) => listById(id)).filter(Boolean).map((l) => show(l.name)).join(' + ');
 
 /** The lists a book scanned now goes on, as a fresh {listId: {at}} map. */
 const targetLists = () => placed(scanner.target);
 
 function renderScanTarget() {
-  $('scanTargetName').textContent = listNames(scanner.target) || 'No list';
+  $('scanTargetName').textContent = listNames(scanner.target) || t('No list');
 }
 
 function openTargetSheet() {
   if (scanner.capturing) return;
   const on = targetLists();
   sheet.open(h('div', null,
-    sheetHead('Scan onto', 'Every book you scan goes on these lists. A book that is already on your shelf is put on them too.'),
+    sheetHead(t('Scan onto'), t('Every book you scan goes on these lists. A book that is already on your shelf is put on them too.')),
     listPicker(on, { notes: false }),
-    h('button', { class: 'btn btn-primary btn-block sheet-done', type: 'button', onclick: () => sheet.close() }, icon('check'), 'Done')),
+    h('button', { class: 'btn btn-primary btn-block sheet-done', type: 'button', onclick: () => sheet.close() }, icon('check'), t('Done'))),
   () => {
     scanner.target = lists.filter((l) => on[l.id]).map((l) => l.id);
     store.set('scanTarget', scanner.target);
@@ -1632,7 +1688,7 @@ function card({ status, tone, statusIcon, book, title, sub, actions = [], onDism
   return h('div', { class: 'card' },
     h('div', { class: 'card-main' + (book ? '' : ' solo') }, book && coverEl(book, true), text),
     actions.length > 0 && h('div', { class: 'card-actions' }, actions),
-    h('button', { class: 'card-x', type: 'button', 'aria-label': 'Dismiss', onclick: () => { onDismiss?.(); showCard(null); } }, icon('x')));
+    h('button', { class: 'card-x', type: 'button', 'aria-label': t('Dismiss'), onclick: () => { onDismiss?.(); showCard(null); } }, icon('x')));
 }
 
 function busyCard(text, withProgress) {
@@ -1647,10 +1703,10 @@ function busyCard(text, withProgress) {
 
 function addedCard(book) {
   return card({
-    status: 'Added', tone: 'ok', statusIcon: 'check', book,
+    status: t('Added'), tone: 'ok', statusIcon: 'check', book,
     actions: [
-      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { removeBook(book); scanner.added = Math.max(0, scanner.added - 1); updateScanCount(); showCard(null); } }, icon('undo'), 'Undo'),
-      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book, onClose: () => { if (scanner.open && books.includes(book)) showCard(addedCard(book)); else showCard(null); } }) }, icon('pencil'), 'Edit'),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { removeBook(book); scanner.added = Math.max(0, scanner.added - 1); updateScanCount(); showCard(null); } }, icon('undo'), t('Undo')),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book, onClose: () => { if (scanner.open && books.includes(book)) showCard(addedCard(book)); else showCard(null); } }) }, icon('pencil'), t('Edit')),
     ],
   });
 }
@@ -1673,7 +1729,7 @@ async function onIsbn(isbn) {
     const before = existing.lists;
     const missing = scanner.target.filter((id) => !shelves(existing)[id]);
     if (!missing.length) {
-      showCard(card({ status: listNames(scanner.target) ? `Already on ${listNames(scanner.target)}` : 'Already on your shelf', tone: 'warn', book: existing }));
+      showCard(card({ status: listNames(scanner.target) ? t('Already on {lists}', { lists: listNames(scanner.target) }) : t('Already on your shelf'), tone: 'warn', book: existing }));
       return;
     }
     existing.lists = missing.reduce((on, id) => place(on, id), { ...shelves(existing) });
@@ -1684,45 +1740,45 @@ async function onIsbn(isbn) {
       showCard(null);
     };
     showCard(card({
-      status: `Put on ${listNames(missing)}`, tone: 'ok', statusIcon: 'check', book: existing,
+      status: t('Put on {lists}', { lists: listNames(missing) }), tone: 'ok', statusIcon: 'check', book: existing,
       actions: [
-        h('button', { class: 'btn btn-outline', type: 'button', onclick: undo }, icon('undo'), 'Undo'),
-        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book: existing }) }, icon('pencil'), 'Edit'),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: undo }, icon('undo'), t('Undo')),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book: existing }) }, icon('pencil'), t('Edit')),
       ],
     }));
     return;
   }
 
-  showCard(busyCard(`Looking up ${isbn}…`));
+  showCard(busyCard(t('Looking up {isbn}…', { isbn })));
   const result = await lookupIsbn(isbn);
 
   if (result.status === 'found') {
     const book = await addBook({ ...result.book, isbn, lists: targetLists() });
-    if (!alive(session)) { toast(`Added “${book.title}”`); return; }
+    if (!alive(session)) { toast(t('Added “{title}”', { title: book.title })); return; }
     scanner.added++;
     updateScanCount();
     scanner.busy = false;
     buzz(20);
     showCard(addedCard(book));
   } else if (result.status === 'notfound') {
-    if (!alive(session)) { toast(`No match found for ISBN ${isbn}`); return; }
+    if (!alive(session)) { toast(t('No match found for ISBN {isbn}', { isbn })); return; }
     warmOcr();
     // Scanning stays paused until one of these is chosen.
     showCard(card({
-      status: 'No match', tone: 'warn', title: 'This ISBN isn’t in the catalogues', sub: `${isbn} · Try a photo of the front cover.`,
+      status: t('No match'), tone: 'warn', title: t('This ISBN isn’t in the catalogues'), sub: t('{isbn} · Try a photo of the front cover.', { isbn }),
       onDismiss: () => { scanner.busy = false; },
       actions: [
-        h('button', { class: 'btn btn-primary', type: 'button', onclick: () => setMode('cover', isbn) }, icon('camera'), 'Photograph the cover'),
-        h('button', { class: 'btn btn-outline btn-narrow', type: 'button', onclick: () => manualEntry(isbn) }, 'By hand'),
+        h('button', { class: 'btn btn-primary', type: 'button', onclick: () => setMode('cover', isbn) }, icon('camera'), t('Photograph the cover')),
+        h('button', { class: 'btn btn-outline btn-narrow', type: 'button', onclick: () => manualEntry(isbn) }, t('By hand')),
       ],
     }));
   } else {
     const book = await addBook({ isbn, pending: true, lists: targetLists() });
-    if (!alive(session)) { toast('Saved the ISBN — details follow when you’re online'); return; }
+    if (!alive(session)) { toast(t('Saved the ISBN — details follow when you’re online')); return; }
     scanner.added++;
     updateScanCount();
     scanner.busy = false;
-    showCard(card({ status: 'Saved for later', tone: 'warn', statusIcon: 'cloud-off', title: `ISBN ${isbn}`, sub: 'No connection right now. The details will be filled in when you’re back online.' }));
+    showCard(card({ status: t('Saved for later'), tone: 'warn', statusIcon: 'cloud-off', title: `ISBN ${isbn}`, sub: t('No connection right now. The details will be filled in when you’re back online.') }));
     void book;
   }
 }
@@ -1731,13 +1787,13 @@ function manualEntry(isbn = '') {
   openBookForm({
     book: { isbn, lists: targetLists() }, isNew: true,
     onSaved: () => { scanner.added++; updateScanCount(); },
-    onClose: (saved) => { if (saved && scanner.open) { setMode('barcode'); toast('Added to your shelf'); } },
+    onClose: (saved) => { if (saved && scanner.open) { setMode('barcode'); toast(t('Added to your shelf')); } },
   });
 }
 
 function openIsbnSheet() {
   const input = h('input', { name: 'isbn', inputmode: 'numeric', autocomplete: 'off', placeholder: '978…', enterkeyhint: 'search' });
-  const error = h('p', { class: 'field-error', hidden: true, text: 'That isn’t a valid ISBN — check the digits.' });
+  const error = h('p', { class: 'field-error', hidden: true, text: t('That isn’t a valid ISBN — check the digits.') });
   const form = h('form', {
     novalidate: true,
     onsubmit: (e) => {
@@ -1748,10 +1804,10 @@ function openIsbnSheet() {
       onIsbn(isbn);
     },
   },
-    sheetHead('Type the ISBN', 'The 10 or 13 digits printed above the barcode or on the copyright page.'),
+    sheetHead(t('Type the ISBN'), t('The 10 or 13 digits printed above the barcode or on the copyright page.')),
     h('label', { class: 'field' }, h('span', { text: 'ISBN' }), input),
     error,
-    h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('search'), 'Look up'));
+    h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('search'), t('Look up')));
   input.addEventListener('input', () => { error.hidden = true; });
   sheet.open(form);
   input.focus();
@@ -1896,7 +1952,7 @@ async function coverFromFile(file) {
   if (!file || scanner.capturing) return;
   let bitmap;
   try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-  catch { toast('That photo couldn’t be opened'); return; }
+  catch { toast(t('That photo couldn’t be opened')); return; }
   const shots = makeShots(bitmap, 0, 0, bitmap.width, bitmap.height);
   bitmap.close?.();
   await processCover(shots);
@@ -1907,7 +1963,7 @@ async function processCover({ canvas, thumb }) {
   const isbn = scanner.pendingIsbn;
   scanner.capturing = true;
   $('shutterBtn').disabled = true;
-  const progress = busyCard('Reading the cover…', true);
+  const progress = busyCard(t('Reading the cover…'), true);
   showCard(progress);
   setHint('');
 
@@ -1941,7 +1997,7 @@ async function processCover({ canvas, thumb }) {
   let candidates = [];
   if (guess.title) {
     progress.setProgress(1);
-    progress.setText('Searching the catalogues…');
+    progress.setText(t('Searching the catalogues…'));
     candidates = await searchByText(guess, lines);
     if (!alive(session)) return;
   }
@@ -1952,15 +2008,15 @@ async function processCover({ canvas, thumb }) {
     $('shutterBtn').disabled = false;
     if (!scanner.open) return;
     video.play().catch(() => {});
-    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); toast('Added to your shelf'); }
+    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); toast(t('Added to your shelf')); }
     else setHint();
   };
   const draft = { title: guess.title, author: guess.author, isbn, thumb, lists: targetLists() };
   const chipLines = lines.map((l) => tidyCase(l.text)).filter((t) => t.length > 1);
   const editByHand = () => openBookForm({
     book: draft, isNew: true, ocrLines: chipLines, onClose: finish,
-    heading: lines.length ? 'Check the details' : 'Couldn’t read the cover',
-    subheading: lines.length ? 'This is what the cover seems to say — fix anything that’s off.' : 'No text could be made out. Type the details, or cancel and try another photo.',
+    heading: lines.length ? t('Check the details') : t('Couldn’t read the cover'),
+    subheading: lines.length ? t('This is what the cover seems to say — fix anything that’s off.') : t('No text could be made out. Type the details, or cancel and try another photo.'),
   });
 
   if (!candidates.length) { editByHand(); return; }
@@ -1971,12 +2027,12 @@ async function processCover({ canvas, thumb }) {
     picked = true;
     await addBook({ ...b, isbn: isbn || b.isbn, thumb, lists: targetLists() });
     sheet.close();
-  }, i === 0 && c.score >= 0.75 ? h('span', { class: 'badge', text: 'Best match' }) : null));
+  }, i === 0 && c.score >= 0.75 ? h('span', { class: 'badge', text: t('Best match') }) : null));
   rows.forEach((r) => r.classList.add('cand'));
   sheet.open(h('div', null,
-    sheetHead('Is it one of these?', 'Tap the right book to add it.'),
+    sheetHead(t('Is it one of these?'), t('Tap the right book to add it.')),
     h('div', { class: 'cand-list' }, rows),
-    h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: editByHand }, icon('pencil'), 'None of these — enter it myself')),
+    h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: editByHand }, icon('pencil'), t('None of these — enter it myself'))),
   () => finish(picked));
 }
 
@@ -2001,8 +2057,21 @@ function bindEvents() {
   $('torchBtn').addEventListener('click', async () => {
     const on = $('torchBtn').getAttribute('aria-pressed') !== 'true';
     try { await scanner.track.applyConstraints({ advanced: [{ torch: on }] }); $('torchBtn').setAttribute('aria-pressed', String(on)); }
-    catch { toast('The flashlight isn’t available'); }
+    catch { toast(t('The flashlight isn’t available')); }
   });
+}
+
+// Bookscan became Folio and moved. The old address keeps working for a while, with a
+// pointer to the new one: a shelf lives in the browser per address, so it only comes along
+// through an account.
+const MOVED = { 'bookscan.yusupov.cloud': 'https://folio.yusupov.cloud/' };
+function showMoved() {
+  const to = MOVED[location.hostname];
+  if (!to) return;
+  $('moved').replaceChildren(
+    h('p', { text: t('Bookscan is now Folio, at {host}. Sign in there and your shelf comes along. This old address will be switched off.', { host: new URL(to).host }) }),
+    h('a', { class: 'btn btn-primary', href: to }, t('Open Folio')));
+  $('moved').hidden = false;
 }
 
 /** Books scanned without a connection get their details as soon as there is one. */
@@ -2045,7 +2114,7 @@ function initUpdates() {
       if (!recent && !layers.length) sessionStorage.setItem('bookscan.reloaded', String(Date.now()));
     } catch {}
     if (!layers.length && !recent) location.reload();
-    else toast('A new version is ready', { action: 'Reload', onAction: () => location.reload(), ms: 12000 });
+    else toast(t('A new version is ready'), { action: t('Reload'), onAction: () => location.reload(), ms: 12000 });
   });
 
   // An installed app can sit in the background for days: check again when it comes back.
@@ -2058,8 +2127,10 @@ function initUpdates() {
 }
 
 async function init() {
+  localize();
   initTheme();
   bindEvents();
+  showMoved();
   try {
     books = await DB.all();
     sortBooks();

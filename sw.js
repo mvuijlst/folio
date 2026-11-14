@@ -1,5 +1,6 @@
-// Bookscan service worker: makes the app installable and usable offline,
-// and makes sure a new deploy reaches installed copies.
+// Folio's service worker: makes the app installable and usable offline, and makes sure a
+// new deploy reaches installed copies. (Cache and message names still say "bookscan", the
+// app's first name: renaming them would only throw away what installed copies have cached.)
 const SHELL = 'bookscan-shell-v2';   // only renamed when the cache layout changes; updates are detected by content
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
 
@@ -7,6 +8,7 @@ const SHELL_FILES = [
   './',
   'styles.css',
   'app.js',
+  'lang-nl.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
@@ -72,7 +74,7 @@ async function staleWhileRevalidate(event) {
   // The copy handed to the page gets consumed, so keep a clone to compare the fresh one against.
   const refresh = revalidate(cache, key, navigation ? './' : request.url, hit?.clone());
   if (hit) {
-    event.waitUntil(refresh.catch((err) => console.warn('Bookscan: refresh failed', err)));
+    event.waitUntil(refresh.catch((err) => console.warn('Folio: refresh failed', err)));
     return hit;
   }
   return refresh;

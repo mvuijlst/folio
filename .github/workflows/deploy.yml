@@ -3,11 +3,11 @@
 # Needs these under Settings → Secrets and variables → Actions, as *repository* secrets
 # (not inside an environment). Host, user and path may be repository variables instead;
 # the key must be a secret.
-#   DEPLOY_HOST     server name or IP, e.g. bookscan.example.org
+#   DEPLOY_HOST     server name or IP, e.g. folio.example.org
 #   DEPLOY_USER     SSH user that may write to the web root
 #   DEPLOY_SSH_KEY  private key of a key pair made for this job (public half in
 #                   that user's ~/.ssh/authorized_keys on the server)
-#   DEPLOY_PATH     absolute path of the directory nginx serves, e.g. /var/www/bookscan
+#   DEPLOY_PATH     absolute path of the directory nginx serves, e.g. /var/www/folio
 # Optional:
 #   DEPLOY_PORT         SSH port when it is not 22
 #   DEPLOY_KNOWN_HOSTS  the server's known_hosts line(s); without it the host key
@@ -15,7 +15,7 @@
 #
 # When DEPLOY_PATH/server/.env exists, the Django sync server is updated too (requirements,
 # migrations, static files) and restarted, which needs this sudoers rule on the server:
-#   <DEPLOY_USER> ALL=(root) NOPASSWD: /usr/bin/systemctl restart bookscan-yusupov
+#   <DEPLOY_USER> ALL=(root) NOPASSWD: /usr/bin/systemctl restart folio-yusupov
 name: Deploy
 
 on:
@@ -75,7 +75,7 @@ jobs:
             ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
           fi
 
-      - name: Refuse to write anywhere but an existing Bookscan site
+      - name: Refuse to write anywhere but an existing Folio site
         if: steps.ready.outputs.go == 'true'
         run: |
           case "$DEPLOY_PATH" in
@@ -83,8 +83,8 @@ jobs:
             *) echo "::error::DEPLOY_PATH must be an absolute path"; exit 1 ;;
           esac
           ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "grep -q '\"name\": \"Bookscan\"' '$DEPLOY_PATH/manifest.webmanifest'" \
-            || { echo "::error::$DEPLOY_PATH on the server does not hold a Bookscan site (or cannot be read). Nothing was copied."; exit 1; }
+            "grep -Eq '\"name\": \"(Folio|Bookscan)\"' '$DEPLOY_PATH/manifest.webmanifest'" \
+            || { echo "::error::$DEPLOY_PATH on the server does not hold a Folio site (or cannot be read). Nothing was copied."; exit 1; }
 
       - name: Copy the site
         if: steps.ready.outputs.go == 'true'
@@ -117,7 +117,7 @@ jobs:
           venv/bin/python manage.py createcachetable
           venv/bin/python manage.py collectstatic --noinput --verbosity 0
           venv/bin/python manage.py check --deploy --fail-level ERROR
-          sudo -n /usr/bin/systemctl restart bookscan-yusupov
+          sudo -n /usr/bin/systemctl restart folio-yusupov
           sleep 2
           curl --fail --silent --show-error --resolve "${DJANGO_ALLOWED_HOSTS%%,*}:443:127.0.0.1" \
             "https://${DJANGO_ALLOWED_HOSTS%%,*}/api/session" > /dev/null

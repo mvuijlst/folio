@@ -1,4 +1,4 @@
-"""JSON API used by the Bookscan PWA.
+"""JSON API used by the Folio PWA.
 
   GET  /api/session  → {"user": name | null}; also sets the CSRF cookie
   POST /api/login    {"username", "password"} → {"user": name}

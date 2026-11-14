@@ -1,7 +1,7 @@
 {
-  "name": "Bookscan",
-  "short_name": "Bookscan",
-  "description": "Catalog your books by scanning their barcodes.",
+  "name": "Folio",
+  "short_name": "Folio",
+  "description": "Your books on lists: library, to read, reading, read, lent out. Scan a barcode to add one.",
   "id": "./",
   "start_url": "./",
   "scope": "./",

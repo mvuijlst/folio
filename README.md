@@ -1,7 +1,9 @@
-# Bookscan
+# Folio
 
-A small installable web app (PWA) for cataloguing books with your phone and keeping them on
-lists: your library, to read, reading, read, lent out, and any others you make.
+A small installable web app (PWA) for keeping your books on lists (your library, to read,
+reading, read, lent out, and any others you make) and adding them by scanning with your phone.
+It lives at [folio.yusupov.cloud](https://folio.yusupov.cloud) and began as *Bookscan*, which
+is why the repository and a few internal names are still called that.
 
 1. **Scan** the ISBN barcode on the back cover. The book is looked up in Open Library and
    Google Books and added to your shelf with title, author, publication date, publisher and
@@ -60,6 +62,14 @@ Books scanned before lists existed count as being in the *Library*.
 ]
 ```
 
+## Language
+
+The app is in English or Dutch: settings → *Language*. By default it follows the device. The
+standard lists are shown in that language too (*Te lezen*, *Lezende*, *Gelezen*, …) until you
+rename them. Dutch lives in [`lang-nl.js`](lang-nl.js), a dictionary from the English sentences
+in the code; another language is another such file plus a line in `LANGS` and `DICTIONARIES`
+in `app.js`.
+
 ## Putting it on your phone
 
 The app is plain static files with no build step. It has to be served over HTTPS for the
@@ -92,13 +102,18 @@ venv/bin/python manage.py runserver   # serves the app too, at http://localhost:
 venv/bin/python manage.py test
 ```
 
-### Production (bookscan.yusupov.cloud)
+### Production (folio.yusupov.cloud)
 
-nginx serves the static app from `/home/django/bookscan-yusupov` and passes `/api/` and
-`/admin/` to gunicorn on `127.0.0.1:8030` (systemd unit `bookscan-yusupov`). Settings come from
+nginx serves the static app from `/home/django/folio-yusupov` and passes `/api/` and
+`/admin/` to gunicorn on `127.0.0.1:8030` (systemd unit `folio-yusupov`). Settings come from
 `server/.env` (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`). A push deploys both the app and the
 sync server (see *Updating*); the deploy user `django` may restart only that unit
-(`/etc/sudoers.d/bookscan-deploy`).
+(`/etc/sudoers.d/folio-deploy`).
+
+The old address, bookscan.yusupov.cloud, serves the same files and the same accounts, with a
+notice at the top that points to the new one (`MOVED` in `app.js`). A shelf lives in the
+browser per address, so it only comes along by signing in at the new address. Once nobody
+opens the old address any more, its nginx site can become a redirect.
 
 ## Updating
 
@@ -132,6 +147,7 @@ and that deletes the shelf.
 | Path | What |
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | the whole app |
+| `lang-nl.js` | the app's text in Dutch |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
 | `server/` | optional Django sync server (accounts, a copy of each shelf and its lists) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
