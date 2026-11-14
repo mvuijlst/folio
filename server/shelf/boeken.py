@@ -23,7 +23,7 @@ STATUS_LISTS = {'read': 'read', 'reading': 'reading', 'to-read': 'to-read', 'aba
 AUTHOR_ROLES = {'auteur', 'auteurs', 'author', 'schrijver', 'tekst', 'writer'}
 # What the import owns in a book: on every run these are set from the booklog, or removed.
 FIELDS = ['title', 'author', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource', 'rating',
-          'series', 'seriesNumber', 'language', 'olid', 'duration', 'durationLeft', 'issues', 'pagesRead',
+          'series', 'seriesNumber', 'seriesLabel', 'language', 'olid', 'duration', 'durationLeft', 'issues', 'pagesRead',
           'categories', 'tags', 'boeken', 'url', 'reviewed', 'reads']
 # The reads of a book also become its reviews (`reviews` in a book), which the app can add to
 # and edit; see review_sum for how the import tells its own text from an edited one.
@@ -133,7 +133,11 @@ def books(repo):
         writers = [s for s in slugs if roles.get(s, 'auteur') in AUTHOR_ROLES] or slugs
         rated = [p for p in reads if isinstance(p.get('rating'), int)]
         series = fact('series') or []
-        number = fact('series_number_label') or fact('series_number')
+        number = fact('series_number')
+        if isinstance(number, bool) or not isinstance(number, (int, float)):
+            number = None
+        elif float(number).is_integer():
+            number = int(number)
         year = fact('year')
         cover = str(fact('cover') or '')
         cover_file = Path(repo, 'media', cover.lstrip('/')) if cover.startswith('/') else None
@@ -147,7 +151,10 @@ def books(repo):
             'cover': SITE + cover if cover.startswith('/') else '',
             'rating': rated[-1]['rating'] if rated else None,
             'series': str(series[0]) if series else '',
-            'seriesNumber': '' if number is None else f'{number:g}' if isinstance(number, float) else str(number),
+            # Where the book stands in its series: the number sorts (4.5 comes between 4 and 5),
+            # the label, if any, is what is shown instead ("4/5" for an omnibus).
+            'seriesNumber': number,
+            'seriesLabel': str(fact('series_number_label') or ''),
             'language': str(fact('language') or ''),
             'olid': str(fact('olid') or ''),
             'duration': str(fact('duration') or ''),

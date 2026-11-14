@@ -134,7 +134,7 @@ class ImportTests(TestCase):
         self.assertEqual(dune['id'], 'boeken-dune')
         self.assertEqual(dune['author'], 'Frank Herbert')            # the translator is not an author
         self.assertEqual(dune['cover'], 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg')
-        self.assertEqual((dune['series'], dune['seriesNumber'], dune['date'], dune['pages']), ('Dune', '1', '1990', 535))
+        self.assertEqual((dune['series'], dune['seriesNumber'], dune['date'], dune['pages']), ('Dune', 1, '1990', 535))
         self.assertEqual(self.book('katabasis')['lists'], {'reading': {'at': '2026-10-11T14:37:13.000Z'}})
         self.assertEqual(list(self.book('gilgamesh')['lists']), ['to-read'])
         self.assertEqual(self.book('gilgamesh')['author'], 'unknown-slug')
@@ -155,6 +155,11 @@ class ImportTests(TestCase):
         # The address follows the date as written in the file, not that moment in another time zone.
         self.assertEqual({p['slug']: p['_url'] for p in boeken.read_posts(self.tmp.name)}['dune'],
                          'https://boeken.tsuk.org/2010/03/dune/')
+
+    def test_an_omnibus_sorts_by_its_number_and_shows_its_label(self):
+        make_repo(self.tmp.name, {'dune': POSTS['dune'].replace('series_number: 1\n', 'series_number: 4.5\nseries_number_label: "4/5"\n')})
+        self.run_import()
+        self.assertEqual((self.book('dune')['seriesNumber'], self.book('dune')['seriesLabel']), (4.5, '4/5'))
 
     def test_reads_become_reviews(self):
         self.assertIn('3 reviews', self.run_import())

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.6.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.7.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -209,7 +209,8 @@ const STANDARD_LISTS = [
 let lists = [];
 /** What the library shows: one list, or every book when `list` is null. */
 const VIEWS = ['list', 'covers', 'cards'];
-const view = { list: null, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
+// One of: every book, a list (`list`), all series (`seriesIndex`) or one series (`series`, its name).
+const view = { list: null, series: null, seriesIndex: false, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
 
 // The standard lists (and their group and note) are stored under their English names, so
 // they are the same list on a Dutch and an English device. Until they are renamed, they
@@ -279,16 +280,43 @@ async function seedLists() {
   await Promise.all(lists.map((l) => DB.lists.put(l)));
 }
 
-function readRoute() {
-  let id = null;
-  try { id = decodeURIComponent((location.hash.match(/^#\/list\/(.+)$/) || [])[1] || ''); } catch {}
-  view.list = id && listById(id) ? id : null;
+/* Series: books that share a `series` name, in the order of their `seriesNumber`. */
+
+/** What a book's place in its series is called: its label ("4/5") if it has one, else its number. */
+const seriesNo = (b) => String(b.seriesLabel || (b.seriesNumber ?? ''));
+const seriesOrder = (b) => { const n = parseFloat(b.seriesNumber); return Number.isFinite(n) ? n : Infinity; };
+const bySeriesOrder = (a, b) => (seriesOrder(a) - seriesOrder(b)) || (a.added < b.added ? -1 : 1);
+
+/** Every series on the shelf: name → its books, in order. */
+function seriesMap() {
+  const map = new Map();
+  for (const b of books) if (b.series) (map.get(b.series) || map.set(b.series, []).get(b.series)).push(b);
+  for (const members of map.values()) members.sort(bySeriesOrder);
+  return map;
 }
 
-function setView(id) {
-  view.list = id && listById(id) ? id : null;
-  // Replaced, not pushed: lists are tabs, and Back keeps closing sheets and leaving the app.
-  history.replaceState(history.state, '', view.list ? `#/list/${encodeURIComponent(view.list)}` : location.pathname + location.search);
+function readRoute() {
+  const part = (s) => { try { return decodeURIComponent(s); } catch { return ''; } };
+  Object.assign(view, { list: null, series: null, seriesIndex: false });
+  let m;
+  if ((m = location.hash.match(/^#\/list\/(.+)$/))) view.list = listById(part(m[1])) ? part(m[1]) : null;
+  else if ((m = location.hash.match(/^#\/series\/(.+)$/))) view.series = part(m[1]) || null;
+  else if (/^#\/series\/?$/.test(location.hash)) view.seriesIndex = true;
+}
+
+/** Open every book (null), a list (its id), all series ({seriesIndex: true}) or one ({series: name}). */
+function setView(target) {
+  const wasSeries = view.seriesIndex || view.series;
+  Object.assign(view, { list: null, series: null, seriesIndex: false });
+  if (typeof target === 'string') view.list = listById(target) ? target : null;
+  else if (target?.series) view.series = target.series;
+  else if (target?.seriesIndex) view.seriesIndex = true;
+  if (wasSeries || view.seriesIndex || view.series) $('search').value = '';   // what you looked for among series isn't what you look for in one
+  const address = view.list ? `#/list/${encodeURIComponent(view.list)}`
+    : view.series ? `#/series/${encodeURIComponent(view.series)}`
+      : view.seriesIndex ? '#/series' : location.pathname + location.search;
+  // Replaced, not pushed: these are tabs, and Back keeps closing sheets and leaving the app.
+  history.replaceState(history.state, '', address);
   renderLibrary();
   if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
 }
@@ -634,7 +662,9 @@ function metaLine(b) {
     .filter(Boolean).join(' · ');
 }
 
-const seriesLine = (b) => (b.series ? `${b.series}${b.seriesNumber ? ` #${b.seriesNumber}` : ''}` : '');
+/** On a series' own page its name needn't be repeated on every book. */
+const inOpenSeries = (b) => !!view.series && b.series === view.series;
+const seriesLine = (b) => (b.series ? `${b.series}${seriesNo(b) ? ` #${seriesNo(b)}` : ''}` : '');
 
 /* ───────────────────────── Lookups ───────────────────────── */
 
@@ -929,15 +959,15 @@ function bookRow(b, onPick, extra, tags) {
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title' }, extra, displayTitle(b)),
-      h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') || (b.title ? '' : b.isbn && !b.pending ? `ISBN ${b.isbn}` : '') }),
+      h('div', { class: 'book-author', text: [b.author, inOpenSeries(b) ? '' : seriesLine(b)].filter(Boolean).join(' · ') || (b.title ? '' : b.isbn && !b.pending ? `ISBN ${b.isbn}` : '') }),
       meta, tags));
 }
 
 /** A book in the covers view: its cover and its rating. */
-function bookTile(b, onPick) {
+function bookTile(b, onPick, numbered) {
   return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: () => onPick(b) },
     coverEl(b, false, true),
-    h('div', { class: 'tile-rating', text: b.rating != null ? `★ ${b.rating}` : '' }));
+    h('div', { class: 'tile-rating', text: [numbered && seriesNo(b) && `#${seriesNo(b)}`, b.rating != null && `★ ${b.rating}`].filter(Boolean).join(' · ') }));
 }
 
 /** The start of the latest review, as plain text. */
@@ -954,7 +984,7 @@ function bookCard(b, onPick, tags) {
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title', text: displayTitle(b) }),
-      h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') }),
+      h('div', { class: 'book-author', text: [b.author, inOpenSeries(b) ? '' : seriesLine(b)].filter(Boolean).join(' · ') }),
       h('div', { class: 'book-meta', text: metaLine(b) }),
       text && h('p', { class: 'card-excerpt', text }),
       tags));
@@ -977,17 +1007,22 @@ function dayLabel(iso) {
 function renderNav() {
   const counts = new Map(lists.map((l) => [l.id, 0]));
   for (const b of books) for (const id of Object.keys(shelves(b))) if (counts.has(id)) counts.set(id, counts.get(id) + 1);
-  const item = (id, name, count) => h('a', {
-    class: 'nav-item', href: id ? `#/list/${encodeURIComponent(id)}` : '#/', 'aria-current': view.list === id ? 'page' : null,
+  const link = (target, href, isCurrent, name, count) => h('a', {
+    class: 'nav-item', href, 'aria-current': isCurrent ? 'page' : null,
     onclick: (e) => {
       if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
       e.preventDefault();
-      setView(id);
+      setView(target);
     },
   }, h('span', { text: name }), h('b', { text: String(count) }));
+  const item = (id, name, count) => link(id, id ? `#/list/${encodeURIComponent(id)}` : '#/',
+    view.list === id && !view.series && !view.seriesIndex, name, count);
+  const seriesCount = new Set(books.map((b) => b.series).filter(Boolean)).size;
   const nav = $('lists');
   nav.replaceChildren(
-    h('div', { class: 'nav-group' }, item(null, t('All books'), books.length)),
+    h('div', { class: 'nav-group' },
+      item(null, t('All books'), books.length),
+      seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount)),
     ...listSections().map((section) => h('div', { class: 'nav-group' },
       section.label && h('span', { class: 'nav-label', text: show(section.label) }),
       section.members.map((l) => item(l.id, show(l.name), counts.get(l.id))))),
@@ -998,6 +1033,29 @@ function renderNav() {
   if (active && (active.offsetLeft < nav.scrollLeft || active.offsetLeft + active.offsetWidth > nav.scrollLeft + nav.clientWidth)) {
     nav.scrollLeft = active.offsetLeft - 20;
   }
+}
+
+/** All series, by name: a few covers, how many books, how many of them read. */
+function renderSeriesIndex(query) {
+  const all = [...seriesMap()].sort((a, b) => a[0].localeCompare(b[0], LOCALE, { sensitivity: 'base' }));
+  const found = query ? all.filter(([name, members]) => fold(name + ' ' + members.map((b) => b.author).join(' ')).includes(query)) : all;
+  $('searchWrap').hidden = all.length < 8 && !query;
+  shown = { rows: [], next: 0, lastDay: '', key: 'series', current: null, query, when: null, series: null };
+  $('library').className = 'library mode-series';
+  $('library').replaceChildren(...found.map(([name, members]) => {
+    const read = members.filter((b) => shelves(b).read).length;
+    const authors = [...new Set(members.map((b) => b.author).filter(Boolean))];
+    return h('a', {
+      class: 'series-row', href: `#/series/${encodeURIComponent(name)}`,
+      onclick: (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setView({ series: name }); },
+    },
+    h('div', { class: 'series-covers' }, members.slice(0, 4).map((b) => coverEl(b))),
+    h('div', { class: 'book-text' },
+      h('div', { class: 'book-title', text: name }),
+      h('div', { class: 'book-author', text: authors.length > 2 ? `${authors[0]}, …` : authors.join(', ') }),
+      h('div', { class: 'book-meta', text: `${plural(members.length, 'book')} · ${t('{n} read', { n: read })}` })));
+  }));
+  if (!found.length) $('library').append(h('p', { class: 'no-results', text: query ? t('No series match that search.') : t('No books in a series yet. Give a book a series in its details.') }));
 }
 
 // Everything a search looks through, folded once per version of a book: with reviews in it,
@@ -1026,13 +1084,15 @@ function appendRows(upTo = shown.next + PAGE) {
   const frag = document.createDocumentFragment();
   const end = Math.min(shown.rows.length, upTo);
   // The denser the view, the coarser its headings: days in the list, months for cards, years for covers.
-  const heading = { list: dayLabel, cards: monthLabel, covers: yearLabel }[view.mode];
+  // A series is in the order of the books, not of when you added them: no headings there.
+  const heading = shown.series ? () => '' : { list: dayLabel, cards: monthLabel, covers: yearLabel }[view.mode];
   for (const b of shown.rows.slice(shown.next, end)) {
     const day = heading(shown.when(b));
     if (!shown.query && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
-    if (view.mode === 'covers') frag.append(bookTile(b, openBook));
+    const number = shown.series && seriesNo(b) ? h('span', { class: 'badge', text: `#${seriesNo(b)}` }) : null;
+    if (view.mode === 'covers') frag.append(bookTile(b, openBook, !!shown.series));
     else if (view.mode === 'cards') frag.append(bookCard(b, openBook, listTags(b, shown.current)));
-    else frag.append(bookRow(b, openBook, null, listTags(b, shown.current)));
+    else frag.append(bookRow(b, openBook, number, listTags(b, shown.current)));
   }
   shown.next = end;
   const more = end < shown.rows.length
@@ -1046,26 +1106,39 @@ function renderLibrary() {
   const current = view.list ? listById(view.list) : null;
   const query = fold($('search').value.trim());
   $('count').textContent = books.length ? plural(books.length, 'book') : t('Nothing scanned yet');
-  $('search').placeholder = current ? t('Search {list}', { list: show(current.name) }) : t('Search your shelf');
+  $('search').placeholder = view.seriesIndex ? t('Search series')
+    : view.series ? t('Search {list}', { list: view.series })
+      : current ? t('Search {list}', { list: show(current.name) }) : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
+  $('viewSeg').hidden = view.seriesIndex;
+  if (view.seriesIndex) { renderSeriesIndex(query); return; }
 
-  // A list shows the book that went on it last first; the whole shelf, the one added last.
+  // A list shows the book that went on it last first; the whole shelf, the one added last;
+  // a series, its books in their order.
   const when = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
-  const inView = current ? books.filter((b) => shelves(b)[current.id]).sort((a, b) => (when(a) < when(b) ? 1 : -1)) : books;
+  const inView = view.series ? books.filter((b) => b.series === view.series).sort(bySeriesOrder)
+    : current ? books.filter((b) => shelves(b)[current.id]).sort((a, b) => (when(a) < when(b) ? 1 : -1)) : books;
   $('searchWrap').hidden = inView.length < 8 && !query;
 
   const found = query
     ? inView.filter((b) => searchText(b).includes(query))
     : inView;
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
-  const key = `${view.list}|${view.mode}|${query}`;
+  const key = `${view.list}|${view.series}|${view.mode}|${query}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
-  shown = { rows: found, next: 0, lastDay: '', key, current, query, when };
+  shown = { rows: found, next: 0, lastDay: '', key, current, query, when, series: view.series };
   $('library').replaceChildren();
+  if (view.series) {
+    const read = inView.filter((b) => shelves(b).read).length;
+    $('library').append(h('div', { class: 'series-head' },
+      h('a', { class: 'link-btn', href: '#/series', onclick: (e) => { e.preventDefault(); setView({ seriesIndex: true }); } }, icon('back'), t('All series')),
+      h('h2', { text: view.series }),
+      h('p', { text: inView.length ? `${plural(inView.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') })));
+  }
   appendRows(rows);
   if (query && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that search.') }));
   else if (current && !found.length && books.length) {
@@ -1127,7 +1200,10 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     date: input('date', { placeholder: t('e.g. 1998'), inputmode: 'numeric' }),
     pages: input('pages', { inputmode: 'numeric', pattern: '[0-9]*' }),
     isbn: input('isbn', { inputmode: 'numeric' }),
+    series: input('series', { autocapitalize: 'words', list: 'seriesNames' }),
+    seriesNumber: h('input', { name: 'seriesNumber', value: seriesNo(book), inputmode: 'decimal', autocomplete: 'off', placeholder: '1' }),
   };
+  const seriesNames = h('datalist', { id: 'seriesNames' }, [...seriesMap().keys()].sort().map((value) => h('option', { value })));
   f.title.value = book.title || '';
   f.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); f.author.focus(); } });
   const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
@@ -1181,6 +1257,8 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     field(t('Publisher'), f.publisher),
     h('div', { class: 'field-row' }, field(t('Published'), f.date), field(t('Pages'), f.pages)),
     field('ISBN', f.isbn),
+    h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
+    seriesNames,
     lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: t('Lists') }), listPicker(on)),
     error,
     h('div', { class: 'btn-row sheet-actions' },
@@ -1196,7 +1274,13 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
       isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
       lists: {},
+      series: v('series'), seriesNumber: null, seriesLabel: '',
     };
+    // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
+    const typed = data.series ? v('seriesNumber') : '';
+    if (typed && typed === seriesNo(book)) Object.assign(data, { seriesNumber: book.seriesNumber ?? null, seriesLabel: book.seriesLabel || '' });
+    else if (/^\d+(?:[.,]\d+)?$/.test(typed)) data.seriesNumber = Number(typed.replace(',', '.'));
+    else if (typed) Object.assign(data, { seriesLabel: typed, seriesNumber: Number.isFinite(parseFloat(typed)) ? parseFloat(typed) : null });
     for (const [id, entry] of Object.entries(on)) {
       const note = String(entry.note || '').replace(/\s+/g, ' ').trim();
       data.lists[id] = { at: entry.at || new Date().toISOString(), ...(note && { note }) };
@@ -1336,7 +1420,10 @@ function openBook(book) {
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
         book.author && h('p', { class: 'page-author', text: book.author }),
-        seriesLine(book) && h('p', { class: 'page-series', text: seriesLine(book) }),
+        seriesLine(book) && h('button', {
+          class: 'link-btn page-series', type: 'button', text: seriesLine(book),
+          onclick: () => { sheet.close(); setView({ series: book.series }); },
+        }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
         listTags(book, null)),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x'))),
@@ -1503,6 +1590,7 @@ function exportJson() {
     title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
     isbn: b.isbn || '', cover: b.cover ? abs(b.cover) : '', added: b.added,
     lists: listsOf(b).map(({ list, at, note }) => ({ list: show(list.name), since: at, ...(note && { note }) })),
+    ...(b.series && { series: b.series, seriesNumber: seriesNo(b) }),
     ...(b.rating != null && { rating: b.rating }),
     ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '' })) }),
   }));
