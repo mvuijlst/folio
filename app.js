@@ -2,6 +2,8 @@
 // Plain ES module, no build step. The shelf is stored on the device (IndexedDB) and, for
 // signed-in users, synced with the small Django server in server/.
 
+const APP_VERSION = '1.2.0'; // shown under Settings, so you can tell which build is running
+
 /* ───────────────────────── Helpers ───────────────────────── */
 
 const $ = (id) => document.getElementById(id);
@@ -931,7 +933,7 @@ function openSettings() {
       h('p', { class: 'sheet-note' },
         'Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.')),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: 'About' }),
+      h('h3', { text: `About · version ${APP_VERSION}` }),
       h('p', { class: 'sheet-note', text: 'Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.' }))));
   renderAccount();
   if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
@@ -1636,6 +1638,40 @@ async function retryPending() {
   }
 }
 
+/**
+ * Installed copies must pick up a new deploy. The service worker compares what it has
+ * cached with the server; when something changed it says so, and the app restarts into
+ * the new version (or offers to, if you are in the middle of something).
+ */
+function initUpdates() {
+  if (!('serviceWorker' in navigator)) return;
+  const sw = navigator.serviceWorker;
+  let registration = null, lastCheck = Date.now();
+
+  sw.register('sw.js', { updateViaCache: 'none' })
+    .then((reg) => { registration = reg; })
+    .catch((err) => console.warn('Service worker failed', err));
+
+  sw.addEventListener('message', (event) => {
+    if (event.data?.type !== 'bookscan-updated') return;
+    let recent = false;
+    try {
+      recent = Date.now() - Number(sessionStorage.getItem('bookscan.reloaded') || 0) < 30000;
+      if (!recent && !layers.length) sessionStorage.setItem('bookscan.reloaded', String(Date.now()));
+    } catch {}
+    if (!layers.length && !recent) location.reload();
+    else toast('A new version is ready', { action: 'Reload', onAction: () => location.reload(), ms: 12000 });
+  });
+
+  // An installed app can sit in the background for days: check again when it comes back.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden || Date.now() - lastCheck < 10 * 60 * 1000) return;
+    lastCheck = Date.now();
+    registration?.update().catch(() => {});
+    sw.controller?.postMessage({ type: 'bookscan-check' });
+  });
+}
+
 async function init() {
   initTheme();
   bindEvents();
@@ -1647,7 +1683,7 @@ async function init() {
   }
   renderLibrary();
   navigator.storage?.persist?.().catch(() => {});
-  if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker failed', err));
+  initUpdates();
   window.addEventListener('online', () => { retryPending(); runSync(); });
   // Pick up changes from other devices whenever the app comes back to the foreground.
   document.addEventListener('visibilitychange', () => {

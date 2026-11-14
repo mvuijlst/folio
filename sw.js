@@ -1,10 +1,10 @@
-// Bookscan service worker: makes the app installable and usable offline.
-const SHELL = 'bookscan-shell-v2';   // bump to ship a new app version
+// Bookscan service worker: makes the app installable and usable offline,
+// and makes sure a new deploy reaches installed copies.
+const SHELL = 'bookscan-shell-v2';   // only renamed when the cache layout changes; updates are detected by content
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
 
 const SHELL_FILES = [
   './',
-  'index.html',
   'styles.css',
   'app.js',
   'manifest.webmanifest',
@@ -17,7 +17,10 @@ const SHELL_FILES = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(SHELL_FILES)).then(() => self.skipWaiting()));
+  // 'reload' skips the browser's HTTP cache, so a new worker always starts from fresh files.
+  event.waitUntil(caches.open(SHELL)
+    .then((cache) => cache.addAll(SHELL_FILES.map((url) => new Request(url, { cache: 'reload' }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', (event) => {
@@ -43,6 +46,12 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
+// The app asks for a check when it comes back to the foreground.
+self.addEventListener('message', (event) => {
+  if (event.data?.type !== 'bookscan-check') return;
+  event.waitUntil(caches.open(SHELL).then((cache) => Promise.all(SHELL_FILES.map((url) => revalidate(cache, url, url).catch(() => {})))));
+});
+
 async function cacheFirst(request) {
   const cache = await caches.open(VENDOR);
   const hit = await cache.match(request);
@@ -52,19 +61,49 @@ async function cacheFirst(request) {
   return response;
 }
 
-// Serve from cache at once, refresh in the background: updates show on the next launch.
+// Serve from cache at once and refresh in the background. When a refresh brings
+// different content, the open app is told so it can reload into the new version.
 async function staleWhileRevalidate(event) {
   const { request } = event;
   const cache = await caches.open(SHELL);
-  const key = request.mode === 'navigate' ? './' : request;
-  const hit = await cache.match(key, { ignoreSearch: request.mode === 'navigate' });
-  const refresh = fetch(request).then((response) => {
-    if (response.ok) cache.put(key, response.clone());
-    return response;
-  });
+  const navigation = request.mode === 'navigate';
+  const key = navigation ? './' : request;
+  const hit = await cache.match(key, { ignoreSearch: navigation });
+  // The copy handed to the page gets consumed, so keep a clone to compare the fresh one against.
+  const refresh = revalidate(cache, key, navigation ? './' : request.url, hit?.clone());
   if (hit) {
-    event.waitUntil(refresh.catch(() => {}));
+    event.waitUntil(refresh.catch((err) => console.warn('Bookscan: refresh failed', err)));
     return hit;
   }
   return refresh;
+}
+
+let pending = 0;
+let changed = false;
+
+async function revalidate(cache, key, url, known) {
+  pending++;
+  try {
+    const previous = known || await cache.match(key);
+    const response = await fetch(url, { cache: 'no-cache' });
+    if (response.ok) {
+      if (previous && !(await sameContent(previous, response.clone()))) changed = true;
+      await cache.put(key, response.clone());
+    }
+    return response;
+  } finally {
+    // Announce once everything in flight has landed, so the reload sees a consistent set.
+    if (--pending === 0 && changed) {
+      changed = false;
+      const windows = await self.clients.matchAll({ type: 'window' });
+      windows.forEach((client) => client.postMessage({ type: 'bookscan-updated' }));
+    }
+  }
+}
+
+async function sameContent(a, b) {
+  const etagA = a.headers.get('etag'), etagB = b.headers.get('etag');
+  if (etagA && etagB) return etagA === etagB;
+  const [x, y] = (await Promise.all([a.clone().arrayBuffer(), b.arrayBuffer()])).map((buf) => new Uint8Array(buf));
+  return x.length === y.length && x.every((byte, i) => byte === y[i]);
 }

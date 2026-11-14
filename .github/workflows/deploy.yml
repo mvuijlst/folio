@@ -1,0 +1,129 @@
+# Copies the site to the VPS whenever the app changes.
+#
+# Needs these under Settings → Secrets and variables → Actions, as *repository* secrets
+# (not inside an environment). Host, user and path may be repository variables instead;
+# the key must be a secret.
+#   DEPLOY_HOST     server name or IP, e.g. bookscan.example.org
+#   DEPLOY_USER     SSH user that may write to the web root
+#   DEPLOY_SSH_KEY  private key of a key pair made for this job (public half in
+#                   that user's ~/.ssh/authorized_keys on the server)
+#   DEPLOY_PATH     absolute path of the directory nginx serves, e.g. /var/www/bookscan
+# Optional:
+#   DEPLOY_PORT         SSH port when it is not 22
+#   DEPLOY_KNOWN_HOSTS  the server's known_hosts line(s); without it the host key
+#                       is taken on trust at each run
+#
+# When DEPLOY_PATH/server/.env exists, the Django sync server is updated too (requirements,
+# migrations, static files) and restarted, which needs this sudoers rule on the server:
+#   <DEPLOY_USER> ALL=(root) NOPASSWD: /usr/bin/systemctl restart bookscan-yusupov
+name: Deploy
+
+on:
+  push:
+    branches: [ccr-b1603c1e-whqmno, main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST || vars.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER || vars.DEPLOY_USER }}
+      DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || vars.DEPLOY_PATH }}
+      DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || vars.DEPLOY_PORT || '22' }}
+      DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+      KEY_SAVED_AS_VARIABLE: ${{ vars.DEPLOY_SSH_KEY != '' }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+    steps:
+      - name: Check that the deploy secrets are set
+        id: ready
+        run: |
+          missing=""
+          for name in DEPLOY_HOST DEPLOY_USER DEPLOY_PATH DEPLOY_SSH_KEY; do
+            [ -n "${!name}" ] || missing="$missing $name"
+          done
+          if [ "$KEY_SAVED_AS_VARIABLE" = "true" ]; then
+            echo "::warning::DEPLOY_SSH_KEY is saved as a variable, which is readable in plain text. Delete it there and add it under the Secrets tab."
+          fi
+          if [ -n "$missing" ]; then
+            echo "::warning::Not deployed. Not found as repository secrets or variables:$missing (secrets saved inside an environment are not visible to this job)"
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.ready.outputs.go == 'true'
+
+      - name: Set up SSH
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          if [ -n "$DEPLOY_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          else
+            ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" > ~/.ssh/known_hosts 2>/dev/null
+          fi
+
+      - name: Refuse to write anywhere but an existing Bookscan site
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "::error::DEPLOY_PATH must be an absolute path"; exit 1 ;;
+          esac
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "grep -q '\"name\": \"Bookscan\"' '$DEPLOY_PATH/manifest.webmanifest'" \
+            || { echo "::error::$DEPLOY_PATH on the server does not hold a Bookscan site (or cannot be read). Nothing was copied."; exit 1; }
+
+      - name: Copy the site
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          # Only files whose content changed are written. No --times: a fresh checkout stamps every
+          # file with the current time, and copying that over would change every ETag, making each
+          # installed app think it had been updated. Nothing is deleted on the server, and the sync
+          # server's own files (.env, venv, database, collected static) are never touched.
+          rsync --recursive --links --compress --checksum --chmod=D755,F644 --itemize-changes \
+            --exclude '.git*' --exclude '.claude' --exclude 'README.md' --exclude '.nojekyll' \
+            --exclude 'server/.env' --exclude 'server/venv' --exclude 'server/db.sqlite3*' \
+            --exclude 'server/staticfiles' --exclude 'server/.dev-credentials' \
+            -e "ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes" \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Update the sync server
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          # Skipped where the Django sync server was never set up (no server/.env).
+          ssh -i ~/.ssh/deploy_key -p "$DEPLOY_PORT" -o BatchMode=yes "$DEPLOY_USER@$DEPLOY_HOST" bash -s -- "$DEPLOY_PATH/server" <<'EOF'
+          set -euo pipefail
+          cd "$1"
+          if [ ! -f .env ] || [ ! -x venv/bin/python ]; then
+            echo "::notice::No sync server set up in $1; only the app was updated."
+            exit 0
+          fi
+          set -a; . ./.env; set +a
+          venv/bin/pip install --quiet --disable-pip-version-check -r requirements.txt
+          venv/bin/python manage.py migrate --noinput
+          venv/bin/python manage.py createcachetable
+          venv/bin/python manage.py collectstatic --noinput --verbosity 0
+          venv/bin/python manage.py check --deploy --fail-level ERROR
+          sudo -n /usr/bin/systemctl restart bookscan-yusupov
+          sleep 2
+          curl --fail --silent --show-error --resolve "${DJANGO_ALLOWED_HOSTS%%,*}:443:127.0.0.1" \
+            "https://${DJANGO_ALLOWED_HOSTS%%,*}/api/session" > /dev/null
+          echo "Sync server updated and answering."
+          EOF
+
+      - name: Remove the key
+        if: always()
+        run: rm -f ~/.ssh/deploy_key

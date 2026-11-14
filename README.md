@@ -70,14 +70,23 @@ venv/bin/python manage.py test
 
 nginx serves the static app from `/home/django/bookscan-yusupov` and passes `/api/` and
 `/admin/` to gunicorn on `127.0.0.1:8030` (systemd unit `bookscan-yusupov`). Settings come from
-`server/.env` (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`). To deploy the working tree:
+`server/.env` (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`). A push deploys both the app and the
+sync server (see *Updating*); the deploy user `django` may restart only that unit
+(`/etc/sudoers.d/bookscan-deploy`).
 
-```bash
-git ls-files -co --exclude-standard | tar -cf - -T - | ssh -p 2708 yusupov 'tar -x -C /home/django/bookscan-yusupov && chown -R django:django /home/django/bookscan-yusupov'
-ssh -p 2708 yusupov 'cd /home/django/bookscan-yusupov/server && sudo -u django bash -c "set -a; . ./.env; set +a; venv/bin/pip install -q -r requirements.txt && venv/bin/python manage.py migrate --noinput && venv/bin/python manage.py collectstatic --noinput" && systemctl restart bookscan-yusupov'
-```
+## Updating
 
-Bump `SHELL` in `sw.js` whenever the app files change, so installed copies update.
+Pushing to the repository deploys to the server (`.github/workflows/deploy.yml`, which lists the
+secrets it needs): it copies the files whose content changed and, where the sync server is set up,
+installs its requirements, migrates and restarts it. Otherwise replace the files on the server by
+hand; nothing else is needed for the app. An installed copy compares its cached
+files with the server each time it is opened (and when it returns to the foreground), and
+restarts itself into the new version within a few seconds. If you are in the middle of
+something it shows *A new version is ready · Reload* instead. The running version is shown at
+the bottom of the settings sheet; bump `APP_VERSION` in `app.js` when you release.
+
+Do not uninstall the app to update it: Android offers to clear the site's data along with it,
+and that deletes the shelf.
 
 ## Good to know
 
