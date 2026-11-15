@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.21.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.21.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -161,6 +161,9 @@ async function addBook(data) {
 async function saveBook(book) {
   // How progress is said (page or percentage) is chosen per read: it ends with the read.
   if (!shelves(book).reading) { delete book.progressUnit; delete book.percentRead; }
+  // Why the booklog refused the book was said about how it was; changed, it gets another
+  // try, and the server says so again if it still won't do.
+  delete book.boekenError;
   touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
