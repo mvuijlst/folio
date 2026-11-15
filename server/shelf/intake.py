@@ -436,6 +436,7 @@ def propose(text, booklog=None, categories=(), url='', image=None):
             'date': str(proposal.get('year') or ''),
             'pages': proposal.get('pages') if isinstance(proposal.get('pages'), int) else None,
             'duration': str(proposal.get('duration') or ''),
+            'format': 'audiobook' if proposal.get('duration') or 'audiobook' in (proposal.get('categories') or []) else '',
             'series': (booklog.series.get(plain(series), series) if booklog else series),
             'seriesNumber': number if series and isinstance(number, (int, float)) else None,
             'language': proposal['language'] if re.fullmatch(r'[a-z]{2}', str(proposal.get('language') or '')) else '',

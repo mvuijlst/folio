@@ -168,8 +168,39 @@ class ImportTests(TestCase):
         self.assertIn('1 updated', self.run_import())
         dune = self.book('dune')
         self.assertEqual(len(dune['reviews'][0]['edition']['people']), 2)
-        self.assertTrue(all(r['sum'].startswith('3:') for r in dune['reviews']))
+        self.assertTrue(all(r['sum'].startswith(f'{boeken.SUM_VERSION}:') for r in dune['reviews']))
         self.assertEqual(dune['boekenState']['people'], [{'name': 'Frank Herbert', 'role': 'auteur'}])
+
+    def test_what_a_read_was_read_as(self):
+        audio = POSTS['dune-herlezing'].replace('pages: 535', 'duration: "21u 2m"')
+        make_repo(self.tmp.name, {**POSTS, 'dune-herlezing': audio,
+                                  'katabasis': POSTS['katabasis'].replace('pages: 559', 'format: "ebook"\npages: 559')})
+        self.run_import()
+        dune = self.book('dune')
+        self.assertEqual(dune['format'], 'audiobook')                  # the book is as its latest read was
+        self.assertEqual([r['edition'].get('format') for r in dune['reviews']], [None, 'audiobook'])   # the first read doesn't say
+        self.assertEqual(self.book('katabasis')['format'], 'ebook')    # said in so many words
+        self.assertNotIn('format', self.book('gilgamesh'))
+
+    def test_a_format_said_in_the_app_is_a_change_an_older_fingerprint_cannot_vouch_for(self):
+        self.run_import()
+        review = self.book('dune')['reviews'][0]
+        older = {**review, 'sum': boeken.review_sum(review, version=3)}
+        self.assertTrue(boeken.in_step(older))
+        self.assertFalse(boeken.in_step({**older, 'edition': {**older['edition'], 'format': 'paper'}}))
+
+    def test_what_was_not_tracked_before_is_not_a_change(self):
+        self.run_import()
+        row = Book.objects.get(uid='boeken-dune')
+        # As it was left before lengths and formats were published: the state says nothing of them.
+        older = {k: v for k, v in row.data['boekenState'].items() if k not in ('format', 'duration', 'tracks')}
+        row.data = {**row.data, 'duration': '21u 2m', 'format': 'audiobook', 'boekenState': older}
+        row.save()
+        self.assertEqual(publish.changed_keys(row.data), set())
+        self.assertIn('0 waiting to be published', self.run_import())
+        self.assertEqual(self.book('dune')['boekenState']['tracks'], boeken.TRACKS)
+        # From then on they are tracked.
+        self.assertEqual(publish.changed_keys({**self.book('dune'), 'format': 'ebook'}), {'format'})
 
     def test_a_reread_is_the_same_book(self):
         self.run_import()

@@ -179,7 +179,7 @@ class PublishTests(BooklogCase):
                                             'people': [{'name': 'Frank Herbert', 'role': 'auteur'}, {'name': 'Some Translator', 'role': 'vertaling'}]})
         # what the reread's own post says, no more: it names the author alone
         self.assertEqual(second['edition'], {'date': '1990', 'pages': 535, 'people': [{'name': 'Frank Herbert', 'role': ''}]})
-        self.assertTrue(first['sum'].startswith('3:'))
+        self.assertTrue(first['sum'].startswith(f'{boeken.SUM_VERSION}:'))
 
     # ── people: who wrote, drew, translated or read it, per read
 
@@ -199,6 +199,39 @@ class PublishTests(BooklogCase):
         book = self.book('dune').data
         self.assertEqual(book['people'], [{'name': 'Frank Herbert', 'role': ''}, {'name': 'Ned Narrator', 'role': 'stem'}])
         self.assertEqual(book['author'], 'Frank Herbert')   # a voice is not an author
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    # ── format: paper, e-book or audiobook, per read
+
+    def test_a_read_said_to_be_an_audiobook_gets_its_length_and_the_category(self):
+        def listened(data):
+            data['reviews'][1]['edition'] = {**data['reviews'][1]['edition'], 'format': 'audiobook', 'duration': '21u 2m'}
+        self.change('dune', listened)
+        self.publish()
+        self.assertEqual(self.changed_lines('dune-herlezing'), [
+            '+categories: ["audiobook"]', '+duration: "21u 2m"', '+format: "audiobook"', '-pages: 535'])
+        self.import_booklog()
+        book = self.book('dune').data
+        self.assertEqual((book['format'], book['reviews'][1]['edition']['format']), ('audiobook', 'audiobook'))
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_an_e_book_is_said_in_the_post_and_keeps_its_pages(self):
+        self.change('katabasis', lambda data: data.update(format='ebook'))
+        self.publish()
+        self.assertEqual(self.changed_lines('katabasis'), ['+format: "ebook"'])
+        self.import_booklog()
+        self.assertEqual(self.book('katabasis').data['format'], 'ebook')
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_the_book_turned_audiobook_trades_pages_for_a_length(self):
+        def audio(data):
+            data.update(format='audiobook', duration='18u 30m')
+            data.pop('pages')
+        self.change('katabasis', audio)
+        self.publish()
+        self.assertEqual(self.changed_lines('katabasis'), [
+            '+categories: ["audiobook"]', '+duration: "18u 30m"', '+format: "audiobook"', '-pages: 559'])
+        self.import_booklog()
         self.assertEqual(self.publish()[0]['published'], 0)
 
     def test_the_books_own_people_go_to_its_latest_read(self):
@@ -357,7 +390,7 @@ class AddToBooklogTests(BooklogCase):
 
     def setUp(self):
         super().setUp()
-        for kind, slug in (('categories', 'sf'), ('categories', 'fictie'), ('tags', 'desert')):
+        for kind, slug in (('categories', 'sf'), ('categories', 'fictie'), ('categories', 'audiobook'), ('tags', 'desert')):
             page = self.repo / 'site' / 'content' / kind / slug / '_index.md'
             page.parent.mkdir(parents=True)
             page.write_text(f'---\ntitle: "{slug}"\nslug: "{slug}"\n---\n', encoding='utf-8', newline='')
@@ -379,6 +412,14 @@ class AddToBooklogTests(BooklogCase):
         post = self.post('children-of-dune')
         self.assertIn('roles:\n  herbert-frank: "tekst"\n  artist-ann: "beeld"\n', post)
         self.assertIn('authors: ["herbert-frank", "artist-ann", "co-writer-plain"]\n', post)
+
+    def test_a_new_audiobook_has_a_length_no_pages_and_the_category(self):
+        self.scan(format='audiobook', duration='16u 5m')
+        self.publish()
+        post = self.post('children-of-dune')
+        self.assertIn('format: "audiobook"\nduration: "16u 5m"\n', post)
+        self.assertNotIn('pages:', post)
+        self.assertIn('categories: ["sf", "audiobook"]\n', post)
 
     def test_surnames_first(self):
         self.assertEqual(publish.author_slug('Rebecca Yarros'), ('yarros-rebecca', 'Yarros - Rebecca'))

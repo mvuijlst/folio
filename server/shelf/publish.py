@@ -51,16 +51,16 @@ FRONT = re.compile(r'\A---\r?\n(.*?)\r?\n---\r?\n?', re.S)
 
 CANON_ORDER = [
     'title', 'series', 'series_number', 'series_number_label', 'date', 'slug',
-    'rereadOf', 'wpId', 'rating', 'review', 'publisher', 'year', 'year_until',
+    'rereadOf', 'wpId', 'rating', 'review', 'publisher', 'year', 'year_until', 'format',
     'pages', 'pagesRead', 'duration', 'durationLeft', 'progressLog', 'isbn',
     'olid', 'language', 'issues', 'roles', 'cover', 'status', 'categories',
     'tags', 'authors', 'draft', 'aliases',
 ]
 QUOTED_KEYS = {'title', 'publisher', 'duration', 'durationLeft', 'series_number_label', 'status',
-               'cover', 'slug', 'isbn', 'olid', 'rereadOf', 'language'}
+               'cover', 'slug', 'isbn', 'olid', 'rereadOf', 'language', 'format'}
 LIST_KEYS = {'categories', 'tags', 'authors', 'series', 'aliases'}
 # What a reread copies from the read before it: the facts of the book and of the edition.
-BOOK_FACTS = ('title', 'series', 'series_number', 'series_number_label', 'publisher', 'year', 'pages',
+BOOK_FACTS = ('title', 'series', 'series_number', 'series_number_label', 'publisher', 'year', 'format', 'pages',
               'duration', 'isbn', 'olid', 'language', 'roles', 'cover', 'categories', 'tags', 'authors')
 
 
@@ -190,7 +190,8 @@ def changed_keys(data):
     if 'boekenState' not in data:
         return set()
     before, now = data['boekenState'] or {}, boeken.state_of(data)
-    return {key for key in set(before) | set(now) if before.get(key) != now.get(key)}
+    tracked = boeken.TRACKED.get(before.get('tracks'), boeken.TRACKED[1])   # as far as that state went
+    return {key for key in (*tracked, 'list') if before.get(key) != now.get(key)}
 
 
 def is_pending(data):
@@ -267,12 +268,14 @@ def plan_book(repo, data, group, taken, now):
     def edition_fields(edition):
         """An edition as front matter: {key: value}, None where the edition doesn't say."""
         years = re.fullmatch(r'(\d{4})(?:\s*[–-]\s*(\d{4}))?', str(edition.get('date') or '').strip())
+        # An audiobook has a length and no pages; anything else pages and no length.
+        audio = edition.get('format') == 'audiobook' or (not edition.get('format') and bool(edition.get('duration')))
         return {
             'publisher': str(edition.get('publisher') or '').strip() or None,
             'year': int(years.group(1)) if years else None,
             'year_until': int(years.group(2)) if years and years.group(2) else None,
-            'pages': edition['pages'] if isinstance(edition.get('pages'), int) and not edition.get('duration') else None,
-            'duration': str(edition.get('duration') or '').strip() or None,
+            'pages': edition['pages'] if isinstance(edition.get('pages'), int) and not audio else None,
+            'duration': (str(edition.get('duration') or '').strip() or None) if audio else None,
             'isbn': str(edition.get('isbn') or '').strip() or None,
             'language': str(edition.get('language') or '').strip() or None,
         }
@@ -310,6 +313,21 @@ def plan_book(repo, data, group, taken, now):
             known[name_key(str(names.get(str(slug), slug)).split())] = str(slug)
         return known
 
+    def set_format(post, wanted):
+        """What that read was read as. Said in the post only where it differs from what the post
+        already amounts to; the audiobook category follows, as the booklog's shelves go by it."""
+        wanted = wanted if wanted in boeken.FORMATS else ''
+        if wanted == boeken.format_of(post):
+            return False
+        front = edit(post)['front']
+        front['format'] = wanted or None
+        categories = [str(c) for c in post.get('categories') or []]
+        if wanted == 'audiobook' and 'audiobook' not in categories:
+            front['categories'] = categories + ['audiobook']
+        elif wanted != 'audiobook' and 'audiobook' in categories:
+            front['categories'] = [c for c in categories if c != 'audiobook']
+        return True
+
     def set_edition(post, review):
         """The edition read that time, on that read's own post."""
         if not isinstance(review.get('edition'), dict):
@@ -319,6 +337,7 @@ def plan_book(repo, data, group, taken, now):
                 edit(post)['front'][key] = value
         if 'people' in review['edition']:
             set_people(post, review['edition']['people'])
+        set_format(post, review['edition'].get('format'))
         cover = edition_picture(review['edition'], post['slug'], post['_day'])
         if cover:
             edit(post)['front']['cover'] = cover
@@ -480,6 +499,14 @@ def plan_book(repo, data, group, taken, now):
             edit(latest)['front'].update(year=int(years.group(1)), year_until=int(years.group(2)) if years.group(2) else None)
     if 'people' in changed and set_people(latest, state.get('people')):
         kinds.append('edit')
+    if 'format' in changed and set_format(latest, state.get('format')):
+        kinds.append('edit')
+    if 'duration' in changed:
+        # The app keeps the two apart: an audiobook has a length and no pages, anything else pages.
+        minutes = parse_duration(state.get('duration'))
+        if minutes != parse_duration(latest.get('duration')):
+            edit(latest)['front']['duration'] = format_duration(minutes) if minutes is not None else None
+            kinds.append('edit')
     if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date'}:
         kinds.append('edit')
 
@@ -628,6 +655,8 @@ def plan_new(repo, data, posts, taken, now):
     taken.add(slug)
 
     categories = [str(c) for c in data['categories']]
+    if data.get('format') == 'audiobook' and 'audiobook' not in categories:
+        categories.append('audiobook')   # the booklog's shelves go by the category
     for category in categories:
         if not (content / 'categories' / category / '_index.md').exists():
             raise ValueError(f'The booklog has no category "{category}".')
@@ -660,7 +689,9 @@ def plan_new(repo, data, posts, taken, now):
         'publisher': str(data.get('publisher') or '').strip(),
         'year': int(years.group(1)) if years else None,
         'year_until': int(years.group(2)) if years and years.group(2) else None,
-        'pages': data.get('pages') if isinstance(data.get('pages'), int) else None,
+        'format': data.get('format') if data.get('format') in boeken.FORMATS else None,
+        'pages': data.get('pages') if isinstance(data.get('pages'), int) and data.get('format') != 'audiobook' else None,
+        'duration': format_duration(parse_duration(data['duration'])) if data.get('format') == 'audiobook' and parse_duration(data.get('duration')) is not None else None,
         'isbn': isbn if re.fullmatch(r'\d{9}[\dXx]|\d{13}', isbn) else None,
         'language': data['language'],
         'roles': roles or None,

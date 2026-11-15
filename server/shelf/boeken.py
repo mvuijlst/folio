@@ -22,7 +22,7 @@ STATUS_LISTS = {'read': 'read', 'reading': 'reading', 'to-read': 'to-read', 'aba
 # People with one of these roles (or none) wrote the book; anyone else contributed to it.
 AUTHOR_ROLES = {'auteur', 'auteurs', 'author', 'schrijver', 'tekst', 'writer'}
 # What the import owns in a book: on every run these are set from the booklog, or removed.
-FIELDS = ['title', 'author', 'people', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource', 'rating',
+FIELDS = ['title', 'author', 'people', 'format', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource', 'rating',
           'series', 'seriesNumber', 'seriesLabel', 'language', 'olid', 'duration', 'durationLeft', 'issues', 'pagesRead',
           'categories', 'tags', 'boeken', 'url', 'reviewed', 'reads']
 # The reads of a book also become its reviews (`reviews` in a book), which the app can add to
@@ -96,7 +96,27 @@ def body_text(text, relative=()):
 
 # What of a book can be changed in the app and is then published to the booklog (shelf/publish.py).
 PUBLISHED = ('title', 'publisher', 'date', 'pages', 'isbn', 'series', 'seriesNumber', 'seriesLabel',
-             'pagesRead', 'durationLeft', 'cover', 'people')
+             'pagesRead', 'durationLeft', 'cover', 'people', 'format', 'duration')
+# What is published grew over time. A book's `boekenState` says under 'tracks' how far it
+# goes, and is only compared that far: a fact that wasn't tracked when the state was written
+# (a length the book already had) is not a change made in the app.
+TRACKED = {1: PUBLISHED[:12], 2: PUBLISHED}
+TRACKS = 2
+
+# What a read was read as. A post says so under `format`; one that doesn't is an audiobook if
+# it has a length or the audiobook category, an e-book if it has the (old) kindle category,
+# and otherwise it isn't said: most posts were written before this was kept.
+FORMATS = ('paper', 'ebook', 'audiobook')
+
+
+def format_of(post):
+    said = str(post.get('format') or '').strip().lower()
+    if said in FORMATS:
+        return said
+    categories = {str(c) for c in post.get('categories') or []}
+    if post.get('duration') or 'audiobook' in categories:
+        return 'audiobook'
+    return 'ebook' if 'kindle' in categories else ''
 
 
 # The people of a book: who wrote it, and who drew, coloured, lettered, translated or read it.
@@ -129,14 +149,17 @@ def state_of(book):
     state.pop('people', None)
     if tidy_people(book.get('people')):
         state['people'] = tidy_people(book['people'])
+    state['tracks'] = TRACKS
     state['list'] = next((name for name in STATUS_LISTS.values() if name in (book.get('lists') or {})), None)
     return state
 
 
 # A read is of an edition: the paperback the first time, the audiobook the next. Each review
 # carries the edition that was read in `edition`, with these facts (and `coverRatio`).
-EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people')
-EDITION_BEFORE_PEOPLE = EDITION[:-1]
+EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people', 'format')
+# What a review's fingerprint covered, by its version: editions came to say more over time.
+EDITION_AT = {2: EDITION[:7], 3: EDITION[:8], 4: EDITION}
+SUM_VERSION = 4
 
 
 def edition_of(post, names=None):
@@ -155,18 +178,19 @@ def edition_of(post, names=None):
     }
     if names is not None:
         edition['people'] = people_of(post.get('authors'), post.get('roles'), names)
+        edition['format'] = format_of(post)
     return {key: value for key, value in edition.items() if value not in ('', None, [])}
 
 
-def review_sum(review, version=3):
+def review_sum(review, version=SUM_VERSION):
     """Fingerprint of a review as the import (or the last publish) left it. A review that no
     longer matches its `sum` was edited in the app: the import leaves it alone, and it is
-    published. Covers the reading date, the rating, the text and the edition read, its people
-    included (version 2, from before editions had people, leaves those out)."""
+    published. Covers the reading date, the rating, the text and the edition read, as far as
+    editions went at that version (EDITION_AT)."""
     edition = dict(review.get('edition') or {})
     if 'people' in edition:
         edition['people'] = tidy_people(edition['people'])
-    keys = EDITION if version >= 3 else EDITION_BEFORE_PEOPLE
+    keys = EDITION_AT[version]
     told = json.dumps([review.get('date') or '', review.get('rating'), review.get('text') or '',
                        {key: edition[key] for key in keys if edition.get(key) not in ('', None, [])}],
                       ensure_ascii=False, sort_keys=True)
@@ -177,12 +201,12 @@ def in_step(review):
     """Is the review as its `sum` says it was left? (Older sums cover less: before reviews had
     editions the date, rating and text only; then the edition without its people.)"""
     left = str(review.get('sum') or '')
-    if left.startswith('3:'):
-        return review_sum(review) == left
-    if 'people' in (review.get('edition') or {}):
-        return False   # its people were said in the app, after that sum was made
-    if left.startswith('2:'):
-        return review_sum(review, version=2) == left
+    version = int(left[0]) if left[:2] in ('2:', '3:', '4:') else 1
+    edition = review.get('edition') or {}
+    if any(key in edition for key in EDITION if key not in EDITION_AT.get(version, EDITION_AT[2])):
+        return False   # something the fingerprint knows nothing of was said in the app since
+    if version > 1:
+        return review_sum(review, version=version) == left
     told = json.dumps([review.get('date') or '', review.get('rating'), review.get('text') or ''], ensure_ascii=False)
     return hashlib.sha1(told.encode()).hexdigest()[:12] == review.get('sum')
 
@@ -264,6 +288,7 @@ def books(repo):
             'title': str(latest['title']),
             'author': ', '.join(names.get(s, s) for s in writers),
             'people': people_of(slugs, fact('roles'), names),
+            'format': format_of(latest),   # of the latest read; each read's edition has its own
             'publisher': str(fact('publisher') or ''),
             'date': f'{year}–{fact("year_until")}' if year and fact('year_until') else str(year or ''),
             'pages': fact('pages') if isinstance(fact('pages'), int) else None,

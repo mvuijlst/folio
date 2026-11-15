@@ -276,10 +276,13 @@ img { display: block; max-width: 100%; }
 .cover.lg span { font-size: 2rem; }
 
 /* Covers view: a shelf of covers standing on one line, each with its rating */
-.library.mode-covers { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 16px 14px; align-items: end; }
+/* Each tile is three rows of the shelf's own grid (cover, rating, dates), so along a line
+   the covers stand on one base whether or not a book has a rating or a date under it. */
+.library.mode-covers { display: grid; grid-template-columns: repeat(auto-fill, minmax(88px, 1fr)); gap: 16px 14px; }
 .library.mode-covers > .day, .library.mode-cards > .day, .library > .more, .library > .no-results { grid-column: 1 / -1; }
 .library.mode-covers > .day { align-self: start; padding-bottom: 0; }
-.tile { display: flex; flex-direction: column; gap: 5px; min-width: 0; transition: opacity .15s ease; }
+.tile { display: grid; grid-row: span 3; grid-template-rows: subgrid; row-gap: 5px; min-width: 0; transition: opacity .15s ease; }
+.tile > :first-child { align-self: end; }
 .tile:active { opacity: .6; }
 .tile .cover { width: 100%; flex-direction: column; gap: 4px; padding: 6px; align-content: center; }
 .tile .cover small {

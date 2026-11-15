@@ -147,7 +147,11 @@ export default {
   // Editions
   'Edition read': 'Gelezen editie',
   'Audiobook': 'Audioboek',
-  'Length (audiobook)': 'Duur (audioboek)',
+  'Paper': 'Papier',
+  'E-book': 'E-boek',
+  'Read as': 'Gelezen als',
+  'Length': 'Duur',
+  'Give the length like 11u 36m.': 'Geef de duur als 11u 36m.',
   'The cover of this edition. Tap it to choose a picture, or paste or drop one.': 'De cover van deze editie. Tik erop om een afbeelding te kiezen, of plak of sleep er een.',
 
   // Series

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.21.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.22.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -784,11 +784,36 @@ function normDate(raw) {
 
 const yearOf = (date) => (String(date || '').match(/\b(1[4-9]\d\d|20\d\d)\b/) || [])[1] || '';
 
+/* What a book is read as: paper, e-book or audiobook. A book says so in `format`, and each
+   read's edition for itself. An audiobook is measured in time (`duration`, "11u 36m"), the
+   others in pages. Where nothing is said, a length without pages means an audiobook; a book
+   from the booklog always says (the import works it out), so nothing is guessed for those. */
+const FORMATS = ['paper', 'ebook', 'audiobook'];
+const formatName = (format) => ({ paper: t('Paper'), ebook: t('E-book'), audiobook: t('Audiobook') })[format] || '';
+const formatOf = (x) => (FORMATS.includes(x.format) ? x.format : (!x.boeken && x.duration && !x.pages ? 'audiobook' : ''));
+/** How long it is, said the way its format is measured: "Audiobook · 11u 36m", "E-book · 320 pp", "320 pp". */
+function extentOf(x) {
+  const format = formatOf(x);
+  if (format === 'audiobook') return [t('Audiobook'), x.duration].filter(Boolean).join(' · ');
+  return [format === 'ebook' && t('E-book'), x.pages && t('{n} pp', { n: x.pages })].filter(Boolean).join(' · ');
+}
+
+/** The three formats as chips; tapping the chosen one again leaves it unsaid. → { el, value, onChange } */
+function formatPicker(initial) {
+  const picker = { value: FORMATS.includes(initial) ? initial : '', onChange: null, el: h('div', { class: 'chips' }) };
+  const draw = () => picker.el.replaceChildren(...FORMATS.map((format) => h('button', {
+    class: 'chip', type: 'button', text: formatName(format), 'aria-pressed': String(picker.value === format),
+    onclick: () => { picker.value = picker.value === format ? '' : format; draw(); picker.onChange?.(picker.value); },
+  })));
+  draw();
+  return picker;
+}
+
 function metaLine(b) {
   // Rating (0–10) and how far along come with books from the booklog at boeken.tsuk.org.
   const { percent } = progressOf(b);
   const progress = percent ? t('{n}% read', { n: percent }) : '';
-  return [b.publisher, yearOf(b.date) || b.date, b.pages && t('{n} pp', { n: b.pages }), progress, b.rating != null && `★ ${b.rating}`]
+  return [b.publisher, yearOf(b.date) || b.date, extentOf(b), progress, b.rating != null && `★ ${b.rating}`]
     .filter(Boolean).join(' · ');
 }
 
@@ -1119,9 +1144,10 @@ function bookRow(b, onPick, extra, tags) {
 /** The book's own edition (the copy on the shelf, or the one read last), for a read that doesn't say. */
 function mainEdition(b) {
   const edition = {};
-  for (const key of ['publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'coverRatio', 'thumb']) {
+  for (const key of ['publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'coverRatio', 'thumb', 'format']) {
     if (b[key] != null && b[key] !== '') edition[key] = b[key];
   }
+  if (formatOf(b) === 'audiobook') delete edition.pages; else if (formatOf(b)) delete edition.duration;
   if (Array.isArray(b.people) && b.people.length) edition.people = b.people;
   return edition;
 }
@@ -1138,7 +1164,7 @@ function editionCovers(b) {
 }
 
 function editionLine(e) {
-  return [e.duration ? `${t('Audiobook')} · ${e.duration}` : e.pages && t('{n} pp', { n: e.pages }), e.publisher, yearOf(e.date) || e.date,
+  return [extentOf(e), e.publisher, yearOf(e.date) || e.date,
     ...contributorsIn(e.people || []).map(([role, names]) => `${role}: ${names.join(', ')}`)]
     .filter(Boolean).join(' · ');
 }
@@ -1168,7 +1194,7 @@ function bookTile(b, onPick, numbered) {
     h('div', { class: 'tile-foot' },
       b.rating != null ? stars(b.rating) : h('span'),
       numbered && seriesNo(b) && h('span', { class: 'tile-no', text: seriesNo(b) })),
-    dates && h('div', { class: 'tile-dates', text: dates }));
+    h('div', { class: 'tile-dates', text: dates }));
 }
 
 /** The start of the latest review, as plain text. */
@@ -1511,6 +1537,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     publisher: input('publisher', { autocapitalize: 'words' }),
     date: input('date', { placeholder: t('e.g. 1998'), inputmode: 'numeric' }),
     pages: input('pages', { inputmode: 'numeric', pattern: '[0-9]*' }),
+    duration: input('duration', { placeholder: '11u 36m' }),
     isbn: input('isbn', { inputmode: 'numeric' }),
     series: input('series', { autocapitalize: 'words', list: 'seriesNames' }),
     seriesNumber: h('input', { name: 'seriesNumber', value: seriesNo(book), inputmode: 'decimal', autocomplete: 'off', placeholder: '1' }),
@@ -1522,6 +1549,12 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   Object.defineProperty(f, 'author', { get: () => who.first });
   f.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); f.author.focus(); } });
   const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
+  // Paper, e-book or audiobook; an audiobook has a length where the others have pages.
+  const format = formatPicker(formatOf(book));
+  const extent = { pages: field(t('Pages'), f.pages), duration: field(t('Length'), f.duration) };
+  const showExtent = () => { extent.duration.hidden = format.value !== 'audiobook'; extent.pages.hidden = format.value === 'audiobook'; };
+  format.onChange = showExtent;
+  showExtent();
   const error = h('p', { class: 'field-error', hidden: true });
   // The lists the book is on, edited as a copy until the form is saved.
   const on = {};
@@ -1579,7 +1612,8 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     h('p', { class: 'sheet-note people-hint', text: t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') }),
     swap,
     field(t('Publisher'), f.publisher),
-    h('div', { class: 'field-row' }, field(t('Published'), f.date), field(t('Pages'), f.pages)),
+    h('div', { class: 'field' }, h('span', { text: t('Read as') }), format.el),
+    h('div', { class: 'field-row' }, field(t('Published'), f.date), extent.pages, extent.duration),
     field('ISBN', f.isbn),
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
     seriesNames,
@@ -1601,6 +1635,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       title: v('title'), author: writersIn(people).join(', '), publisher: v('publisher'), date: normDate(v('date')),
       pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
       isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
+      format: format.value,
       lists: {},
       series: v('series'), seriesNumber: null, seriesLabel: '',
       // A new cover: the small copy is the cover until the server has kept the larger one.
@@ -1614,6 +1649,15 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     for (const [id, entry] of Object.entries(on)) {
       const note = String(entry.note || '').replace(/\s+/g, ' ').trim();
       data.lists[id] = { at: entry.at || new Date().toISOString(), ...(note && { note }) };
+    }
+    // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
+    if (format.value === 'audiobook') Object.assign(data, { pages: null, duration: v('duration').toLowerCase().replace(/h/g, 'u') });
+    else if (format.value) data.duration = '';
+    if (format.value === 'audiobook' && data.duration && minutesOf(data.duration) == null) {
+      error.textContent = t('Give the length like 11u 36m.');
+      error.hidden = false;
+      f.duration.focus();
+      return;
     }
     if (!data.title) {
       error.textContent = t('A book needs at least a title.');
@@ -1860,6 +1904,7 @@ function openDescribe(shared, found) {
       // From a photograph of one book: that photograph is its cover until a better one is found,
       // and a barcode that was scanned first but found nowhere is its ISBN.
       if (found && picked.length === 1) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
+      if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
       // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
       if (note) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
       // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
@@ -2186,7 +2231,7 @@ const doneAt = (percent, total) => Math.round((total * percent) / 100);
 
 /** → { audio, total, done, percent, byPercent }: pages (audiobook: minutes) in all and so far; null where unknown. */
 function progressOf(book) {
-  const audio = !!book.duration;
+  const audio = formatOf(book) === 'audiobook' && !!book.duration;
   const total = audio ? minutesOf(book.duration) : (book.pages > 0 ? book.pages : null);
   const left = audio ? minutesOf(book.durationLeft) : null;
   const done = audio ? (total != null && left != null ? Math.max(0, total - left) : null)
@@ -2450,6 +2495,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     isbn: h('input', { name: 'isbn', value: edition.isbn || '', inputmode: 'numeric', autocomplete: 'off' }),
   };
   const who = peopleEditor(edition.people || peopleOf(book));
+  const format = formatPicker(formatOf(edition));
   let language = edition.language || '';
   const languages = h('div', { class: 'chips' });
   const drawLanguages = () => languages.replaceChildren(...['nl', 'en', 'fr', 'de'].map((code) => h('button', {
@@ -2469,7 +2515,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
       pages: parseInt(said(ed.pages), 10) > 0 ? parseInt(said(ed.pages), 10) : null,
       duration: said(ed.duration).toLowerCase().replace(/h/g, 'u'),
       isbn: toIsbn13(said(ed.isbn)) || said(ed.isbn).replace(/[^0-9Xx]/g, ''),
-      language,
+      language, format: format.value,
       ...(cover.picture && { thumb: cover.picture.thumb, cover: '', coverRatio: cover.picture.ratio, coverFull: '' }),
     };
     // Who made this edition, where that was said before, someone has a role, or it isn't the book's writers.
@@ -2477,6 +2523,8 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     const same = (a, b) => a.length === b.length && a.every((person, i) => fold(person.name) === fold(b[i].name) && (person.role || '') === (b[i].role || ''));
     if (people.length && (Array.isArray(edition.people) || people.some((person) => person.role) || !same(people, peopleOf(book)))) read.people = people;
     else delete read.people;
+    // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
+    if (format.value === 'audiobook') read.pages = null; else if (format.value) read.duration = '';
     for (const key of Object.keys(read)) if (read[key] == null || read[key] === '') delete read[key];
     if (Object.keys(read).length) data.edition = read;
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
@@ -2501,6 +2549,12 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     toast(t('Review removed'), { action: t('Undo'), onAction: () => { (book.reviews ||= []).push(review); settleRating(book); saveBook(book); if (sheet.isOpen) back(); } });
   }
 
+  const edPages = h('label', { class: 'field' }, h('span', { text: t('Pages') }), ed.pages);
+  const edLength = h('label', { class: 'field' }, h('span', { text: t('Length') }), ed.duration);
+  const showExtent = () => { edLength.hidden = format.value !== 'audiobook'; edPages.hidden = format.value === 'audiobook'; };
+  format.onChange = showExtent;
+  showExtent();
+
   const form = h('form', {
     novalidate: true, onsubmit: submit,
     ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
@@ -2514,15 +2568,14 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
       h('label', { class: 'field' }, h('span', { text: t('Rating (0–10)') }), rating)),
     h('details', { class: 'edition-box', open: !!(review?.edition && Object.keys(review.edition).length && !isNew) && false },
       h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(edition) })),
+      h('div', { class: 'field' }, h('span', { text: t('Read as') }), format.el),
       h('div', { class: 'edition-cover' }, cover.button, cover.file,
         h('p', { class: 'sheet-note' }, t('The cover of this edition. Tap it to choose a picture, or paste or drop one.'), ' ', cover.paste)),
       h('label', { class: 'field' }, h('span', { text: t('Publisher') }), ed.publisher),
       h('div', { class: 'field-row' },
         h('label', { class: 'field' }, h('span', { text: t('Published') }), ed.date),
         h('label', { class: 'field' }, h('span', { text: 'ISBN' }), ed.isbn)),
-      h('div', { class: 'field-row' },
-        h('label', { class: 'field' }, h('span', { text: t('Pages') }), ed.pages),
-        h('label', { class: 'field' }, h('span', { text: t('Length (audiobook)') }), ed.duration)),
+      h('div', { class: 'field-row' }, edPages, edLength),
       h('div', { class: 'field' }, h('span', { text: t('Language') }), languages),
       h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
       h('p', { class: 'sheet-note people-hint', text: t('Who made this edition: an audiobook has a voice (stem), a translation a translator (vertaling).') })),
@@ -3167,7 +3220,7 @@ async function onIsbn(isbn) {
   const result = await lookupIsbn(isbn);
 
   if (result.status === 'found') {
-    const book = await addBook({ ...result.book, isbn, lists: targetLists() });
+    const book = await addBook({ ...result.book, isbn, format: 'paper', lists: targetLists() });   // a barcode is on a paper book
     if (!alive(session)) { toast(t('Added “{title}”', { title: book.title })); return; }
     scanner.added++;
     updateScanCount();
@@ -3187,7 +3240,7 @@ async function onIsbn(isbn) {
       ],
     }));
   } else {
-    const book = await addBook({ isbn, pending: true, lists: targetLists() });
+    const book = await addBook({ isbn, pending: true, format: 'paper', lists: targetLists() });
     if (!alive(session)) { toast(t('Saved the ISBN — details follow when you’re online')); return; }
     scanner.added++;
     updateScanCount();
@@ -3476,7 +3529,7 @@ async function processCover({ canvas, thumb }) {
   const rows = candidates.map((c, i) => bookRow(c.book, async (b) => {
     if (picked) return;
     picked = true;
-    await addBook({ ...b, isbn: isbn || b.isbn, thumb, lists: targetLists() });
+    await addBook({ ...b, isbn: isbn || b.isbn, thumb, format: 'paper', lists: targetLists() });
     sheet.close();
   }, i === 0 && c.score >= 0.75 ? h('span', { class: 'badge', text: t('Best match') }) : null));
   rows.forEach((r) => r.classList.add('cand'));
