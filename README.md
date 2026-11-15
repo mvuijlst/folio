@@ -49,8 +49,32 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   time). Scanning a book you already have puts it on those lists too, so scanning onto
   *Lent out* or *Read* is the quick way to move a pile of books.
 - Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
-  On a wide screen the lists sit in a sidebar; on a phone they are a row of tabs. Every list or
-  series you open is a step in the browser's history: Back returns to the one before.
+  Every list or series you open is a step in the browser's history: Back returns to the one
+  before.
+
+## Finding your way: places, filters, order
+
+What you see is decided in three steps.
+
+1. **Where you are.** The reading lists (*Reading*, *To read*, *Read*), *All books*, the
+   *Series*, and the lists you keep by hand (*Lent out*, a wishlist). On a wide screen they are
+   a menu beside the books; on a phone a bar under the thumb with the four you go to most, and
+   the rest behind *More*.
+2. **Narrowed by filters.** *Filter* opens what the books of that place can be told apart by,
+   each with how many it would leave: reading status, read as (paper, e-book, audiobook),
+   category, language, year read, rating, the lists you keep, and a few odd ones (no cover,
+   not on the booklog). A set of lists of your own is a filter too: lists that share a set
+   (the places your books stand in, say: *Bureau*, *Bibliotheek*) are not in the menu but
+   narrow whatever you are looking at. Within one filter any chosen value will do; between
+   filters all must hold. What is chosen shows under the search box, to be taken off again,
+   and is in the address (`#/list/read?format=audiobook&year=2024`).
+3. **In an order.** The button beside *Filter* names it and changes it: date added, date read,
+   last changed, author (by surname), title (without its article), rating, year published,
+   length, series. Choosing the same one again turns it round. Each place keeps its own, and
+   starts with the one that suits it: *Reading* by what you last touched, *Read* by when you
+   read it, *Lent out* by who has had a book longest, an author's books by series. Books that
+   share what they are ordered by share a heading (a month, a letter, a rating), and books
+   without it come last.
 
 Books scanned before lists existed count as being in the *Library*.
 
@@ -86,6 +110,8 @@ Books scanned before lists existed count as being in the *Library*.
   in a new tab. Copy one and paste it in the book's details.
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
+- **In the covers view the covers stand on one base line**, whether or not a book has a rating
+  or a date under it.
 - **Reviews.** A book can have any number, each with an optional reading date and an optional
   rating from 0 to 10, written in Markdown (emphasis, links, quotes, lists, images). The rating
   shown in lists is that of the latest review that gives one. Reviews are searched too.

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.22.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.23.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -228,9 +228,11 @@ const FIXED = new Map(STANDARD_LISTS.filter((l) => l.group === READING).map((l) 
 let lists = [];
 /** What the library shows: one list, or every book when `list` is null. */
 const VIEWS = ['list', 'covers', 'cards'];
-// One of: every book, a list (`list`), all series (`seriesIndex`), one series (`series`, its
-// name) or one author's books (`author`, the name).
-const view = { list: null, series: null, seriesIndex: false, author: null, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
+// Where you are (the scope): every book, a list (`list`), all series (`seriesIndex`), one
+// series (`series`, its name) or one person's books (`author`, the name). Within it, `filters`
+// narrow what is shown ({facet: [values]}, see facetsOf) and `sort` orders it ({key, dir};
+// null: the order kept for this scope, or its own default, see sortOf).
+const view = { list: null, series: null, seriesIndex: false, author: null, filters: {}, sort: null, mode: VIEWS.includes(store.get('view', 'list')) ? store.get('view', 'list') : 'list' };
 
 // The standard lists (and their group and note) are stored under their English names, so
 // they are the same list on a Dutch and an English device. Until they are renamed, they
@@ -409,32 +411,54 @@ function seriesMap() {
 
 function readRoute() {
   const part = (s) => { try { return decodeURIComponent(s); } catch { return ''; } };
-  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null });
+  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null, filters: {}, sort: null });
+  const [path, query = ''] = location.hash.split('?');
   let m;
-  if ((m = location.hash.match(/^#\/list\/(.+)$/))) view.list = listById(part(m[1])) ? part(m[1]) : null;
-  else if ((m = location.hash.match(/^#\/series\/(.+)$/))) view.series = part(m[1]) || null;
-  else if ((m = location.hash.match(/^#\/author\/(.+)$/))) view.author = part(m[1]) || null;
-  else if (/^#\/series\/?$/.test(location.hash)) view.seriesIndex = true;
+  if ((m = path.match(/^#\/list\/(.+)$/))) view.list = listById(part(m[1])) ? part(m[1]) : null;
+  else if ((m = path.match(/^#\/series\/(.+)$/))) view.series = part(m[1]) || null;
+  else if ((m = path.match(/^#\/author\/(.+)$/))) view.author = part(m[1]) || null;
+  else if (/^#\/series\/?$/.test(path)) view.seriesIndex = true;
+  // What narrows the view is in the address too: ?format=audiobook&in:Plaats=<list id>
+  for (const [key, value] of new URLSearchParams(query)) (view.filters[key] ||= []).push(value);
+}
+
+/** The address of what is showing: the scope, and the filters on it. */
+function addressOf() {
+  const path = view.list ? `#/list/${encodeURIComponent(view.list)}`
+    : view.series ? `#/series/${encodeURIComponent(view.series)}`
+      : view.author ? `#/author/${encodeURIComponent(view.author)}`
+        : view.seriesIndex ? '#/series' : '';
+  const query = new URLSearchParams(Object.entries(view.filters).flatMap(([key, values]) => values.map((value) => [key, value]))).toString();
+  return (path || (query ? '#/' : '')) + (query ? `?${query}` : '') || location.pathname + location.search;
 }
 
 /** Open every book (null), a list (its id), all series ({seriesIndex: true}), one ({series: name}) or an author's books ({author: name}). */
 function setView(target) {
   const wasSeries = view.seriesIndex || view.series || view.author;
-  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null });
+  // Another place: its own filters, and the order kept for it.
+  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null, filters: {}, sort: null });
   if (typeof target === 'string') view.list = listById(target) ? target : null;
   else if (target?.series) view.series = target.series;
   else if (target?.seriesIndex) view.seriesIndex = true;
   else if (target?.author) view.author = target.author;
   if (wasSeries || view.seriesIndex || view.series || view.author) $('search').value = '';   // what you looked for among series isn't what you look for in one
-  const address = view.list ? `#/list/${encodeURIComponent(view.list)}`
-    : view.series ? `#/series/${encodeURIComponent(view.series)}`
-      : view.author ? `#/author/${encodeURIComponent(view.author)}`
-        : view.seriesIndex ? '#/series' : location.pathname + location.search;
+  const address = addressOf();
   // Every view is a step in the browser's history, so Back always returns to the one before
   // (and only leaves the app from where you came in). Opening the view you are on adds nothing.
   if (new URL(address, location.href).href !== location.href) history.pushState({ view: true }, '', address);
   renderLibrary();
   if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
+}
+
+/** The same place, narrowed or ordered differently. It is still that place: no new step in history. */
+function refine({ filters, sort } = {}) {
+  if (filters) view.filters = Object.fromEntries(Object.entries(filters).filter(([, values]) => values.length));
+  if (sort) {
+    view.sort = sort;
+    store.set('sorts', { ...store.get('sorts', {}), [scopeKey()]: sort });
+  }
+  history.replaceState(history.state, '', addressOf());
+  renderLibrary();
 }
 
 /* ───────────────────────── Sync (optional account) ───────────────────────── */
@@ -1231,40 +1255,222 @@ function dayLabel(iso) {
   return d.toLocaleDateString(LOCALE, { day: 'numeric', month: 'long', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
 }
 
+/* ───────────────────────── Where you are: the menu ───────────────────────── */
+
+// The reading lists are the places you go to; so are all books, the series, and the lists
+// you keep by hand (lent out, a wishlist). Lists that belong to a set of their own, such as
+// the places books stand in, narrow what you see instead: they are filters (facetsOf).
+const isScope = (list) => FIXED.has(list.id) || !list.group;
+
 function renderNav() {
   const counts = new Map(lists.map((l) => [l.id, 0]));
   for (const b of books) for (const id of Object.keys(shelves(b))) if (counts.has(id)) counts.set(id, counts.get(id) + 1);
-  const link = (target, href, isCurrent, name, count) => h('a', {
+  const go = (target) => (e) => {
+    if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
+    e.preventDefault();
+    setView(target);
+  };
+  const plain = !view.series && !view.seriesIndex && !view.author;
+  // `inSheet`: the link is in the More sheet, which closes first; only then is there a new view.
+  const link = (target, href, isCurrent, name, count, inSheet) => h('a', {
     class: 'nav-item', href, 'aria-current': isCurrent ? 'page' : null, 'data-list': typeof target === 'string' ? target : null,
-    onclick: (e) => {
-      if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
-      e.preventDefault();
-      setView(target);
-    },
+    onclick: inSheet ? (e) => { e.preventDefault(); closeLayersThen(() => setView(target)); } : go(target),
   }, h('span', { text: name }), h('b', { text: String(count) }));
-  const item = (id, name, count) => link(id, id ? `#/list/${encodeURIComponent(id)}` : '#/',
-    view.list === id && !view.series && !view.seriesIndex && !view.author, name, count);
+  const item = (id, name, count, inSheet) => link(id, id ? `#/list/${encodeURIComponent(id)}` : '#/', view.list === id && plain, name, count, inSheet);
   const seriesCount = new Set(books.map((b) => b.series).filter(Boolean)).size;
-  const nav = $('lists');
-  nav.replaceChildren(
-    h('div', { class: 'nav-group' },
-      item(null, t('All books'), books.length),
-      seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount)),
-    // Only lists with books on them (and the one that is open): an empty list is no place to go.
-    // They are all still there to put books on, and under "Edit lists".
-    ...listSections()
-      .map((section) => ({ ...section, members: section.members.filter((l) => counts.get(l.id) > 0 || view.list === l.id) }))
-      .filter((section) => section.members.length)
-      .map((section) => h('div', { class: 'nav-group' },
-        section.label && h('span', { class: 'nav-label', text: show(section.label) }),
-        section.members.map((l) => item(l.id, listName(l), counts.get(l.id))))),
-    h('div', { class: 'nav-group' },
-      h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }))));
-  // On a phone the lists are one scrolling row: keep the open one in sight.
-  const active = nav.querySelector('[aria-current]');
-  if (active && (active.offsetLeft < nav.scrollLeft || active.offsetLeft + active.offsetWidth > nav.scrollLeft + nav.clientWidth)) {
-    nav.scrollLeft = active.offsetLeft - 20;
+  // Only what has books on it (and what is open): an empty list is no place to go.
+  const worth = (l) => counts.get(l.id) > 0 || view.list === l.id;
+  const reading = ['reading', 'to-read', 'read', 'abandoned'].map(listById).filter((l) => l && (l.id !== 'abandoned' || worth(l)));
+  const kept = lists.filter((l) => !FIXED.has(l.id) && isScope(l) && worth(l));
+  const series = (inSheet) => seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount, inSheet);
+  const edit = () => h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }));
+
+  // Beside the books on a wide screen.
+  $('lists').replaceChildren(
+    h('div', { class: 'nav-group' }, reading.map((l) => item(l.id, listName(l), counts.get(l.id)))),
+    h('div', { class: 'nav-group' }, item(null, t('All books'), books.length), series()),
+    kept.length > 0 && h('div', { class: 'nav-group' },
+      h('span', { class: 'nav-label', text: t('Lists') }),
+      kept.map((l) => item(l.id, listName(l), counts.get(l.id)))),
+    h('div', { class: 'nav-group' }, edit()));
+
+  // Under the thumb on a phone: the four places you go to most, and the rest behind More.
+  const tab = (name, label, target, href, isCurrent) => h('a', { class: 'bar-item', href, 'aria-current': isCurrent ? 'page' : null, onclick: go(target) }, icon(name), h('span', { text: label }));
+  const elsewhere = !['reading', 'to-read', 'read', null].includes(view.list) || !plain;
+  $('bar').replaceChildren(
+    tab('book-open', listName(listById('reading')), 'reading', '#/list/reading', view.list === 'reading' && plain),
+    tab('bookmark', listName(listById('to-read')), 'to-read', '#/list/to-read', view.list === 'to-read' && plain),
+    tab('check', listName(listById('read')), 'read', '#/list/read', view.list === 'read' && plain),
+    tab('library', t('All'), null, '#/', view.list === null && plain),
+    h('button', {
+      class: 'bar-item', type: 'button', 'aria-current': elsewhere ? 'page' : null,
+      onclick: () => sheet.open(h('div', null,
+        sheetHead(t('More')),
+        h('div', { class: 'more-nav' },
+          series(true), reading.filter((l) => l.id === 'abandoned').map((l) => item(l.id, listName(l), counts.get(l.id), true)),
+          kept.map((l) => item(l.id, listName(l), counts.get(l.id), true)), edit()))),
+    }, icon('more'), h('span', { text: t('More') })));
+}
+
+/* ───────────────────────── The order of the books ───────────────────────── */
+
+const PARTICLES = new Set(['van', 'de', 'der', 'den', 'ter', 'ten', 'te', 'von', 'zu', 'du', 'des', 'le', 'la', 'di', 'da', 'del', 'della', 'el', 'al']);
+/** "Ursula K. Le Guin" → "le guin ursula k": a name as it is sorted, by surname with its particles. */
+function surnameFirst(name) {
+  // Only what is a name counts: "Platon ." is Platon, "Mitric -Nicolas" is Nicolas Mitric... as far as can be told.
+  const words = String(name || '').split(/\s+/).map((w) => w.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}.]+$/gu, '')).filter((w) => /[\p{L}\p{N}]/u.test(w));
+  if (words.length < 2) return fold(words[0] || '');
+  let cut = words.length - 1;
+  while (cut > 1 && PARTICLES.has(words[cut - 1].toLowerCase())) cut--;
+  return fold(`${words.slice(cut).join(' ')} ${words.slice(0, cut).join(' ')}`);
+}
+const titleKey = (b) => fold(b.title).replace(/^[^\p{L}\p{N}]+/u, '').replace(/^(the|a|an|de|het|een|le|la|les|l|der|die|das|un|une) /, '');
+/** The day a book was last read ('' if it wasn't, or it isn't said when). */
+const lastRead = (b) => (b.reviews || []).reduce((latest, r) => (r.date && r.date > latest ? r.date : latest), '');
+/** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons. */
+const lengthOf = (b) => (formatOf(b) === 'audiobook' && minutesOf(b.duration) != null ? Math.round((minutesOf(b.duration) * 2) / 3) : b.pages || null);
+
+// Each order: what it is called, which way it runs when first chosen (1 up, -1 down), the
+// value it sorts by (null or '' sorts last, whichever way), and the heading books share.
+const dateHeading = (iso) => (iso ? { list: dayLabel, cards: monthLabel, covers: yearLabel }[view.mode](iso) : t('No date'));
+const SORTS = {
+  added: { name: () => t('Date added'), dir: -1, value: (b, on) => on(b), heading: (v) => dateHeading(v) },
+  read: { name: () => t('Date read'), dir: -1, value: (b) => lastRead(b), heading: (v) => (v ? { list: monthLabel, cards: monthLabel, covers: yearLabel }[view.mode](v) : t('No date')) },
+  changed: { name: () => t('Last changed'), dir: -1, value: (b) => b.modified || b.added, heading: (v) => dateHeading(v) },
+  author: { name: () => t('Author'), dir: 1, value: (b) => surnameFirst(authorsOf(b)[0]), heading: (v) => (v ? v[0].toUpperCase() : t('No author')) },
+  title: { name: () => t('Title'), dir: 1, value: (b) => titleKey(b), heading: (v) => (v ? v[0].toUpperCase() : '') },
+  rating: { name: () => t('Rating'), dir: -1, value: (b) => b.rating ?? null, heading: (v) => (v == null ? t('Not rated') : `★ ${v}`) },
+  year: { name: () => t('Year published'), dir: -1, value: (b) => yearOf(b.date) || null, heading: (v) => v || t('No year') },
+  length: { name: () => t('Length'), dir: 1, value: (b) => lengthOf(b), heading: () => '' },
+  series: { name: () => t('Series'), dir: 1, value: (b) => (b.series ? `${fold(b.series)} ${String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0')}` : null), heading: (v, b) => b.series || t('Not in a series') },
+};
+
+/** What the order is kept under: each place has its own. */
+const scopeKey = () => (view.series ? 'series' : view.author ? 'author' : view.list || 'all');
+/** The order that suits a place when none was chosen: what you'd ask of it. */
+function defaultSort() {
+  if (view.list === 'reading') return { key: 'changed', dir: -1 };   // where was I?
+  if (view.list === 'read' || view.list === 'abandoned') return { key: 'read', dir: -1 };   // what did I read, and when?
+  if (view.list === 'lent') return { key: 'added', dir: 1 };   // who has had it longest?
+  if (view.author) return { key: 'series', dir: 1 };
+  return { key: 'added', dir: -1 };
+}
+function sortOf() {
+  const kept = view.sort || store.get('sorts', {})[scopeKey()];
+  return kept && SORTS[kept.key] ? kept : defaultSort();
+}
+
+function openSortSheet() {
+  const now = sortOf();
+  const row = ([key, sort]) => h('button', {
+    class: 'way', type: 'button', 'aria-pressed': String(key === now.key),
+    // The order you have: the other way round. Another: the way it usually runs.
+    onclick: () => closeLayersThen(() => refine({ sort: { key, dir: key === now.key ? -now.dir : sort.dir } })),
+  }, icon(key === now.key ? (now.dir > 0 ? 'up' : 'down') : 'dot'), h('span', { class: 'way-text' }, h('span', { text: sort.name() })), h('span'));
+  sheet.open(h('div', null,
+    sheetHead(t('Order'), t('Choose the same one again to turn it round.')),
+    h('div', { class: 'ways sort-ways' }, Object.entries(SORTS).map(row))));
+}
+
+/* ───────────────────────── Filters: narrowing what a place shows ───────────────────────── */
+
+const RATINGS = [['9', '★ 9–10', (r) => r >= 9], ['7', '★ 7–8', (r) => r >= 7 && r < 9], ['5', '★ 5–6', (r) => r >= 5 && r < 7], ['0', () => t('Below 5'), (r) => r != null && r < 5], ['none', () => t('Not rated'), (r) => r == null]];
+
+/**
+ * What the books of a place can be narrowed by: [{key, name, values: [{value, name, test}]}].
+ * Each facet says of a book which of its values it has. Which facets there are depends on
+ * where you are (no reading status inside a reading list) and on the lists you keep (every
+ * set of lists of your own, such as the places books stand in, is one).
+ */
+function facetsOf() {
+  const facets = [];
+  const status = FIXED.has(view.list);
+  if (!status) {
+    facets.push({ key: 'status', name: t('Reading status'),
+      values: [...FIXED.keys()].map((id) => ({ value: id, name: listName(listById(id) || FIXED.get(id)), test: (b) => !!shelves(b)[id] })) });
   }
+  for (const section of listSections().filter((sec) => sec.label && sec.label !== READING)) {
+    facets.push({ key: `in:${section.label}`, name: show(section.label),
+      values: [...section.members.map((l) => ({ value: l.id, name: listName(l), test: (b) => !!shelves(b)[l.id] })),
+        { value: 'none', name: t('None'), test: (b) => !section.members.some((l) => shelves(b)[l.id]) }] });
+  }
+  const kept = lists.filter((l) => !FIXED.has(l.id) && !l.group && l.id !== view.list);
+  if (kept.length) facets.push({ key: 'on', name: t('Lists'), values: kept.map((l) => ({ value: l.id, name: listName(l), test: (b) => !!shelves(b)[l.id] })) });
+  facets.push({ key: 'format', name: t('Read as'),
+    values: [...FORMATS.map((format) => ({ value: format, name: formatName(format), test: (b) => formatOf(b) === format })),
+      { value: 'none', name: t('Not said'), test: (b) => !formatOf(b) }] });
+  const having = (key, pick, name = (v) => v, order = (a, b) => a.localeCompare(b)) => {
+    const all = [...new Set(books.flatMap(pick))].filter(Boolean).sort(order);
+    return { key, values: all.map((value) => ({ value: String(value), name: name(value), test: (b) => pick(b).includes(value) })) };
+  };
+  facets.push({ ...having('category', (b) => b.categories || []), name: t('Category') });
+  facets.push({ ...having('language', (b) => [b.language].filter(Boolean), (v) => v.toUpperCase()), name: t('Language') });
+  if (view.list !== 'to-read' && view.list !== 'reading') {
+    facets.push({ ...having('year', (b) => [lastRead(b).slice(0, 4)].filter(Boolean), (v) => v, (a, b) => b.localeCompare(a)), name: t('Year read') });
+    facets.push({ key: 'rating', name: t('Rating'), values: RATINGS.map(([value, name, fits]) => ({ value, name: typeof name === 'function' ? name() : name, test: (b) => fits(b.rating ?? null) })) });
+  }
+  const host = booklogHost();
+  facets.push({ key: 'other', name: t('Other'), values: [
+    { value: 'nocover', name: t('No cover'), test: (b) => !b.cover && !b.thumb },
+    { value: 'photo', name: t('Own photo as cover'), test: (b) => !b.cover && !!b.thumb },
+    host && { value: 'local', name: t('Not on {host}', { host }), test: (b) => !b.boeken },
+  ].filter(Boolean) });
+  return facets;
+}
+
+/** Does a book pass every filter (but the one on `except`)? Within a facet any chosen value will do. */
+function passes(b, facets, except, filters = view.filters) {
+  return facets.every((facet) => {
+    const chosen = filters[facet.key];
+    if (!chosen?.length || facet.key === except) return true;
+    return facet.values.some((v) => chosen.includes(v.value) && v.test(b));
+  });
+}
+
+function openFilterSheet(inScope) {
+  const facets = facetsOf();
+  const body = h('div');
+  // Chosen here, applied when the sheet closes: only then is the address under it the current one.
+  let draft = { ...view.filters };
+  const draw = () => {
+    const left = inScope.filter((b) => passes(b, facets, null, draft)).length;
+    body.replaceChildren(
+      sheetHead(t('Filter'), plural(left, 'book')),
+      ...facets.map((facet) => {
+        // What each value would give, with the other filters as they are.
+        const others = inScope.filter((b) => passes(b, facets, facet.key, draft));
+        const chosen = draft[facet.key] || [];
+        const values = facet.values.map((v) => ({ ...v, count: others.filter(v.test).length })).filter((v) => v.count > 0 || chosen.includes(v.value));
+        // A facet that can't tell the books apart is not worth showing.
+        if (values.length < 2 && !chosen.length) return null;
+        return h('div', { class: 'sheet-section facet' },
+          h('h3', { text: facet.name }),
+          h('div', { class: 'chips' }, values.map((v) => h('button', {
+            class: 'chip', type: 'button', 'aria-pressed': String(chosen.includes(v.value)),
+            onclick: () => { draft = { ...draft, [facet.key]: chosen.includes(v.value) ? chosen.filter((x) => x !== v.value) : [...chosen, v.value] }; draw(); },
+          }, v.name, h('b', { text: String(v.count) })))));
+      }).filter(Boolean),
+      h('div', { class: 'btn-row sheet-actions' },
+        h('button', { class: 'btn btn-outline', type: 'button', text: t('Clear'), disabled: !Object.values(draft).some((values) => values.length), onclick: () => { draft = {}; draw(); } }),
+        h('button', { class: 'btn btn-primary', type: 'button', onclick: () => sheet.close() }, icon('check'), t('Show {n}', { n: plural(left, 'book') }))));
+  };
+  draw();
+  sheet.open(body, () => refine({ filters: draft }));
+}
+
+/** Under the search box: what the view is narrowed by, each to be taken off again. */
+function drawActiveFilters(facets) {
+  const chips = facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
+    const name = facet.values.find((v) => v.value === value)?.name || value;
+    return h('button', {
+      class: 'chip active-filter', type: 'button', title: t('Remove'),
+      onclick: () => refine({ filters: { ...view.filters, [facet.key]: view.filters[facet.key].filter((x) => x !== value) } }),
+    }, `${facet.name}: ${name}`, icon('x'));
+  }));
+  $('activeFilters').replaceChildren(...chips);
+  $('activeFilters').hidden = !chips.length;
+  $('filterCount').textContent = chips.length ? String(chips.length) : '';
+  $('filterCount').hidden = !chips.length;
 }
 
 /** All series, by name: a few covers, how many books, how many of them read. */
@@ -1272,7 +1478,7 @@ function renderSeriesIndex(query) {
   const all = [...seriesMap()].sort((a, b) => a[0].localeCompare(b[0], LOCALE, { sensitivity: 'base' }));
   const found = query ? all.filter(([name, members]) => fold(name + ' ' + members.map((b) => b.author).join(' ')).includes(query)) : all;
   $('searchWrap').hidden = all.length < 8 && !query;
-  shown = { rows: [], next: 0, lastDay: '', key: 'series', current: null, query, when: null, series: null };
+  shown = { rows: [], next: 0, lastDay: '', key: 'series', current: null, query, series: null, heading: () => '' };
   $('library').className = 'library mode-series';
   $('library').replaceChildren(...found.map(([name, members]) => {
     const read = members.filter((b) => shelves(b).read).length;
@@ -1305,7 +1511,7 @@ function searchText(b) {
 // A shelf can hold thousands of books, so the library is drawn a page at a time: more rows
 // are added as you scroll towards the end.
 const PAGE = 120;
-let shown = { rows: [], next: 0, lastDay: '', key: '', current: null, query: '', when: null };
+let shown = { rows: [], next: 0, lastDay: '', key: '', current: null, query: '', heading: () => '' };
 window.addEventListener('scroll', () => {
   const more = $('more');
   if (more && more.getBoundingClientRect().top < window.innerHeight + 800) appendRows();
@@ -1315,12 +1521,11 @@ function appendRows(upTo = shown.next + PAGE) {
   $('more')?.remove();
   const frag = document.createDocumentFragment();
   const end = Math.min(shown.rows.length, upTo);
-  // The denser the view, the coarser its headings: days in the list, months for cards, years for covers.
-  // A series is in the order of the books, not of when you added them: no headings there.
-  const heading = shown.series ? () => '' : { list: dayLabel, cards: monthLabel, covers: yearLabel }[view.mode];
+  // Books that share what they are ordered by share a heading: a month, a letter, a rating.
+  // A series is in the order of its books: no headings there.
   for (const b of shown.rows.slice(shown.next, end)) {
-    const day = heading(shown.when(b));
-    if (!shown.query && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
+    const day = shown.series ? '' : shown.heading(b);
+    if (!shown.query && day && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
     const number = shown.series && seriesNo(b) ? h('span', { class: 'badge', text: `#${seriesNo(b)}` }) : null;
     const open = (book) => openBook(book, shown.rows);   // with the list it is opened from, for previous and next
     if (view.mode === 'covers') frag.append(bookTile(b, open, !!shown.series));
@@ -1348,41 +1553,62 @@ function renderLibrary() {
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
-  $('viewSeg').hidden = view.seriesIndex;
+  $('viewSeg').hidden = $('filterBtn').hidden = $('sortBtn').hidden = view.seriesIndex;
+  $('activeFilters').hidden = true;
   if (view.seriesIndex) { renderSeriesIndex(query); return; }
 
-  // A list shows the book that went on it last first; the whole shelf, the one added last;
-  // a series, its books in their order.
-  const when = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
+  // 1. The place: every book, a list, a series, a person's books.
+  const since = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
   const writer = view.author && fold(view.author);
-  const inView = view.series ? books.filter((b) => b.series === view.series).sort(bySeriesOrder)
+  const inScope = view.series ? books.filter((b) => b.series === view.series)
     : writer ? books.filter((b) => everyoneIn(b).has(writer))
-    : current ? books.filter((b) => shelves(b)[current.id]).sort((a, b) => (when(a) < when(b) ? 1 : -1)) : books;
-  $('searchWrap').hidden = inView.length < 8 && !query;
-
-  const found = query
-    ? inView.filter((b) => searchText(b).includes(query))
-    : inView;
+    : current ? books.filter((b) => shelves(b)[current.id]) : books;
+  // 2. Narrowed by the filters, and by what is searched for.
+  const facets = facetsOf();
+  const filtered = Object.keys(view.filters).length ? inScope.filter((b) => passes(b, facets)) : inScope;
+  drawActiveFilters(facets);
+  $('filterBtn').onclick = () => openFilterSheet(inScope);
+  $('searchWrap').hidden = inScope.length < 8 && !query;
+  const found = query ? filtered.filter((b) => searchText(b).includes(query)) : filtered;
+  // 3. In order. A series has its own; anything else the one chosen for the place. Books
+  //    without what is sorted by come last, whichever way the order runs.
+  const sort = sortOf(), by = SORTS[sort.key];
+  $('sortBtn').hidden = !!view.series;
+  $('sortName').textContent = by.name();
+  let rowsInOrder;
+  if (view.series) rowsInOrder = [...found].sort(bySeriesOrder);
+  else {
+    const keyed = found.map((b) => [by.value(b, since), b]);
+    const empty = (v) => v == null || v === '';
+    keyed.sort(([x, a], [y, b]) => (empty(x) - empty(y))
+      || (x < y ? -sort.dir : x > y ? sort.dir : 0)
+      || (titleKey(a) < titleKey(b) ? -1 : 1));
+    rowsInOrder = keyed.map(([, b]) => b);
+  }
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
-  const key = `${view.list}|${view.series}|${view.author}|${view.mode}|${query}`;
+  const key = `${addressOf()}|${sort.key}${sort.dir}|${view.mode}|${query}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
-  shown = { rows: found, next: 0, lastDay: '', key, current, query, when, series: view.series };
+  shown = { rows: rowsInOrder, next: 0, lastDay: '', key, current, query, series: view.series, heading: (b) => by.heading(by.value(b, since), b) };
   $('library').replaceChildren();
   if (view.series) {
-    const read = inView.filter((b) => shelves(b).read).length;
+    const read = inScope.filter((b) => shelves(b).read).length;
     $('library').append(h('div', { class: 'series-head' },
       h('a', { class: 'link-btn', href: '#/series', onclick: (e) => { e.preventDefault(); setView({ seriesIndex: true }); } }, icon('back'), t('All series')),
       h('h2', { text: view.series }),
-      h('p', { text: inView.length ? `${plural(inView.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') })));
+      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') })));
   }
   if (view.author) {
-    const read = inView.filter((b) => shelves(b).read).length;
+    const read = inScope.filter((b) => shelves(b).read).length;
     $('library').append(h('div', { class: 'series-head' },
       h('h2', { text: view.author }),
-      h('p', { text: inView.length ? `${plural(inView.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') })));
+      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') })));
+  }
+  if (!view.series && !view.author && current && !isScope(current)) {
+    // A list that is a filter elsewhere, opened by its address: say where you are.
+    $('library').append(h('div', { class: 'series-head' }, h('h2', { text: listName(current) })));
   }
   appendRows(rows);
-  if (query && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that search.') }));
+  if ((query || Object.keys(view.filters).length) && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that.') }));
   else if (current && !found.length && books.length) {
     $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Add a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
   }
@@ -3546,6 +3772,7 @@ function bindEvents() {
   initTurning();
   $('addBtn').addEventListener('click', () => openAdd());
   $('settingsBtn').addEventListener('click', openSettings);
+  $('sortBtn').addEventListener('click', openSortSheet);
   $('search').addEventListener('input', renderLibrary);
   $('viewSeg').addEventListener('click', (e) => {
     const mode = e.target.closest('button')?.dataset.view;

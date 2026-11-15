@@ -143,7 +143,7 @@ img { display: block; max-width: 100%; }
 .app {
   max-width: 680px;
   margin: 0 auto;
-  padding: calc(var(--safe-t) + 20px) 20px calc(var(--safe-b) + 120px);
+  padding: calc(var(--safe-t) + 20px) 20px calc(var(--safe-b) + 170px);
   animation: fadeUp .4s ease both;
 }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
@@ -172,12 +172,38 @@ img { display: block; max-width: 100%; }
 [data-theme="light"] .icon-light { display: block; }
 [data-theme="light"] .icon-dark { display: none; }
 
-.tools { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .view-seg { margin-left: auto; flex: none; }
+/* Filter and order: beside the search box where there is room, under it on a phone. */
+.tool-btn {
+  display: inline-flex; align-items: center; gap: 6px; flex: none;
+  height: 42px; padding: 0 12px; border-radius: var(--radius-sm);
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--muted); font-size: .9rem; font-weight: 600; white-space: nowrap;
+  transition: color .15s ease, border-color .15s ease;
+}
+.tool-btn:hover { color: var(--text); }
+.tool-btn span { overflow: hidden; text-overflow: ellipsis; }
+#sortBtn { flex: 0 1 auto; min-width: 0; }
+/* On a phone the three sit on one line: Filter is its icon (and its count), the order may be cut short. */
+@media (max-width: 479px) { #filterBtn span { display: none; } }
+.tool-btn .icon { width: 18px; height: 18px; }
+.tool-btn b {
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  display: grid; place-items: center;
+  background: var(--accent-fill); color: var(--on-accent); font-size: .72rem; font-variant-numeric: tabular-nums;
+}
+.active-filters { flex: 1 1 100%; margin: 0 0 2px; gap: 6px; }
+.active-filter { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; font-size: .84rem; background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.active-filter .icon { width: 14px; height: 14px; }
+.chip b { margin-left: 7px; font-weight: 500; font-size: .8em; opacity: .6; font-variant-numeric: tabular-nums; }
+.facet { margin-top: 20px; }
+.sort-ways .way[aria-pressed="true"] .way-text span { color: var(--accent); }
+.sort-ways .way > .icon:first-child { color: var(--accent); }
 .view-seg button { display: grid; place-items: center; padding: 8px 11px; }
 .view-seg .icon { width: 18px; height: 18px; }
 .search {
-  flex: 1; min-width: 0;
+  flex: 1 1 100%; min-width: 0;
   display: flex; align-items: center; gap: 10px;
   padding: 0 12px; height: 42px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
@@ -222,6 +248,31 @@ img { display: block; max-width: 100%; }
 .nav-item[data-list="read"] { --mark: var(--mint); }        /* done */
 .nav-item[data-list="abandoned"] { --mark: var(--faint); }
 .nav-edit { border-style: dashed; background: none; }
+/* On a phone the places you go to are a bar under the thumb (below); the menu beside the
+   books is for wide screens. */
+.lists { display: none; }
+.bar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 6;
+  display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 6px 6px calc(var(--safe-b) + 6px);
+  background: var(--surface); border-top: 1px solid var(--border);
+}
+.bar-item {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; min-width: 0;
+  padding: 6px 2px; border-radius: var(--radius-sm);
+  color: var(--muted); font-size: .68rem; font-weight: 600; text-decoration: none;
+  transition: color .15s ease;
+}
+.bar-item span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar-item[aria-current="page"] { color: var(--accent); }
+/* What is behind More: the rest of the menu, as a list. */
+.more-nav { display: flex; flex-direction: column; margin-top: -8px; }
+.more-nav .nav-item {
+  justify-content: space-between; height: 50px; padding: 0;
+  border: none; border-bottom: 1px solid var(--border); border-radius: 0; background: none;
+  font-size: 1rem; color: var(--text);
+}
+.more-nav .nav-item:last-child { border-bottom: none; justify-content: flex-start; color: var(--muted); }
 .nav-edit .icon { width: 16px; height: 16px; }
 
 .day {
@@ -356,8 +407,8 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 
 /* The one floating button: add a book */
 .dock {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
-  padding: 32px 20px calc(var(--safe-b) + 18px);
+  position: fixed; left: 0; right: 0; bottom: calc(var(--safe-b) + 62px); z-index: 5;   /* above the bar */
+  padding: 32px 20px 12px;
   display: flex; justify-content: center;
   background: linear-gradient(to top, var(--bg) 40%, transparent);
   pointer-events: none;
@@ -809,7 +860,11 @@ div.list-name { cursor: default; }
   .library.mode-covers { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 22px 18px; }
   .library { grid-column: 2; grid-row: 3; }
   .empty { grid-column: 2; grid-row: 4; }
+  .bar { display: none; }
+  .dock { bottom: 0; padding-bottom: calc(var(--safe-b) + 18px); }
+  .search { flex: 1 1 220px; }
   .lists {
+    display: flex;
     grid-column: 1; grid-row: 2 / span 3; align-self: start;
     position: sticky; top: 28px;
     flex-direction: column; align-items: stretch; gap: 2px;
