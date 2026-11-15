@@ -31,7 +31,8 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   are always there, always one either-or set, and cannot be renamed or removed (they can be
   moved). That is what lets a book offer what comes next, on its page:
   - on *To read*: **Start reading**, or **Drop** it. Dropping removes the book for good and is
-    asked first; for a book in the booklog its page there is deleted too;
+    asked first; for a book in the booklog its page there is deleted too (any book can be
+    deleted from the booklog: see *Deleting from the booklog*);
   - on *Reading*: how far along you are, **Mark as read** (which asks for the reading date, a
     rating and a review, all optional) or **Did not finish**. Progress is the page reached (for
     an audiobook: the time left) or a percentage. The two fields follow each other through the
@@ -119,9 +120,8 @@ Books scanned before lists existed count as being in the *Library*.
   role, in a book's details (for the book, which is its latest read) and under *Edition read*
   in a review (for that read). Any name leads to all of that person's books
   (`#/author/<name>`), whatever they did on them.
-- **A book without a cover**, or with only the photograph you took when adding it, offers a
-  search for a (better) cover: a picture search for its title and author, large pictures only,
-  in a new tab. Copy one and paste it in the book's details.
+- **A book without a cover**, or with only the photograph you took when adding it, offers
+  *Find a (better) cover*, which opens the cover (see *The cover, large*).
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
 - **In the covers view the covers stand on one base line**, whether or not a book has a rating
@@ -139,9 +139,24 @@ Books scanned before lists existed count as being in the *Library*.
 - **Series.** Books that share a series name form a series: *Series* in the navigation lists
   them all, and a series page shows its books in order. Set the series and its number in a
   book's details; a number such as 4.5 sorts between 4 and 5.
-- **Changing a cover.** In a book's details, tap the cover to choose a picture (on a phone:
-  camera or gallery), or paste or drop one while no text field has the cursor; *Paste* reads
-  the clipboard where there is no Ctrl+V. The server keeps a large copy and a small one.
+- **The cover, large.** Tap a cover (on a book's page, in its details, or an edition's in a
+  review) and it opens over everything at the best size there is: the picture you supplied,
+  the booklog's own original, or the catalogue's large size. Tap it again for its real size.
+  Everything to replace it with is right there: the covers Open Library and Google Books have
+  of its ISBN and of its other editions (by title and author), *Take a photo*, *Choose a
+  picture*, *Paste* (also Ctrl+V, or drop one), and *Search the web* (large pictures, in a new
+  tab: copy one and paste it). A photo can be **straightened**: drag the four corners onto the
+  book's corners and it is pulled out into an upright rectangle. *Use this cover* sets it (on
+  a book's page at once, with Undo; in a form when you save). Whatever is chosen, the server
+  keeps a large copy (it fetches a catalogue's cover itself) and a small one, and the large
+  one is what goes to the booklog. A cover photographed in the scanner is kept at 1500 pixels,
+  so it can be straightened later.
+- **Deleting from the booklog.** Deleting a book that is in the booklog asks first, with
+  *Also delete it from boeken.tsuk.org* ticked: then all its pages there go (one per read),
+  with covers and author, tag and series pages nothing else uses. Deleting a review of a read
+  that is in the booklog deletes that read's page. When the first read of a book goes, the
+  next one becomes the first (the others become rereads of it). The booklog's history keeps a
+  copy of everything.
 - **Covers are kept on the server.** For signed-in users the server fetches a copy of each
   cover that comes from a book catalogue (Open Library, Google Books), a few per sync, as a
   320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py

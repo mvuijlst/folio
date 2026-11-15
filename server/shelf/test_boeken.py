@@ -122,6 +122,7 @@ class ImportTests(TestCase):
         with Image.open(Path(self.tmp.name, 'thumbs', cover.rsplit('/', 1)[1])) as thumb:
             self.assertEqual(thumb.size, (320, 480))
         self.assertEqual(self.book('dune')['coverRatio'], 0.667)     # its own proportions, known before it loads
+        self.assertEqual(self.book('dune')['coverSource'], 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg')   # shown at full size
         self.assertIn('3 unchanged', self.run_import())
         self.assertIn('0 cover thumbnails made', self.run_import())
 
@@ -387,8 +388,20 @@ class CoverTests(TestCase):
         with mock.patch.object(covers, 'download', side_effect=OSError('gone')) as download:
             self.assertEqual(self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})['changes'], [])
             self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})
-        self.assertEqual(download.call_count, 1)
+        self.assertEqual([c.args[0] for c in download.call_args_list], [url + '&fife=w1200', url])   # the larger one first, and only once
         self.assertEqual(Book.objects.get(uid='b1').data['cover'], url)
+
+    def test_a_catalogue_cover_that_was_picked_is_kept_large_and_small(self):
+        url = 'https://covers.openlibrary.org/b/id/123-M.jpg'
+        with mock.patch.object(covers, 'download', return_value=png(800, 1200)) as download:
+            res = self.client.post('/api/cover', {'url': url}, content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(download.call_args.args[0], 'https://covers.openlibrary.org/b/id/123-L.jpg?default=false')
+        kept = res.json()
+        self.assertEqual((kept['coverRatio'], kept['coverSource']), (0.667, url))
+        self.assertRegex(kept['coverFull'], r'^covers/own/[0-9a-f]{16}[.]jpg$')
+        res = self.client.post('/api/cover', {'url': 'https://example.org/x.jpg'}, content_type='application/json')
+        self.assertEqual(res.status_code, 400)   # only the catalogues are ever asked
 
     def test_a_blank_pixel_is_not_a_cover(self):
         with mock.patch.object(covers, 'download', return_value=png(1, 1)):

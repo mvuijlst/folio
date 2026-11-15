@@ -303,6 +303,15 @@ class PublishTests(BooklogCase):
         self.assertIn('cover: "/wp-content/uploads/2026/11/gilgamesh.jpg"\n', self.post('gilgamesh'))
         self.assertEqual((self.repo / 'media/wp-content/uploads/2026/11/gilgamesh.jpg').read_bytes(), png(300, 450))
 
+    def test_a_catalogue_cover_goes_into_the_media_folder_at_full_size(self):
+        from unittest import mock
+        from shelf import covers
+        self.change('gilgamesh', lambda data: data.update(cover='covers/web/abc-320.webp', coverSource='https://covers.openlibrary.org/b/id/9-M.jpg'))
+        with mock.patch.object(covers, 'download', return_value=png(600, 900)) as download:
+            self.publish()
+        self.assertEqual(download.call_args.args[0], 'https://covers.openlibrary.org/b/id/9-L.jpg?default=false')
+        self.assertIn('cover: "/wp-content/uploads/2026/11/gilgamesh.jpg"' + chr(10), self.post('gilgamesh'))
+
     def test_a_cover_that_has_not_reached_the_server_waits(self):
         self.change('dune', lambda data: data.update(cover='', thumb='data:image/jpeg;base64,xxxx'))
         self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
@@ -532,6 +541,27 @@ class AddToBooklogTests(BooklogCase):
         self.import_booklog()
         self.assertEqual(len(self.book('dune').data['reviews']), 2)
 
+    def test_deleting_a_book_leaves_its_other_version_as_the_first_read(self):
+        self.scan(title='Dune', isbn='', format='audiobook', duration='21u 2m', versionOf='boeken-dune',
+                  lists={'reading': {'at': '2026-11-14T10:00:00.000Z'}})
+        self.publish()
+        client = self.client
+        client.force_login(self.user)
+        res = client.post('/api/sync', __import__('json').dumps({'since': None, 'changes': [
+            {'id': 'boeken-dune', 'modified': timezone.now().isoformat(), 'deleted': True, 'book': None, 'drop': True}]}), content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        Book.objects.filter(uid='boeken-dune').update(modified=timezone.now() - timedelta(hours=1))
+        counts, said = self.publish()
+        self.assertEqual(counts['published'], 1, said)
+        for slug in ('dune', 'dune-herlezing'):
+            self.assertFalse((self.repo / f'site/content/posts/{slug}.md').exists())
+        self.assertNotIn('rereadOf', self.post('dune-herlezing-2'))   # the audiobook is the first read now
+        self.import_booklog()
+        version = Book.objects.get(uid='s1')
+        self.assertFalse(version.deleted)
+        self.assertEqual(version.data['boeken'], 'dune-herlezing-2')
+        self.assertEqual(Book.objects.filter(user=self.user, deleted=False, title='Dune').count(), 1)
+
     def test_a_book_in_another_format_is_taken_for_another_version(self):
         Book.objects.filter(uid='boeken-dune').update(data={**self.book('dune').data, 'format': 'ebook'})
         self.scan(title='Dune', isbn='', format='audiobook', duration='21u 2m')
@@ -582,7 +612,7 @@ class DropAndFinishTests(BooklogCase):
         self.import_booklog()
 
         row = self.drop('gilgamesh', drop=True)
-        self.assertEqual(row.data, {'drop': {'boeken': 'gilgamesh', 'title': 'Gilgamesh'}})
+        self.assertEqual(row.data, {'drop': {'boeken': 'gilgamesh', 'title': 'Gilgamesh', 'posts': ['gilgamesh']}})
         counts, said = self.publish()
         self.assertEqual(counts['published'], 1)
         self.assertEqual(self.log()[0], 'Verwijderd: Gilgamesh')
@@ -601,13 +631,58 @@ class DropAndFinishTests(BooklogCase):
         self.assertEqual(self.publish()[0]['published'], 0)
         self.assertTrue((self.repo / 'site/content/posts/gilgamesh.md').exists())
 
-    def test_a_book_that_was_read_is_never_dropped_from_the_booklog(self):
+    def test_a_book_that_was_read_leaves_the_booklog_with_all_its_reads(self):
         row = self.drop('dune', drop=True)
+        self.assertEqual(row.data['drop']['posts'], ['dune', 'dune-herlezing'])
         counts, said = self.publish()
-        self.assertEqual((counts['published'], counts['failed']), (0, 1))
-        self.assertTrue((self.repo / 'site/content/posts/dune.md').exists())
-        self.assertEqual(self.log()[0], 'The booklog')
+        self.assertEqual((counts['published'], counts['failed']), (1, 0), said)
+        for slug in ('dune', 'dune-herlezing'):
+            self.assertFalse((self.repo / f'site/content/posts/{slug}.md').exists())
+        self.assertFalse((self.repo / 'media/wp-content/uploads/2010/03/dune.jpg').exists())
+        self.assertEqual(self.log()[0], 'Verwijderd: Dune')
+        self.assertTrue(publish.is_clean(str(self.repo)))
         self.assertEqual(Book.objects.get(pk=row.pk).data, {})
+        self.assertIn('2 books in the booklog', self.import_booklog())
+
+    def test_a_read_deleted_in_the_app_leaves_the_booklog(self):
+        def forget_second(data):
+            data['reviews'] = [r for r in data['reviews'] if r['boeken'] != 'dune-herlezing']
+            data['dropReads'] = ['dune-herlezing']
+        self.change('dune', forget_second)
+        self.import_booklog()   # before it is published, the import doesn't bring it back
+        self.assertEqual([r['boeken'] for r in self.book('dune').data['reviews']], ['dune'])
+        counts, said = self.publish()
+        self.assertEqual(counts['published'], 1, said)
+        self.assertEqual(self.log()[0], 'Verwijderd: Dune (een lezing)')
+        self.assertFalse((self.repo / 'site/content/posts/dune-herlezing.md').exists())
+        self.assertTrue((self.repo / 'site/content/posts/dune.md').exists())
+        book = self.book('dune').data
+        self.assertNotIn('dropReads', book)
+        self.assertEqual(book['boeken'], 'dune')
+        self.assertEqual(self.publish()[0]['published'], 0)
+        self.import_booklog()
+        self.assertEqual([r['boeken'] for r in self.book('dune').data['reviews']], ['dune'])
+
+    def test_when_the_first_read_goes_the_next_one_is_the_first(self):
+        def forget_first(data):
+            data['reviews'] = [r for r in data['reviews'] if r['boeken'] != 'dune']
+            data['dropReads'] = ['dune']
+            data['title'] = 'Dune!'   # and something else that waits to be published
+        self.change('dune', forget_first)
+        counts, said = self.publish()
+        self.assertEqual(counts['published'], 2, said)
+        self.assertEqual(self.log()[:2], ['Bewerkt: Dune!', 'Verwijderd: Dune! (een lezing)'])
+        self.assertFalse((self.repo / 'site/content/posts/dune.md').exists())
+        post = self.post('dune-herlezing')
+        self.assertNotIn('rereadOf', post)
+        self.assertIn('title: "Dune!"', post)
+        book = self.book('dune-herlezing').data
+        self.assertEqual(book['boeken'], 'dune-herlezing')
+        self.assertTrue(book['url'].endswith('/dune-herlezing/'))
+        self.assertEqual(self.publish()[0]['published'], 0)
+        self.import_booklog()
+        self.assertEqual(Book.objects.filter(user=self.user, deleted=False, title__startswith='Dune').count(), 1)
+        self.assertEqual([r['boeken'] for r in self.book('dune-herlezing').data['reviews']], ['dune-herlezing'])
 
     def test_a_drop_made_a_moment_ago_can_still_be_undone(self):
         row = self.drop('gilgamesh', drop=True)

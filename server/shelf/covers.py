@@ -25,7 +25,7 @@ TIMEOUT = 6            # seconds, per download
 RETRY_AFTER = 7 * 24 * 3600   # a cover that couldn't be fetched is left alone for a week
 
 # Only these are ever asked for an image: the catalogues the app looks books up in, and the booklog.
-HOSTS = {'books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'boeken.tsuk.org'}
+HOSTS = {'books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'boeken.tsuk.org', 'm.media-amazon.com'}
 
 
 def folder(kind):
@@ -72,6 +72,9 @@ def candidates(url):
         base = url.split('?')[0]
         large = base.replace('-M.jpg', '-L.jpg').replace('-S.jpg', '-L.jpg')
         return [f'{u}?default=false' for u in dict.fromkeys([large, base])]
+    if urlsplit(url).hostname in ('books.google.com', 'books.googleusercontent.com') and 'fife=' not in url:
+        # Google hands out small thumbnails; the same address gives a larger one when asked.
+        return [f'{url}&fife=w1200' if '?' in url else f'{url}?fife=w1200', url]
     return [url]
 
 
@@ -129,6 +132,19 @@ def keep_upload(data):
     except Exception as err:   # not an image, a truncated one, one too large to open safely, …
         raise ValueError('not a picture') from err
     return {'cover': f'covers/own/{small.name}', 'coverFull': f'covers/own/{full.name}', 'coverRatio': ratio}
+
+
+def keep_from(url):
+    """A cover from a book catalogue that the user picked, kept as one they supplied: large, for
+    the booklog, and small. → keep_upload's dict with `coverSource`; ValueError when it can't be had."""
+    if not wanted(url):
+        raise ValueError('not a cover address')
+    for address in candidates(url):
+        try:
+            return {**keep_upload(download(address)), 'coverSource': url}
+        except (urllib.error.URLError, OSError, ValueError):
+            continue
+    raise ValueError('that cover could not be fetched')
 
 
 def original(book):

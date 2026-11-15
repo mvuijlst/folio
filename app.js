@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.26.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.27.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1671,58 +1671,438 @@ function listPicker(on, { notes = true } = {}) {
   return box;
 }
 
-/* Changing a cover */
+/* ───────────────────────── The cover: seen large, and changed ─────────────────────────
+
+   Tapping a cover (on a book's page, or in a form) opens it large, at the best size there is,
+   and everything to replace it with is right there: the covers the catalogues have of its
+   editions, a photo, a picture from the device or the clipboard, or a search on the web. A
+   photo can be straightened: drag the four corners onto the book's. What is chosen becomes
+   the cover as two things, a small copy that travels inside the book (`thumb`) or the
+   catalogue's address (`cover`), and a large one the server keeps (`coverFull`), which is
+   also what goes to the booklog. */
 
 /**
- * Reads a pasted, dropped or chosen picture. → {thumb, ratio, large}: a small copy that
- * travels inside the book (so it shows at once, offline too), its proportions, and a larger
- * one for the server to keep. Null if the file isn't a picture.
+ * A picture as a cover. → {thumb, ratio, large}: a small copy that travels inside the book (so
+ * it shows at once, offline too), its proportions, and a larger one for the server to keep.
+ * `source` is anything a canvas can draw, `width` × `height` its size.
  */
+async function pictureOf(source, width, height) {
+  const draw = (maxSide) => {
+    const k = Math.min(1, maxSide / Math.max(width, height));
+    const canvas = h('canvas', { width: Math.round(width * k), height: Math.round(height * k) });
+    canvas.getContext('2d').drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  };
+  return {
+    thumb: draw(300).toDataURL('image/jpeg', 0.72),
+    ratio: Number((width / height).toFixed(3)),
+    large: await new Promise((resolve) => draw(1600).toBlob(resolve, 'image/jpeg', 0.9)),
+  };
+}
+
+/** Reads a pasted, dropped or chosen picture (a File or Blob). → pictureOf's answer, or null if it isn't a picture. */
 async function readCover(file) {
   let bitmap;
   try { bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch { return null; }
-  const draw = (maxSide) => {
-    const k = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-    const canvas = h('canvas', { width: Math.round(bitmap.width * k), height: Math.round(bitmap.height * k) });
-    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    return canvas;
-  };
-  const picture = {
-    thumb: draw(300).toDataURL('image/jpeg', 0.72),
-    ratio: Number((bitmap.width / bitmap.height).toFixed(3)),
-    large: await new Promise((resolve) => draw(1600).toBlob(resolve, 'image/jpeg', 0.9)),
-  };
+  const picture = await pictureOf(bitmap, bitmap.width, bitmap.height);
   bitmap.close?.();
   return picture;
 }
 
+/** A catalogue cover's address at its largest. */
+function largeCover(url) {
+  try {
+    const u = new URL(url, document.baseURI);
+    if (u.hostname === 'covers.openlibrary.org') return u.href.replace(/-[SM]\.jpg/, '-L.jpg');
+    if (/^books\.google(usercontent)?\.com$/.test(u.hostname) && !u.searchParams.has('fife')) u.searchParams.set('fife', 'w1200');
+    return u.href;
+  } catch { return url || ''; }
+}
+
+/** The largest picture there is of a cover: the one you supplied, the booklog's own, or the catalogue's large size. */
+function fullCover(subject) {
+  if (subject.coverFull) return abs(subject.coverFull);
+  if (subject.coverSource) return largeCover(subject.coverSource);
+  if (/^https:/.test(subject.cover || '')) return largeCover(subject.cover);
+  return subject.cover ? abs(subject.cover) : subject.thumb || '';
+}
+
+/** Is the cover a picture of your own (one a canvas may read, to straighten it)? */
+const ownCover = (subject) => !!(subject.coverFull || (!subject.cover && subject.thumb) || String(subject.cover || '').startsWith('covers/own/'));
+
+/** What a chosen cover makes of a book (or an edition): {picture} is one of your own, {url, ratio} a catalogue's. */
+function coverFields(choice) {
+  return choice.picture
+    ? { thumb: choice.picture.thumb, cover: '', coverRatio: choice.picture.ratio, coverSource: '', coverFull: '' }
+    : { cover: choice.url, coverSource: choice.url, coverRatio: choice.ratio || null, thumb: '', coverFull: '' };
+}
+
 /**
- * Hands the larger picture to the server, which keeps it; the book then points at the
- * server's copy. Without an account or a connection, the small copy inside the book stays
- * the cover, and the server makes a file of that when the book next syncs.
+ * Hands the chosen cover to the server, which keeps it large and small; the book (or edition,
+ * `target`) then points at the server's copies. A picture is sent; a catalogue cover, the
+ * server fetches itself. Without an account or a connection the book keeps what it has (the
+ * small copy, or the catalogue's address), and the server takes it from there on a later sync.
  */
+async function keepCover(target, choice, book) {
+  if (!sync.user || navigator.onLine === false) return;
+  const still = () => books.includes(book) && (choice.picture ? target.thumb === choice.picture.thumb : target.coverSource === choice.url);
+  try {
+    if (!csrfToken()) await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' });
+    const sent = choice.picture
+      ? { headers: { 'Content-Type': 'image/jpeg' }, body: choice.picture.large }
+      : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: choice.url }) };
+    if (choice.picture && !choice.picture.large) return;
+    const res = await fetch(abs('api/cover'), {
+      method: 'POST', credentials: 'same-origin', cache: 'no-store', body: sent.body,
+      headers: { ...sent.headers, 'X-CSRFToken': csrfToken() },
+    });
+    if (!res.ok || !still()) return;   // or the cover was changed again meanwhile
+    const kept = await res.json();
+    Object.assign(target, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio });
+    await saveBook(book);
+  } catch (err) {
+    console.warn('Cover not kept', err);
+  }
+}
+const uploadCover = (target, picture, book) => keepCover(target, { picture }, book);
+
 /**
- * The cover of a book, or of one edition of it, as a button that takes a new picture: tap to
- * choose one, or paste or drop one while no text field has the cursor. `subject()` is what to
- * draw (anything with a cover); `host()` the form it sits in, for as long as pasting applies.
- * → {button, file, paste, pick, pictureIn, picture}: `picture` is the new one, once there is one.
+ * The covers the catalogues have of a book: of its ISBN first, then of its other editions, by
+ * title and author. → [{url, small}]: `url` is what the book keeps, `small` what is shown here.
  */
-function coverControl(subject, host) {
-  const control = { picture: null };
-  const draw = () => control.button.replaceChildren(
-    coverEl(control.picture ? { ...subject(), cover: '', thumb: control.picture.thumb, coverRatio: control.picture.ratio } : subject(), true),
-    h('span', { class: 'cover-pick-badge' }, icon('camera')));
-  control.button = h('button', { class: 'cover-pick', type: 'button', title: t('Change the cover'), 'aria-label': t('Change the cover'), onclick: () => control.file.click() });
+async function coverCandidates({ isbn, title, author }) {
+  const who = String(author || '').split(',')[0].trim();
+  const google = (q, max) => getJSON(googleUrl(q, max), 6000)
+    .then((d) => (d.items || []).map((v) => v.volumeInfo?.imageLinks?.thumbnail).filter(Boolean)
+      .map((u) => u.replace(/^http:/, 'https:').replace('&edge=curl', '')))
+    .catch(() => []);
+  const library = title
+    ? getJSON(`https://openlibrary.org/search.json?title=${encodeURIComponent(title)}${who ? `&author=${encodeURIComponent(who)}` : ''}&limit=10&fields=cover_i`, 6000)
+      .then((d) => (d.docs || []).filter((doc) => doc.cover_i).map((doc) => `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`))
+      .catch(() => [])
+    : [];
+  const lists = await Promise.all([
+    isbn ? [`https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`] : [],
+    isbn ? google('isbn:' + isbn, 2) : [],
+    title ? google(`intitle:${title}${who ? ` inauthor:${who}` : ''}`, 20) : [],
+    library,
+  ]);
+  return [...new Set(lists.flat())].slice(0, 18).map((url) => ({ url, small: url }));
+}
+
+/* Straightening a photo: the four corners of the book, dragged into place on the picture, are
+   pulled out into a rectangle (a perspective transform), as a scanner app does. */
+
+/** The 3×3 transform (as 8 numbers) taking (u, v) in the w × h rectangle to the quadrilateral `quad` ([[x, y] × 4], clockwise from top left). */
+function homography(w, h, quad) {
+  const from = [[0, 0], [w, 0], [w, h], [0, h]];
+  const a = [], b = [];
+  from.forEach(([u, v], i) => {
+    const [x, y] = quad[i];
+    a.push([u, v, 1, 0, 0, 0, -u * x, -v * x]); b.push(x);
+    a.push([0, 0, 0, u, v, 1, -u * y, -v * y]); b.push(y);
+  });
+  // Gaussian elimination with partial pivoting.
+  for (let c = 0; c < 8; c++) {
+    let p = c;
+    for (let r = c + 1; r < 8; r++) if (Math.abs(a[r][c]) > Math.abs(a[p][c])) p = r;
+    [a[c], a[p]] = [a[p], a[c]]; [b[c], b[p]] = [b[p], b[c]];
+    for (let r = c + 1; r < 8; r++) {
+      const f = a[r][c] / a[c][c];
+      for (let k = c; k < 8; k++) a[r][k] -= f * a[c][k];
+      b[r] -= f * b[c];
+    }
+  }
+  const m = new Array(8).fill(0);
+  for (let r = 7; r >= 0; r--) {
+    let s = b[r];
+    for (let k = r + 1; k < 8; k++) s -= a[r][k] * m[k];
+    m[r] = s / a[r][r];
+  }
+  return m;
+}
+
+/** The part of `bitmap` inside `quad` (in its pixels), as an upright rectangle on a canvas. */
+function straighten(bitmap, quad) {
+  const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  let w = Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2]));
+  let hgt = Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]));
+  const k = Math.min(1, 1600 / Math.max(w, hgt));
+  w = Math.max(1, Math.round(w * k)); hgt = Math.max(1, Math.round(hgt * k));
+  const src = h('canvas', { width: bitmap.width, height: bitmap.height });
+  const sctx = src.getContext('2d', { willReadFrequently: true });
+  sctx.drawImage(bitmap, 0, 0);
+  const sw = src.width, sh = src.height, sp = sctx.getImageData(0, 0, sw, sh).data;
+  const out = h('canvas', { width: w, height: hgt });
+  const octx = out.getContext('2d');
+  const img = octx.createImageData(w, hgt), op = img.data;
+  const [a, b, c, d, e, f, g, hh] = homography(w, hgt, quad);
+  for (let v = 0; v < hgt; v++) {
+    for (let u = 0; u < w; u++) {
+      const z = g * u + hh * v + 1;
+      const x = Math.min(sw - 1.001, Math.max(0, (a * u + b * v + c) / z));
+      const y = Math.min(sh - 1.001, Math.max(0, (d * u + e * v + f) / z));
+      const x0 = x | 0, y0 = y | 0, fx = x - x0, fy = y - y0;
+      const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4;
+      const o = (v * w + u) * 4;
+      for (let ch = 0; ch < 3; ch++) {
+        const top = sp[i00 + ch] + (sp[i10 + ch] - sp[i00 + ch]) * fx;
+        const bottom = sp[i01 + ch] + (sp[i11 + ch] - sp[i01 + ch]) * fx;
+        op[o + ch] = top + (bottom - top) * fy;
+      }
+      op[o + 3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+  return out;
+}
+
+let coverRoom = null;   // the cover, open large: while it is, pasting a picture is for it
+
+/**
+ * The cover, large, with what to replace it with.
+ *  subject   () → what has the cover now (a book, an edition, or the choice not yet saved)
+ *  query     {isbn, title, author}: what to look for in the catalogues
+ *  onChoose  (choice) → called with {picture} or {url, ratio} when a new cover is used
+ */
+function openCoverRoom({ subject, query, onChoose }) {
+  const current = subject();
+  let choice = null;          // what is shown, when it isn't the current cover
+  let shownOwn = ownCover(current);
+  const picture = h('img', { class: 'room-picture', alt: '' });
+  const stage = h('div', { class: 'room-stage', onclick: (e) => { if (e.target === picture) stage.classList.toggle('zoomed'); } }, picture);
+  const caption = h('p', { class: 'room-caption' });
+  const strip = h('div', { class: 'room-strip' });
+  const stripNote = h('p', { class: 'room-note', text: t('Looking in the catalogues…') });
+  const use = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, onclick: () => { if (choice) { const c = choice; close(); onChoose(c); } } }, icon('check'), t('Use this cover'));
+  const straightenBtn = h('button', { class: 'room-tool', type: 'button', onclick: () => startStraighten() }, icon('crop'), h('span', { text: t('Straighten') }));
+  const tools = h('div', { class: 'room-tools' });
+  const footer = h('div', { class: 'room-actions' });
+
+  /** Show `large` (with `small` while it loads) and say how big it is. */
+  function show(large, small) {
+    stage.classList.remove('zoomed');
+    straightenBtn.hidden = !shownOwn || !(large || small);
+    caption.textContent = '';
+    if (!large && !small) {
+      stage.replaceChildren(h('div', { class: 'room-empty' }, coverEl(current, true)));
+      caption.textContent = t('No cover yet');
+      return;
+    }
+    if (picture.parentNode !== stage) stage.replaceChildren(picture);
+    picture.src = small || large;
+    if (large && large !== small) {
+      const full = new Image();
+      full.onload = () => { if (picture.dataset.want === large && full.naturalWidth > 8) picture.src = large; };
+      full.src = large;
+    }
+    picture.dataset.want = large || small;
+  }
+  picture.addEventListener('load', () => { caption.textContent = `${picture.naturalWidth} × ${picture.naturalHeight}`; });
+
+  function choose(next, large, small) {
+    choice = next;
+    shownOwn = !!next.picture;
+    for (const tile of strip.children) tile.classList.toggle('on', !!next.url && tile.dataset.url === next.url);
+    show(large, small);
+    use.disabled = false;
+  }
+  const choosePicture = (pic) => { choose({ picture: pic }, URL.createObjectURL(pic.large), pic.thumb); };
+  async function pick(file, straightenFirst) {
+    const pic = file && await readCover(file);
+    if (!pic) { toast(t('That picture couldn’t be opened')); return; }
+    choosePicture(pic);
+    if (straightenFirst) startStraighten();
+  }
+
+  // The current cover first, then what the catalogues have.
+  const tile = (src, url, onPick, label) => {
+    const img = h('img', { alt: '', loading: 'lazy' });
+    const el = h('button', { class: 'room-tile', type: 'button', 'aria-label': label, title: label, onclick: onPick }, img);
+    el.dataset.url = url;
+    img.addEventListener('load', () => { if (img.naturalWidth < 8) el.remove(); else el.style.setProperty('--r', (img.naturalWidth / img.naturalHeight).toFixed(3)); });
+    img.addEventListener('error', () => { el.remove(); if (!strip.querySelector('.room-tile')) stripNote.hidden = false; });
+    img.src = src;
+    return el;
+  };
+  const currentSmall = current.cover || current.thumb;
+  if (currentSmall) {
+    const el = tile(currentSmall, '', () => {
+      choice = null; use.disabled = true; shownOwn = ownCover(current);
+      for (const other of strip.children) other.classList.toggle('on', other === el);
+      show(fullCover(current), currentSmall);
+    }, t('The cover now'));
+    el.classList.add('on', 'room-now');
+    strip.append(el);
+  }
+  const have = new Set([current.cover, current.coverSource].filter(Boolean));
+  coverCandidates(query).then((found) => {
+    if (!coverRoom) return;
+    const fresh = found.filter((c) => !have.has(c.url));
+    stripNote.hidden = fresh.length > 0;
+    if (!fresh.length) stripNote.textContent = t('The catalogues have no other covers of it.');
+    for (const c of fresh) {
+      const el = tile(c.small, c.url, () => {
+        const img = el.querySelector('img');
+        choose({ url: c.url, ratio: img.naturalWidth ? Number((img.naturalWidth / img.naturalHeight).toFixed(3)) : null }, largeCover(c.url), c.small);
+      }, t('Another cover'));
+      strip.append(el);
+    }
+  });
+
+  // Other ways to a cover: a photo, a picture, the clipboard, the web.
+  const camera = h('input', { type: 'file', accept: 'image/*', capture: 'environment', hidden: true, onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; pick(f, true); } });
+  const chooser = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: (e) => { const f = e.target.files[0]; e.target.value = ''; pick(f, false); } });
+  const q = [query.title, String(query.author || '').split(',')[0]].filter(Boolean).join(' ');
+  fill(tools,
+    h('button', { class: 'room-tool', type: 'button', onclick: () => camera.click() }, icon('camera'), h('span', { text: t('Take a photo') })),
+    h('button', { class: 'room-tool', type: 'button', onclick: () => chooser.click() }, icon('image'), h('span', { text: t('Choose a picture') })),
+    navigator.clipboard?.read && h('button', {
+      class: 'room-tool', type: 'button',
+      onclick: async () => {
+        try {
+          for (const item of await navigator.clipboard.read()) {
+            const type = item.types.find((kind) => kind.startsWith('image/'));
+            if (type) { pick(await item.getType(type)); return; }
+          }
+          toast(t('There is no picture on the clipboard'));
+        } catch { toast(t('Couldn’t reach the clipboard')); }
+      },
+    }, icon('copy'), h('span', { text: t('Paste') })),
+    q && h('a', { class: 'room-tool', target: '_blank', rel: 'noopener', href: `https://www.google.com/search?tbm=isch&tbs=isz:l&q=${encodeURIComponent(q)}` },
+      icon('search'), h('span', { text: t('Search the web') })),
+    straightenBtn,
+    camera, chooser);
+
+  const normalFooter = () => fill(footer, h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: close }), use);
+
+  /* Straightening: the picture with a frame of four corners to drag onto the book's. */
+  async function startStraighten() {
+    let bitmap;
+    try {
+      const blob = choice?.picture ? choice.picture.large : await fetch(fullCover(current)).then((r) => r.blob());
+      bitmap = await createImageBitmap(blob);
+    } catch { toast(t('That picture couldn’t be opened')); return; }
+    const k = 0.07;
+    const quad = [[k, k], [1 - k, k], [1 - k, 1 - k], [k, 1 - k]].map(([x, y]) => [x * bitmap.width, y * bitmap.height]);
+    const base = h('canvas', { class: 'room-crop-image', width: bitmap.width, height: bitmap.height });
+    base.getContext('2d').drawImage(bitmap, 0, 0);
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('class', 'room-crop-frame');
+    svg.setAttribute('viewBox', `0 0 ${bitmap.width} ${bitmap.height}`);
+    svg.setAttribute('preserveAspectRatio', 'none');
+    const shade = document.createElementNS(SVG_NS, 'path');
+    shade.setAttribute('class', 'room-crop-shade');
+    shade.setAttribute('fill-rule', 'evenodd');
+    const edge = document.createElementNS(SVG_NS, 'polygon');
+    edge.setAttribute('class', 'room-crop-edge');
+    svg.append(shade, edge);
+    const handles = quad.map((_, i) => h('span', { class: 'room-handle', 'aria-hidden': 'true', 'data-i': i }));
+    const frame = h('div', { class: 'room-crop', style: `--r:${(bitmap.width / bitmap.height).toFixed(4)}` }, base, svg, handles);
+    const redraw = () => {
+      const pts = quad.map((p) => p.join(',')).join(' ');
+      edge.setAttribute('points', pts);
+      shade.setAttribute('d', `M0 0H${bitmap.width}V${bitmap.height}H0Z M${quad.map((p) => p.join(' ')).join(' L')} Z`);
+      handles.forEach((el, i) => { el.style.left = `${(quad[i][0] / bitmap.width) * 100}%`; el.style.top = `${(quad[i][1] / bitmap.height) * 100}%`; });
+    };
+    frame.addEventListener('pointerdown', (e) => {
+      const box = frame.getBoundingClientRect();
+      const at = (ev) => [((ev.clientX - box.left) / box.width) * bitmap.width, ((ev.clientY - box.top) / box.height) * bitmap.height];
+      const [px, py] = at(e);
+      // The corner nearest to where the finger went down follows it.
+      let i = 0, best = Infinity;
+      quad.forEach(([x, y], n) => { const d = Math.hypot((x - px) / bitmap.width * box.width, (y - py) / bitmap.height * box.height); if (d < best) { best = d; i = n; } });
+      if (best > 60) return;
+      e.preventDefault();
+      frame.setPointerCapture(e.pointerId);
+      const move = (ev) => {
+        const [x, y] = at(ev);
+        quad[i] = [Math.min(bitmap.width, Math.max(0, x)), Math.min(bitmap.height, Math.max(0, y))];
+        redraw();
+      };
+      const up = () => { frame.removeEventListener('pointermove', move); frame.removeEventListener('pointerup', up); frame.removeEventListener('pointercancel', up); };
+      frame.addEventListener('pointermove', move);
+      frame.addEventListener('pointerup', up);
+      frame.addEventListener('pointercancel', up);
+      move(e);
+    });
+    redraw();
+    room.classList.add('cropping');
+    stage.replaceChildren(frame);
+    caption.textContent = t('Drag the corners onto the corners of the book.');
+    const done = () => { room.classList.remove('cropping'); stage.replaceChildren(picture); normalFooter(); };
+    fill(footer,
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => { done(); caption.textContent = picture.naturalWidth ? `${picture.naturalWidth} × ${picture.naturalHeight}` : ''; } }),
+      h('button', {
+        class: 'btn btn-primary', type: 'button',
+        onclick: async () => {
+          const out = straighten(bitmap, quad);
+          done();
+          choosePicture(await pictureOf(out, out.width, out.height));
+        },
+      }, icon('crop'), t('Straighten')));
+  }
+
+  const room = h('div', {
+    class: 'cover-room', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('Cover'),
+    ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
+    ondrop: (e) => { const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith('image/')); if (file) { e.preventDefault(); pick(file); } },
+  },
+    h('div', { class: 'room-bar' },
+      h('h2', { class: 'room-title', text: query.title || t('Cover') }),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: close }, icon('x'))),
+    stage, caption,
+    h('div', { class: 'room-change' },
+      h('h3', { text: t('Other covers') }),
+      strip, stripNote,
+      tools,
+      h('p', { class: 'room-note', text: t('A picture can also be pasted or dropped here.') })),
+    footer);
+  normalFooter();
+  show(fullCover(current), currentSmall);
+
+  const onPaste = (e) => {
+    const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith('image/'));
+    if (file) { e.preventDefault(); pick(file); }
+  };
+  function close() { closeLayer(); }
+  document.body.append(room);
+  document.addEventListener('paste', onPaste);
+  coverRoom = room;
+  requestAnimationFrame(() => room.classList.add('open'));
+  openLayer(() => {
+    document.removeEventListener('paste', onPaste);
+    if (coverRoom === room) coverRoom = null;
+    room.classList.remove('open');
+    setTimeout(() => room.remove(), 220);
+  });
+}
+
+/**
+ * The cover of a book, or of one edition of it, in a form: a button that opens it large, with
+ * what to replace it with (openCoverRoom). A picture can also be pasted (while no text field
+ * has the cursor) or dropped on the form. `subject()` is what to draw; `host()` the form it
+ * sits in, for as long as pasting applies; `query()` what to look for in the catalogues.
+ * → {button, pick, pictureIn, choice}: `choice` is the new cover, once there is one.
+ */
+function coverControl(subject, host, query) {
+  const control = { choice: null };
+  const shown = () => (control.choice ? { ...subject(), ...coverFields(control.choice) } : subject());
+  const draw = () => control.button.replaceChildren(coverEl(shown(), true), h('span', { class: 'cover-pick-badge' }, icon('camera')));
+  control.button = h('button', {
+    class: 'cover-pick', type: 'button', title: t('Change the cover'), 'aria-label': t('Change the cover'),
+    onclick: () => openCoverRoom({ subject: shown, query: query(), onChoose: (choice) => { control.choice = choice; draw(); } }),
+  });
   control.pick = async (file) => {
     const read = file && await readCover(file);
     if (!read) { toast(t('That picture couldn’t be opened')); return; }
-    control.picture = read;
+    control.choice = { picture: read };
     draw();
   };
-  control.file = h('input', { type: 'file', accept: 'image/*', hidden: true, onchange: (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) control.pick(file); } });
   control.pictureIn = (transfer) => [...(transfer?.files || [])].find((file) => file.type.startsWith('image/'));
   const onPaste = (e) => {
     if (!host()?.isConnected) { document.removeEventListener('paste', onPaste); return; }
+    if (coverRoom) return;   // the open cover takes it
     const focus = document.activeElement;
     if (focus?.tagName === 'TEXTAREA' || (focus?.tagName === 'INPUT' && focus.type !== 'file')) return;   // the text field gets it
     const file = control.pictureIn(e.clipboardData);
@@ -1731,40 +2111,31 @@ function coverControl(subject, host) {
     control.pick(file);
   };
   document.addEventListener('paste', onPaste);
-  // Phones have no Ctrl+V: a button that reads the clipboard does the same there.
-  control.paste = navigator.clipboard?.read && h('button', {
-    class: 'link-btn', type: 'button', text: t('Paste'),
-    onclick: async () => {
-      try {
-        for (const item of await navigator.clipboard.read()) {
-          const type = item.types.find((kind) => kind.startsWith('image/'));
-          if (type) { control.pick(await item.getType(type)); return; }
-        }
-        toast(t('There is no picture on the clipboard'));
-      } catch { toast(t('Couldn’t reach the clipboard')); }
-    },
-  });
   draw();
   return control;
 }
 
-/** `target` is what the cover belongs to: the book itself, or the edition of one of its reads. */
-async function uploadCover(target, picture, book) {
-  if (!sync.user || navigator.onLine === false || !picture.large) return;
-  try {
-    if (!csrfToken()) await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' });
-    const res = await fetch(abs('api/cover'), {
-      method: 'POST', credentials: 'same-origin', cache: 'no-store',
-      headers: { 'Content-Type': 'image/jpeg', 'X-CSRFToken': csrfToken() }, body: picture.large,
-    });
-    if (!res.ok) return;
-    const kept = await res.json();
-    if (target.thumb !== picture.thumb || !books.includes(book)) return;   // the cover was changed again meanwhile
-    Object.assign(target, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio });
-    await saveBook(book);
-  } catch (err) {
-    console.warn('Cover not uploaded', err);
-  }
+/** A book's cover on its page: tap it to see it large, and to change it there. */
+function coverViewer(book, again) {
+  const open = () => openCoverRoom({
+    subject: () => book,
+    query: { isbn: book.isbn, title: book.title, author: book.author },
+    onChoose: (choice) => {
+      const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull'];
+      const before = Object.fromEntries(keys.map((key) => [key, book[key]]));
+      Object.assign(book, coverFields(choice));
+      saveBook(book);
+      keepCover(book, choice, book);
+      if (openedBook === book && bookPageOpen()) again();
+      toast(t('Cover replaced'), {
+        action: t('Undo'),
+        onAction: () => { Object.assign(book, before); saveBook(book); if (openedBook === book && bookPageOpen()) again(); },
+      });
+    },
+  });
+  const el = h('button', { class: 'cover-view', type: 'button', title: t('The cover, large'), 'aria-label': t('The cover, large'), onclick: open }, coverEl(book, true));
+  el.open = open;
+  return el;
 }
 
 /**
@@ -1841,7 +2212,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   const source = sourceNote(book, true);
 
   // The cover: tap it to choose a picture; or paste or drop one while no text field has the cursor.
-  const cover = coverControl(() => book, () => form);
+  const cover = coverControl(() => book, () => form, () => ({ isbn: f.isbn.value.replace(/[^0-9Xx]/g, '') || book.isbn, title: f.title.value.trim() || book.title, author: writersIn(who.value()).join(', ') || book.author }));
 
   const form = h('form', {
     novalidate: true, onsubmit: submit,
@@ -1849,8 +2220,6 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
   },
     sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null, cover.button),
-    cover.file,
-    h('p', { class: 'sheet-note cover-hint' }, t('Tap the cover to choose a picture, or paste or drop one here.'), ' ', cover.paste, ' ', coverSearch(book)),
     source,
     ocrBox,
     field(t('Title'), f.title),
@@ -1885,7 +2254,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       lists: {},
       series: v('series'), seriesNumber: null, seriesLabel: '',
       // A new cover: the small copy is the cover until the server has kept the larger one.
-      ...(cover.picture && { thumb: cover.picture.thumb, cover: '', coverRatio: cover.picture.ratio, coverSource: '', coverFull: '' }),
+      ...(cover.choice && coverFields(cover.choice)),
     };
     // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
     const typed = data.series ? v('seriesNumber') : '';
@@ -1921,15 +2290,13 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       await saveBook(book);
     }
     saved = true;
-    if (cover.picture) uploadCover(result, cover.picture, result);
+    if (cover.choice) keepCover(result, cover.choice, result);
     leave();
     onSaved?.(result);
   }
 
   function remove() {
-    sheet.close();
-    removeBook(book);
-    toast(t('Book removed'), { action: t('Undo'), onAction: () => restoreBook(book) });
+    confirmDelete(book, () => openBookForm({ book, isNew, ocrLines, heading, subheading, onSaved, onClose, back }));
   }
 
   sheet.open(form, () => onClose?.(saved));
@@ -2184,7 +2551,11 @@ function openDescribe(shared, found) {
       if (note) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
       // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
       if (host && toBooklog && hasStatus() && p.language && p.categories?.length) book.boekenWanted = true;
-      await addBook(book);
+      const added = await addBook(book);
+      // The photograph, larger, for the server to keep: it can be straightened later.
+      if (!added.cover && added.thumb && found?.canvas && found.thumb === added.thumb) {
+        found.canvas.toBlob((large) => large && uploadCover(added, { thumb: added.thumb, large }, added), 'image/jpeg', 0.9);
+      }
     }
     saved = picked.length > 0;
     if (saved) rememberTarget(Object.keys(on));
@@ -2470,6 +2841,30 @@ function bookActions(book, again) {
   return null;
 }
 
+/**
+ * Deleting a book. One that is in the booklog can go from there too, with all its reads: that
+ * is asked, and ticked unless you untick it. `back()` returns to where you came from.
+ */
+function confirmDelete(book, back) {
+  const host = book.boeken ? booklogHost() : '';
+  const gone = (fromBooklog) => {
+    sheet.close();
+    removeBook(book, { drop: fromBooklog });
+    toast(fromBooklog ? t('Book removed, also from {host}', { host }) : t('Book removed'), { action: t('Undo'), onAction: () => restoreBook(book) });
+  };
+  if (!host) { gone(false); return; }
+  const reads = new Set([book.boeken, ...(book.reviews || []).map((r) => r.boeken).filter(Boolean)]).size;
+  const note = h('p', { class: 'sheet-note drop-note', text: reads > 1 ? t('All {n} of its pages there go, one for each read. The booklog’s history keeps a copy.', { n: reads }) : t('Its page there goes. The booklog’s history keeps a copy.') });
+  const also = h('input', { type: 'checkbox', checked: true, onchange: () => { note.hidden = !also.checked; } });
+  sheet.open(h('div', null,
+    sheetHead(t('Delete this book?'), displayTitle(book)),
+    h('label', { class: 'check-line' }, also, h('span', { text: t('Also delete it from {host}', { host }) })),
+    note,
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => gone(also.checked) }, icon('trash'), t('Delete')))));
+}
+
 /** Dropping a book you meant to read takes it out of the shelf for good; that is asked first. */
 function confirmDrop(book) {
   const host = book.boeken ? booklogHost() : '';
@@ -2641,15 +3036,12 @@ async function tintSheet(book) {
   $('sheet').classList.toggle('tinted', !!colour);
 }
 
-/** A picture search for a book that has no cover, or only the photograph taken of it when it
- *  was added: large images of its title and author, in a new tab. */
-function coverSearch(book) {
+/** For a book that has no cover, or only the photograph taken of it when it was added: a way
+ *  to the cover's own page (coverViewer), where better ones are found. */
+function coverSearch(book, viewer) {
   if (book.cover || !book.title) return null;   // `thumb` alone is your own photograph
-  const q = [book.title, (book.author || '').split(',')[0]].filter(Boolean).join(' ');
-  return h('a', {
-    class: 'link-btn cover-search', target: '_blank', rel: 'noopener',
-    href: `https://www.google.com/search?tbm=isch&tbs=isz:l&q=${encodeURIComponent(q)}`,
-  }, icon('search'), book.thumb ? t('Search for a better cover') : t('Search for a cover'));
+  return h('button', { class: 'link-btn cover-search', type: 'button', onclick: () => viewer.open() },
+    icon('search'), book.thumb ? t('Find a better cover') : t('Find a cover'));
 }
 
 /* From a book to the one before or after it in the list it was opened from: swipe right or
@@ -2716,9 +3108,10 @@ function openBook(book, rows) {
   };
   const reviews = sortedReviews(book);
 
+  const viewer = coverViewer(book, again);
   sheet.open(h('div', { class: 'book-page' },
     h('div', { class: 'page-head' },
-      coverEl(book, true),
+      viewer,
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
         // Each name leads to all of that person's books: the writers, then the others by what they did.
@@ -2731,7 +3124,7 @@ function openBook(book, rows) {
         }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
         listTags(book, null),
-        coverSearch(book)),
+        coverSearch(book, viewer)),
       h('div', { class: 'page-corner' },
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')),
         (before || after) && h('div', { class: 'page-turn' }, turn(before, 'back', t('Previous book')), turn(after, 'forward', t('Next book'))))),
@@ -2762,7 +3155,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
 
   // The edition read this time. A new read starts from the book's own, so only what differs needs saying.
   const edition = { ...(review?.edition || mainEdition(book)) };
-  const cover = coverControl(() => ({ title: book.title, ...edition }), () => form);
+  const cover = coverControl(() => ({ title: book.title, ...edition }), () => form, () => ({ isbn: ed.isbn.value.replace(/[^0-9Xx]/g, '') || edition.isbn || '', title: book.title, author: book.author }));
   const ed = {
     publisher: h('input', { name: 'publisher', value: edition.publisher || '', autocomplete: 'off', autocapitalize: 'words' }),
     date: h('input', { name: 'published', value: edition.date || '', inputmode: 'numeric', autocomplete: 'off' }),
@@ -2792,7 +3185,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
       duration: said(ed.duration).toLowerCase().replace(/h/g, 'u'),
       isbn: toIsbn13(said(ed.isbn)) || said(ed.isbn).replace(/[^0-9Xx]/g, ''),
       language, format: format.value,
-      ...(cover.picture && { thumb: cover.picture.thumb, cover: '', coverRatio: cover.picture.ratio, coverFull: '' }),
+      ...(cover.choice && coverFields(cover.choice)),
     };
     // Who made this edition, where that was said before, someone has a role, or it isn't the book's writers.
     const people = who.value();
@@ -2813,16 +3206,28 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     else if (!blank) (book.reviews ||= []).push({ id: newId(), ...data });
     settleRating(book);
     await saveBook(book);
-    if (cover.picture && data.edition) uploadCover(data.edition, cover.picture, book);
+    if (cover.choice && data.edition) keepCover(data.edition, cover.choice, book);
     back();
   }
 
   function remove() {
+    // A read that is in the booklog is a post there, which goes too (shelf/publish.py).
+    const host = review.boeken && booklogHost();
     book.reviews = book.reviews.filter((r) => r !== review);
+    if (host) book.dropReads = [...new Set([...(book.dropReads || []), review.boeken])];
     settleRating(book);
     saveBook(book);
     back();
-    toast(t('Review removed'), { action: t('Undo'), onAction: () => { (book.reviews ||= []).push(review); settleRating(book); saveBook(book); if (sheet.isOpen) back(); } });
+    toast(host ? t('Review removed, also from {host}', { host }) : t('Review removed'), {
+      action: t('Undo'),
+      onAction: () => {
+        (book.reviews ||= []).push(review);
+        if (host) { book.dropReads = book.dropReads.filter((slug) => slug !== review.boeken); if (!book.dropReads.length) delete book.dropReads; }
+        settleRating(book);
+        saveBook(book);
+        if (sheet.isOpen) back();
+      },
+    });
   }
 
   const edPages = h('label', { class: 'field' }, h('span', { text: t('Pages') }), ed.pages);
@@ -2845,8 +3250,8 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     h('details', { class: 'edition-box', open: !!(review?.edition && Object.keys(review.edition).length && !isNew) && false },
       h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(edition) })),
       h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
-      h('div', { class: 'edition-cover' }, cover.button, cover.file,
-        h('p', { class: 'sheet-note' }, t('The cover of this edition. Tap it to choose a picture, or paste or drop one.'), ' ', cover.paste)),
+      h('div', { class: 'edition-cover' }, cover.button,
+        h('p', { class: 'sheet-note', text: t('The cover of this edition. Tap it to see it large, or to change it.') })),
       h('label', { class: 'field' }, h('span', { text: t('Publisher') }), ed.publisher),
       h('div', { class: 'field-row' },
         h('label', { class: 'field' }, h('span', { text: t('Published') }), ed.date),
@@ -3775,7 +4180,7 @@ async function processCover({ canvas, thumb }) {
     if (seen.length) {
       showCard(null);
       openDescribe(null, {
-        books: seen, thumb, isbn, onClose: finish,
+        books: seen, thumb, canvas, isbn, onClose: finish,
         byHand: () => openBookForm({
           book: { title: seen[0].title, author: seen[0].author, isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
           heading: t('Check the details'),

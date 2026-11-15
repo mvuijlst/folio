@@ -3,7 +3,7 @@
   GET  /api/session  → {"user": name | null}; also sets the CSRF cookie
   POST /api/login    {"username", "password"} → {"user": name}
   POST /api/logout
-  POST /api/cover    an image as the request body → {"cover", "coverFull", "coverRatio"}
+  POST /api/cover    an image as the request body, or {"url"} of a catalogue cover → {"cover", "coverFull", "coverRatio"}
   POST /api/suggest  {"text", "url"} → {"books": [proposal…]}: the book(s) a description or a
                      shared page is about (by ISBN where there is one, else the assistant)
   POST /api/sync     {"since": cursor | null, "changes": [change…],
@@ -134,9 +134,16 @@ def logout_view(request):
 
 @require_POST
 def cover(request):
-    """Keep a cover the user pasted, dropped or chose; the app then points the book at it."""
+    """Keep a cover the user pasted, dropped or chose; the app then points the book at it.
+    A cover picked from a book catalogue comes as {"url": …}: the server fetches it itself."""
     if not request.user.is_authenticated:
         return error('Not signed in', 401)
+    if request.content_type == 'application/json':
+        url = (body(request) or {}).get('url')
+        try:
+            return JsonResponse(covers.keep_from(url))
+        except ValueError:
+            return error('That cover couldn’t be fetched.')
     data = request.body
     if not data or len(data) > covers.MAX_BYTES:
         return error('That picture is too large.', 413)
@@ -243,7 +250,9 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
         if c['drop'] and row and not row.deleted and row.data.get('boeken'):
             # A book given up for good that is in the booklog: its tombstone remembers which,
             # so the page there can go too (shelf/publish.py). Clients never see this.
-            c['data'] = {'drop': {'boeken': row.data['boeken'], 'title': row.title}}
+            # Which posts are its own: another version of a book has some of that book's.
+            posts = [row.data['boeken'], *(r['boeken'] for r in row.data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken'))]
+            c['data'] = {'drop': {'boeken': row.data['boeken'], 'title': row.title, 'posts': list(dict.fromkeys(posts))}}
         sent = c['data']
         if row and not c['deleted'] and not row.deleted and model.KEY == 'book':
             c['data'] = kept_from_publishing(row.data, c['data'])

@@ -28,8 +28,13 @@ What a change in the app means in the booklog:
   another version of a book the      a new post, a reread of that book's first post, in its own
     booklog has (`versionOf`, or in    format; from then on that version's posts are its own
     another format) is added
-  a book to read is dropped          its post is deleted, with its cover and the author, tag
-                                       and series pages nothing else uses (see plan_drop)
+  a book is deleted, and the app      its posts are deleted, with their covers and the author,
+    is asked to delete it from the     tag and series pages nothing else uses (see plan_drop)
+    booklog too (`drop`)
+  a read is deleted (`dropReads`)    its post is deleted (see plan_reads_gone)
+
+When a post goes that other posts are rereads of, the earliest of those that stays becomes
+the first read, and the others rereads of it (see reroot).
 
 The front-matter editing is boeggn's (apps/core/services/books.py), which wrote these posts
 before: changes are made line by line, never by re-serialising the YAML.
@@ -171,6 +176,7 @@ class Plan:
     deferred: set = field(default_factory=set)     # changes that can't be published yet (a cover still on its way)
     notes: list = field(default_factory=list)      # what it does, in words
     url: str = ''                                  # for a book new to the booklog: where its post will be
+    rekey: str = None                              # the book's first post is gone: the post that is now ('' for none)
 
     @property
     def writes(self):
@@ -200,6 +206,7 @@ def changed_keys(data):
 def is_pending(data):
     reviews = [r for r in data.get('reviews') or [] if isinstance(r, dict)]
     return bool(changed_keys(data)
+                or data.get('dropReads')
                 or any(not r.get('boeken') and r.get('date') for r in reviews)
                 or any(r.get('boeken') and r.get('sum') and not boeken.in_step(r) for r in reviews))
 
@@ -523,6 +530,18 @@ def plan_book(repo, data, group, taken, now):
             plan.notes.append('new cover')
         elif str(data.get('cover') or '').startswith('covers/boeken/'):
             pass   # back to the booklog's own cover: nothing to publish
+        elif str(data.get('cover') or '').startswith('covers/web/') and (picture := covers.original(data)):
+            # A catalogue's cover the server keeps small: fetched once more at its full size.
+            day = current.get('date') or latest['_day']
+            folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
+            name, n = f'{latest["slug"]}{picture[1]}', 1
+            while Path(repo, 'media', folder, name).exists():
+                n += 1
+                name = f'{latest["slug"]}-{n}{picture[1]}'
+            plan.pictures[Path(repo, 'media', folder, name)] = picture[0]
+            edit(latest)['front']['cover'] = f'/{folder}/{name}'
+            kinds.append('edit')
+            plan.notes.append('new cover')
         else:
             plan.deferred.add('cover')   # the larger picture hasn't reached the server yet
 
@@ -737,37 +756,99 @@ def plan_new(repo, data, posts, taken, now, reread_of=None):
     return plan, slug
 
 
-# ───────────────────────── A book that is dropped ─────────────────────────
+# ───────────────────────── Posts that are deleted ─────────────────────────
 
-def plan_drop(repo, drop, groups):
-    """The Plan that takes a dropped book out of the booklog: its post, its cover, and the
-    author, tag and series pages nothing else uses. Only ever a book that was never read:
-    one post, still to read. Anything else is refused, whatever the app asked."""
-    group = groups.get(str(drop.get('boeken')))
-    if not group:
-        return None   # not in the booklog (any more)
-    if len(group) != 1 or str(group[0].get('status') or 'read') != 'to-read':
-        raise ValueError('Only a book that is still to read can be dropped from the booklog.')
-    post = group[0]
-    plan = Plan(message=f'Verwijderd: {post["title"]}')
-    plan.removals.append(post['_path'])
-    others = [p for g in groups.values() for p in g if p is not post]
+def reroot(gone, posts, change, prefer=()):
+    """Posts that are rereads of a post in `gone` become rereads of another: the first of
+    `prefer` that is among them (the book's own earliest read that stays), else the earliest.
+    That one is the first read from then on. `change(post, front)` makes the edit.
+    → {old first post: new first post}"""
+    moved = {}
+    for root in sorted(gone):
+        left = sorted((p for p in posts if str(p.get('rereadOf') or '') == root and p['slug'] not in gone),
+                      key=lambda p: p['_when'])
+        if not left:
+            continue
+        head = next((p for p in prefer if p in left), left[0])
+        change(head, {'rereadOf': None})
+        for post in left:
+            if post is not head:
+                change(post, {'rereadOf': head['slug']})
+        moved[root] = head['slug']
+    return moved
 
-    cover = str(post.get('cover') or '')
-    picture = Path(repo, 'media', cover.lstrip('/'))
-    if cover.startswith('/') and picture.is_file() and not any(str(p.get('cover') or '') == cover for p in others):
-        plan.removals.append(picture)
+
+def leftovers(repo, gone, others):
+    """What only the posts in `gone` used: their cover pictures, and author, tag and series pages."""
+    paths = []
+    for cover in dict.fromkeys(str(p.get('cover') or '') for p in gone):
+        picture = Path(repo, 'media', cover.lstrip('/'))
+        if cover.startswith('/') and picture.is_file() and not any(str(p.get('cover') or '') == cover for p in others):
+            paths.append(picture)
     content = Path(repo, 'site', 'content')
     for kind, own, used in (
-        ('authors', set(post.get('authors') or []), {a for p in others for a in p.get('authors') or []}),
-        ('tags', set(post.get('tags') or []), {t for p in others for t in p.get('tags') or []}),
-        ('series', {slugify(s) for s in post.get('series') or []}, {slugify(s) for p in others for s in p.get('series') or []}),
+        ('authors', {a for p in gone for a in p.get('authors') or []}, {a for p in others for a in p.get('authors') or []}),
+        ('tags', {t for p in gone for t in p.get('tags') or []}, {t for p in others for t in p.get('tags') or []}),
+        ('series', {slugify(x) for p in gone for x in p.get('series') or []}, {slugify(x) for p in others for x in p.get('series') or []}),
     ):
         for term in sorted(own - used):
             page = content / kind / str(term) / '_index.md'
             if page.is_file():
-                plan.removals.append(page)
-    plan.notes.append('removed from the booklog')
+                paths.append(page)
+    return paths
+
+
+def plan_removal(repo, gone, every, prefer=()):
+    """The Plan that deletes the posts `gone` (and what only they used) from the booklog, with
+    their rereads re-pointed (reroot). → (plan, {old first post: new first post})"""
+    names = {p['slug'] for p in gone}
+    others = [p for p in every if p['slug'] not in names]
+    plan = Plan()
+    plan.removals.extend(p['_path'] for p in gone)
+    fronts = {}
+    moved = reroot(names, others, lambda post, front: fronts.setdefault(post['slug'], (post, {}))[1].update(front), prefer)
+    for post, front in fronts.values():
+        plan.files[post['_path']] = apply_front_matter(post['_file'], front)
+        plan.slugs.add(post['slug'])
+    plan.removals.extend(leftovers(repo, gone, others))
+    return plan, moved
+
+
+def plan_drop(repo, drop, groups):
+    """The Plan that takes a deleted book out of the booklog: its posts (`drop['posts']`, and
+    whatever else is in its group), their covers, and the author, tag and series pages nothing
+    else uses. None when the booklog no longer has any of them."""
+    every = [p for g in groups.values() for p in g]
+    wanted = {str(x) for x in drop.get('posts') or []} | {p['slug'] for p in groups.get(str(drop.get('boeken'))) or []}
+    gone = sorted((p for p in every if p['slug'] in wanted), key=lambda p: p['_when'])
+    if not gone:
+        return None   # not in the booklog (any more)
+    plan, moved = plan_removal(repo, gone, every)
+    plan.message = f'Verwijderd: {gone[-1]["title"]}'
+    plan.notes.append('removed from the booklog' + (f', {len(gone)} posts' if len(gone) > 1 else ''))
+    plan.notes.extend(f'{new} is now the first read' for new in moved.values())
+    return plan
+
+
+def plan_reads_gone(repo, data, group, every):
+    """The Plan that deletes the posts of reads that were deleted in the app (`dropReads`). When
+    the book's first post goes, `rekey` says which post is the book's now ('' when none is left)."""
+    names = {str(x) for x in data.get('dropReads') or []}
+    gone = [p for p in group if p['slug'] in names]
+    kept = [p for p in group if p['slug'] not in names]
+    title = str(data.get('title') or group[-1]['title'])
+    if not gone:
+        return Plan(message=f'Bewerkt: {title}')
+    plan, moved = plan_removal(repo, gone, every, prefer=kept)
+    plan.message = f'Verwijderd: {title}' + (f' ({len(gone)} lezingen)' if len(gone) > 1 else ' (een lezing)')
+    plan.notes.append(f'{len(gone)} post(s) removed')
+    plan.notes.extend(f'{new} is now the first read' for new in moved.values())
+    plan.forget = [boeken.uid_for(p['slug']) for p in gone]
+    key = str(data.get('boeken') or '')
+    if key in names:
+        plan.rekey = kept[0]['slug'] if kept else ''
+    if kept:
+        plan.url = kept[-1]['_url']
     return plan
 
 
@@ -890,6 +971,29 @@ def stamp(data, plan):
     return data
 
 
+def settle_reads_gone(data, plan):
+    """The book once the posts of its deleted reads are gone (plan_reads_gone). Anything else
+    that waits to be published still does."""
+    data = dict(data)
+    gone = {str(slug) for slug in data.pop('dropReads', None) or []}
+    reviews = [r for r in data.get('reviews') or []
+               if not (isinstance(r, dict) and (r.get('id') in plan.forget or str(r.get('boeken') or '') in gone))]
+    if reviews:
+        data['reviews'] = reviews
+    else:
+        data.pop('reviews', None)
+    if plan.rekey == '':
+        # Nothing of it is left in the booklog: it is a book of the shelf alone now.
+        for key in ('boeken', 'url', 'boekenState', 'versionOf', 'boekenError'):
+            data.pop(key, None)
+        return data
+    if plan.rekey:
+        data['boeken'] = plan.rekey   # the book goes by the post that is its first read now
+    if plan.url:
+        data['url'] = plan.url
+    return data
+
+
 def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None):
     """Publish every book of `user` that was changed in the app. → {'published', 'settled', 'failed', 'waiting'}
 
@@ -899,16 +1003,21 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
     from .models import Book
 
     now = now or timezone.now()
-    groups, taken = {}, set()
-    for post in boeken.read_posts(repo):
-        groups.setdefault(str(post.get('rereadOf') or post['slug']), []).append(post)
-        taken.add(post['slug'])
-    for group in groups.values():
-        group.sort(key=lambda p: p['_when'])
-    # Another version of a book (the audiobook of an e-book you have) is a book of its own here:
-    # its posts are rereads of that book in the booklog, but they are its own to change.
-    boeken.split_versions(groups, boeken.version_claims(
-        r.data for r in Book.objects.filter(user=user, deleted=False, data__versionOf__isnull=False)))
+    def load():
+        """The booklog's posts by book, oldest first, and every slug in use."""
+        groups, taken = {}, set()
+        for post in boeken.read_posts(repo):
+            groups.setdefault(str(post.get('rereadOf') or post['slug']), []).append(post)
+            taken.add(post['slug'])
+        for group in groups.values():
+            group.sort(key=lambda p: p['_when'])
+        # Another version of a book (the audiobook of an e-book you have) is a book of its own here:
+        # its posts are rereads of that book in the booklog, but they are its own to change.
+        boeken.split_versions(groups, boeken.version_claims(
+            r.data for r in Book.objects.filter(user=user, deleted=False, data__versionOf__isnull=False)))
+        return groups, taken
+
+    groups, taken = load()
 
     counts = {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0}
 
@@ -932,12 +1041,12 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 say(f'{plan.message}  [{", ".join(plan.notes)}]')
                 for path in plan.removals:
                     say(f'    {path.relative_to(repo).as_posix()}')
-                if not dry_run:
-                    commit(repo, plan)
                 counts['published'] += 1
-                gone = plan.removals[0]
-                groups.pop(str(row.data['drop'].get('boeken')), None)
-                taken.discard(gone.stem)
+                if dry_run:
+                    groups.pop(str(row.data['drop'].get('boeken')), None)
+                else:
+                    commit(repo, plan)
+                    groups, taken = load()   # rereads of what went may have a new first read
             if not dry_run:
                 row.data = {}
                 row.save(update_fields=['data'])
@@ -1007,6 +1116,25 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
             counts['waiting'] += 1
             continue
         try:
+            if row.data.get('dropReads'):
+                # Reads deleted in the app: their posts go first, then whatever else changed.
+                plan = plan_reads_gone(repo, row.data, group, [p for g in groups.values() for p in g])
+                if plan.writes:
+                    say(f'{plan.message}  [{", ".join(plan.notes)}]')
+                    for path in plan.removals:
+                        say(f'    {path.relative_to(repo).as_posix()}')
+                counts['published' if plan.writes else 'settled'] += 1
+                if dry_run:
+                    continue
+                if plan.writes:
+                    commit(repo, plan)
+                    groups, taken = load()
+                row.data = settle_reads_gone(row.data, plan)
+                row.changed = timezone.now()
+                row.save(update_fields=['data', 'changed'])
+                group = groups.get(str(row.data.get('boeken')))
+                if not group or not is_pending(row.data):
+                    continue
             plan = plan_book(repo, row.data, group, taken, now)
             if plan is None:
                 continue

@@ -36,12 +36,15 @@ READING_GROUP = 'Reading status'
 READING_LISTS = set(boeken.STATUS_LISTS.values())
 
 
-def merged_reviews(old, incoming):
-    """The booklog's reviews next to the ones made or edited in the app. → (reviews, how many were kept as edited)"""
+def merged_reviews(old, incoming, dropped=()):
+    """The booklog's reviews next to the ones made or edited in the app. → (reviews, how many were kept as edited)
+    `dropped`: posts of reads deleted in the app, still to be deleted from the booklog."""
     old = [r for r in old or [] if isinstance(r, dict)]
     previous = {r['boeken']: r for r in old if r.get('boeken')}
     out, kept = [r for r in old if not r.get('boeken')], 0
     for review in incoming:
+        if review['boeken'] in dropped:
+            continue
         before = previous.get(review['boeken'])
         if before and before.get('sum') and not boeken.in_step(before):
             out.append(before)
@@ -112,12 +115,13 @@ class Command(BaseCommand):
         for book in incoming:
             kept = book['cover_file'] and small(book['cover_file'])
             if kept:
-                book['fields'].update(cover=kept[0], coverRatio=kept[1])
+                # The booklog's own picture stays the source: the app shows it at full size.
+                book['fields'].update(cover=kept[0], coverRatio=kept[1], coverSource=book['fields']['cover'])
             for review in book['reviews']:
                 source = book['review_covers'].get(review['id'])
                 kept = source and small(source)
                 if kept:
-                    review['edition'].update(cover=kept[0], coverRatio=kept[1])
+                    review['edition'].update(cover=kept[0], coverRatio=kept[1], coverSource=review['edition']['cover'])
                 review['sum'] = boeken.review_sum(review)
         return made
 
@@ -179,7 +183,7 @@ class Command(BaseCommand):
                 data['boekenState'] = old['boekenState']
             else:
                 data['boekenState'] = boeken.state_of(data)
-            data['reviews'], kept = merged_reviews(old.get('reviews'), book['reviews'])
+            data['reviews'], kept = merged_reviews(old.get('reviews'), book['reviews'], set(old.get('dropReads') or []))
             counts['reviews kept as edited in the app'] += kept
             if not data['reviews']:
                 del data['reviews']
