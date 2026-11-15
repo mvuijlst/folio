@@ -1072,6 +1072,23 @@ const sheet = {
 };
 $('backdrop').addEventListener('click', () => sheet.close());
 
+// A field you type in stays clear of the sheet's buttons. The keyboard shrinks the page after
+// the field has the focus, and the browser then scrolls it into view behind them.
+function clearOfActions() {
+  const body = $('sheetBody'), field = document.activeElement;
+  if (!sheet.isOpen || !field?.matches?.('input, textarea, select') || !body.contains(field)) return;
+  const bar = body.querySelector('.sheet-actions');
+  if (!bar || bar.contains(field)) return;
+  const box = field.getBoundingClientRect(), top = body.getBoundingClientRect().top + 12;
+  const bottom = Math.min(bar.getBoundingClientRect().top, body.getBoundingClientRect().bottom) - 12;
+  if (box.bottom > bottom) body.scrollTop += Math.min(box.bottom - bottom, box.top - top);   // a tall field: its top
+}
+let clearing;
+const clearSoon = () => { clearTimeout(clearing); clearing = setTimeout(clearOfActions, 120); };
+$('sheetBody').addEventListener('focusin', clearSoon);
+window.addEventListener('resize', clearSoon);
+window.visualViewport?.addEventListener('resize', clearSoon);
+
 function sheetHead(title, sub, extra) {
   return h('div', { class: 'sheet-head' },
     h('div', null, h('h2', { class: 'sheet-title', text: title }), sub && h('p', { class: 'sheet-sub', text: sub })),
