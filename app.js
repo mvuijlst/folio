@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.21.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.21.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -164,6 +164,12 @@ async function saveBook(book) {
   // Why the booklog refused the book was said about how it was; changed, it gets another
   // try, and the server says so again if it still won't do.
   delete book.boekenError;
+  // A book on its way to the booklog goes there on a reading list (to read, reading, read):
+  // that is what a post says. Taken off all of them before it got there, it isn't added.
+  if (book.boekenWanted && !book.boeken && ![...FIXED.keys()].some((id) => shelves(book)[id])) {
+    delete book.boekenWanted;
+    toast(t('Not on a reading list any more, so it won’t be added to {host}.', { host: booklogHost() }), { ms: 6000 });
+  }
   touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);

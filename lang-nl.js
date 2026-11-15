@@ -79,6 +79,7 @@ export default {
   'Add by description': 'Toevoegen via beschrijving',
   'Add a book': 'Boek toevoegen',
   'Search for a cover': 'Cover zoeken',
+  'Not on a reading list any more, so it won’t be added to {host}.': 'Staat op geen leeslijst meer en wordt dus niet toegevoegd aan {host}.',
   'Looking at the cover…': 'De cover bekijken…',
   'Is this the book?': 'Is dit het boek?',
   'This is what the assistant makes of the cover.': 'Dit maakt de assistent van de cover.',
