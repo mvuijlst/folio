@@ -45,9 +45,11 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
 - **Notes.** A list can ask for a note per book. *Lent out* asks who it was lent to; the note
   shows on the book and is searchable.
 - **Putting books on lists.** Open a book and tap its lists. Or scan: the pill at the top of
-  the scanner says which lists scanned books go on (the open list, or the ones you picked last
-  time). Scanning a book you already have puts it on those lists too, so scanning onto
-  *Lent out* or *Read* is the quick way to move a pile of books.
+  the scanner says which lists scanned books go on. A new book, however it is added (scanned,
+  photographed, described, typed in), starts on the lists the last book added went on, since a
+  pile of books mostly goes to the same place. Scanning a book you already have puts it on
+  those lists too, so scanning onto *Lent out* or *Read* is the quick way to move a pile of
+  books.
 - Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
   Every list or series you open is a step in the browser's history: Back returns to the one
   before.

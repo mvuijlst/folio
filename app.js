@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.23.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.24.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1894,6 +1894,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     let result = book;
     if (isNew) {
       result = await addBook({ ...book, ...data, ...(asPeople && { people }) });
+      rememberTarget(Object.keys(data.lists));
     } else {
       Object.assign(book, data, { pending: false, unresolved: false });
       if (asPeople) book.people = people; else delete book.people;
@@ -2017,8 +2018,16 @@ function sourceNote(book, explain, again) {
 /* Adding a book: the ways there are, to choose from. The same choice, without the barcode,
    is behind "No barcode?" in the scanner. */
 
-/** The lists a book added now goes on: the open list, or else the ones chosen last time. */
-const addTarget = () => (view.list ? [view.list] : store.get('scanTarget', ['library'])).filter(listById);
+/** The lists a book added now goes on: those the last book added went on, however it was added
+    (the library, the first time). Adding a pile of books, they mostly go to the same place. */
+const addTarget = () => store.get('scanTarget', ['library']).filter(listById);
+
+/** A book was added on these lists: the next one goes there too, in the scanner as well. */
+function rememberTarget(ids) {
+  const target = ids.filter(listById);
+  store.set('scanTarget', target);
+  if (scanner.open) { scanner.target = target; renderScanTarget(); }
+}
 
 function openAdd(inScanner = false) {
   const way = (name, title, about, go) => h('button', { class: 'way', type: 'button', onclick: go },
@@ -2138,6 +2147,7 @@ function openDescribe(shared, found) {
       await addBook(book);
     }
     saved = picked.length > 0;
+    if (saved) rememberTarget(Object.keys(on));
     sheet.close();
     toast(t('{n} added', { n: plural(picked.length, 'book') }));
   }
@@ -3052,7 +3062,7 @@ function openScanner(mode = 'barcode') {
   scanner.open = true;
   const session = ++scanner.session;
   Object.assign(scanner, { added: 0, busy: false, capturing: false, lastCode: '', pendingIsbn: '' });
-  // Scanning from an open list fills that list; otherwise the lists chosen last time.
+  // Scanned books go where the last book added went.
   scanner.target = addTarget();
   scannerEl.hidden = false;
   setMode(mode === 'cover' ? 'cover' : 'barcode');
@@ -3359,8 +3369,8 @@ function openTargetSheet() {
     listPicker(on, { notes: false }),
     h('button', { class: 'btn btn-primary btn-block sheet-done', type: 'button', onclick: () => sheet.close() }, icon('check'), t('Done'))),
   () => {
-    scanner.target = lists.filter((l) => on[l.id]).map((l) => l.id);
-    store.set('scanTarget', scanner.target);
+    rememberTarget(lists.filter((l) => on[l.id]).map((l) => l.id));
+    scanner.target = addTarget();
     renderScanTarget();
   });
 }
