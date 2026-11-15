@@ -362,6 +362,7 @@ export default {
   'Already on {lists}': 'Staat al op {lists}',
   'Already on your shelf': 'Staat al in je boekenkast',
   'Put on {lists}': 'Op {lists} gezet',
+  'Another copy': 'Nog een exemplaar',
   'Looking up {isbn}…': '{isbn} opzoeken…',
   'Added “{title}”': '“{title}” toegevoegd',
   'No match found for ISBN {isbn}': 'Niets gevonden voor ISBN {isbn}',

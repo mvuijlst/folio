@@ -3414,6 +3414,21 @@ function addedCard(book) {
   });
 }
 
+// What is yours about one copy and not the other: where it is, what you thought of it, how far
+// you got, and its page in the booklog. A second copy starts without them.
+const OF_ONE_COPY = ['id', 'added', 'modified', 'lists', 'reviews', 'reads', 'reviewed', 'rating', 'pagesRead', 'percentRead',
+  'progressUnit', 'progressLog', 'durationLeft', 'boeken', 'boekenWanted', 'boekenError', 'url'];
+
+/** Another copy of a book you have, on lists `on`: the same edition, a book of its own. */
+function addCopy(book, on) {
+  const copy = structuredClone(book);
+  for (const key of OF_ONE_COPY) delete copy[key];
+  copy.lists = on;
+  scanner.added++;
+  updateScanCount();
+  return addBook(copy);
+}
+
 function pulse() {
   scannerEl.classList.add('hit');
   setTimeout(() => scannerEl.classList.remove('hit'), 700);
@@ -3425,28 +3440,40 @@ async function onIsbn(isbn) {
   buzz();
   pulse();
 
-  const existing = books.find((b) => b.isbn === isbn);
+  // With more than one copy, the one that is already where you are scanning to answers.
+  const copies = books.filter((b) => b.isbn === isbn);
+  const existing = copies.find((b) => scanner.target.every((id) => shelves(b)[id])) || copies[0];
   if (existing) {
     scanner.busy = false;
+    // The copy in your hand may be another one: then it becomes a book of its own, on the
+    // lists you are scanning to, and the one you had stays where it was.
+    const another = (then) => h('button', { class: 'btn btn-outline btn-whole', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      then?.();
+      showCard(addedCard(await addCopy(existing, targetLists())));
+    } }, icon('plus'), t('Another copy'));
     // Scanning onto "Lent out" or "Read" is also how a book you already have gets there.
     const before = existing.lists;
     const missing = scanner.target.filter((id) => !shelves(existing)[id]);
     if (!missing.length) {
-      showCard(card({ status: listNames(scanner.target) ? t('Already on {lists}', { lists: listNames(scanner.target) }) : t('Already on your shelf'), tone: 'warn', book: existing }));
+      showCard(card({
+        status: listNames(scanner.target) ? t('Already on {lists}', { lists: listNames(scanner.target) }) : t('Already on your shelf'), tone: 'warn', book: existing,
+        actions: [another()],
+      }));
       return;
     }
     existing.lists = missing.reduce((on, id) => place(on, id), { ...shelves(existing) });
     saveBook(existing);
-    const undo = () => {
+    const putBack = () => {
       if (before) existing.lists = before; else delete existing.lists;
       saveBook(existing);
-      showCard(null);
     };
     showCard(card({
       status: t('Put on {lists}', { lists: listNames(missing) }), tone: 'ok', statusIcon: 'check', book: existing,
       actions: [
-        h('button', { class: 'btn btn-outline', type: 'button', onclick: undo }, icon('undo'), t('Undo')),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { putBack(); showCard(null); } }, icon('undo'), t('Undo')),
         h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book: existing }) }, icon('pencil'), t('Edit')),
+        another(putBack),
       ],
     }));
     return;
