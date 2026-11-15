@@ -93,8 +93,8 @@ Books scanned before lists existed count as being in the *Library*.
 - **A book's page takes a little of its cover's colour**, as its page in the booklog does: the
   first of the cover's main colours that is neither nearly white nor nearly black. Only that
   sheet is tinted.
-- **Paper, e-book or audiobook.** A book says what it is read as, and each read's edition for
-  itself: *Read as* in a book's details and under *Edition read* in a review. An audiobook is
+- **Paper, e-book or audiobook.** A book says what format it is in, and each read's edition for
+  itself: *Format* in a book's details (what you have, read or not) and *Read as* under *Edition read* in a review. An audiobook is
   measured in time (a length such as `11u 36m`, and its progress in time left); the others in
   pages. A book scanned or photographed is a paper book. In the booklog a post says so under
   `format`; a post that doesn't is an audiobook if it has a length, and otherwise isn't said

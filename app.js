@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.25.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.25.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1413,7 +1413,7 @@ function facetsOf() {
   }
   const kept = lists.filter((l) => !FIXED.has(l.id) && !l.group && l.id !== view.list);
   if (kept.length) facets.push({ key: 'on', name: t('Lists'), values: kept.map((l) => ({ value: l.id, name: listName(l), test: (b) => !!shelves(b)[l.id] })) });
-  facets.push({ key: 'format', name: t('Read as'),
+  facets.push({ key: 'format', name: t('Format'),
     values: [...FORMATS.map((format) => ({ value: format, name: formatName(format), test: (b) => formatOf(b) === format })),
       { value: 'none', name: t('Not said'), test: (b) => !formatOf(b) }] });
   const having = (key, pick, name = (v) => v, order = (a, b) => a.localeCompare(b)) => {
@@ -1855,7 +1855,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     h('p', { class: 'sheet-note people-hint', text: t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') }),
     swap,
     field(t('Publisher'), f.publisher),
-    h('div', { class: 'field' }, h('span', { text: t('Read as') }), format.el),
+    h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
     h('div', { class: 'field-row' }, field(t('Published'), f.date), extent.pages, extent.duration),
     field('ISBN', f.isbn),
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
