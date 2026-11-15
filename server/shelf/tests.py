@@ -123,3 +123,25 @@ class LoginTests(TestCase):
         res = client.post('/api/login', json.dumps({'username': 'reader', 'password': 'correct horse battery'}),
                           content_type='application/json')
         self.assertEqual(res.status_code, 403)
+
+
+class SetPaperTests(TestCase):
+    """manage.py set_paper: app-only books without a format become paper, and devices hear of it."""
+    setUp, sync = SyncTests.setUp, SyncTests.sync
+
+    def test_only_app_books_without_a_format_or_length(self):
+        from io import StringIO
+        from django.core.management import call_command
+        from shelf.models import Book
+        first = self.sync(changes=[change('plain', '2026-11-14T10:00:00Z', 'Plain')])
+        for uid, extra in (('ebook', {'format': 'ebook'}), ('audio', {'duration': '9u'}), ('log', {'boeken': 'log'})):
+            self.sync(changes=[{**change(uid, '2026-11-14T10:00:00Z', uid), 'book': {'id': uid, 'title': uid, **extra}}])
+        call_command('set_paper', user='reader', stdout=StringIO())   # counting changes nothing
+        self.assertNotIn('format', Book.objects.get(uid='plain').data)
+        out = StringIO()
+        call_command('set_paper', user='reader', write=True, stdout=out)
+        self.assertIn('paper on 1 book', out.getvalue())
+        formats = {b.uid: b.data.get('format') for b in Book.objects.all()}
+        self.assertEqual(formats, {'plain': 'paper', 'ebook': 'ebook', 'audio': None, 'log': None})
+        later = self.sync(since=first['cursor'])   # a device that had synced before gets the change
+        self.assertIn(('plain', 'paper'), [(c['id'], c['book'].get('format')) for c in later['changes']])
