@@ -179,7 +179,6 @@ export default {
   'Audiobook': 'Audioboek',
   'Paper': 'Papier',
   'E-book': 'E-boek',
-  'Read as': 'Gelezen als',
   'Format': 'Formaat',
   'Length': 'Duur',
   'Give the length like 11u 36m.': 'Geef de duur als 11u 36m.',

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.25.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.25.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2821,7 +2821,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
       h('label', { class: 'field' }, h('span', { text: t('Rating (0–10)') }), rating)),
     h('details', { class: 'edition-box', open: !!(review?.edition && Object.keys(review.edition).length && !isNew) && false },
       h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(edition) })),
-      h('div', { class: 'field' }, h('span', { text: t('Read as') }), format.el),
+      h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
       h('div', { class: 'edition-cover' }, cover.button, cover.file,
         h('p', { class: 'sheet-note' }, t('The cover of this edition. Tap it to choose a picture, or paste or drop one.'), ' ', cover.paste)),
       h('label', { class: 'field' }, h('span', { text: t('Publisher') }), ed.publisher),
