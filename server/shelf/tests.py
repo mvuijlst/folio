@@ -99,6 +99,37 @@ class SyncTests(TestCase):
         self.assertEqual(self.sync()['lists'], [])
 
 
+class PublishedWhileEditedTests(TestCase):
+    """A book is published while a device, not knowing yet, changes it."""
+    setUp, sync = SyncTests.setUp, SyncTests.sync
+
+    def test_the_post_is_not_forgotten(self):
+        from shelf.models import Book
+        book = {'id': 'b1', 'title': 'Fire & Blood', 'boekenWanted': True, 'lists': {'read': {'at': '2026-11-15T16:51:00Z'}},
+                'reviews': [{'id': 'r1', 'date': '', 'text': ''}]}
+        self.sync(changes=[{'id': 'b1', 'modified': '2026-11-15T16:51:00Z', 'deleted': False, 'book': book}])
+        row = Book.objects.get(uid='b1')   # what publishing does
+        row.data = {**{k: v for k, v in row.data.items() if k != 'boekenWanted'}, 'boeken': 'fire-blood-herlezing',
+                    'url': 'https://x/fire-blood-herlezing/', 'boekenState': {'list': 'read'},
+                    'reviews': [{'id': 'r1', 'date': '', 'text': '', 'boeken': 'fire-blood-herlezing', 'sum': 's'}]}
+        row.save()
+        edited = {**book, 'rating': 8, 'reviews': [{'id': 'r1', 'date': '2026-04-06', 'text': ''}, {'id': 'r2', 'date': '2026-11-01'}]}
+        res = self.sync(since='2026-11-15T16:52:00Z', changes=[{'id': 'b1', 'modified': '2026-11-15T16:55:00Z', 'deleted': False, 'book': edited}])
+        self.assertEqual([c['book']['boeken'] for c in res['changes']], ['fire-blood-herlezing'])   # the device hears of its post
+        data = Book.objects.get(uid='b1').data
+        self.assertEqual((data['boeken'], data['rating'], 'boekenWanted' in data), ('fire-blood-herlezing', 8, False))
+        self.assertEqual(data['boekenState'], {'list': 'read'})
+        self.assertEqual([(r['id'], r['date'], r.get('boeken')) for r in data['reviews']],
+                         [('r1', '2026-04-06', 'fire-blood-herlezing'), ('r2', '2026-11-01', None)])
+
+    def test_a_book_taken_off_the_booklog_on_purpose_is_left_alone(self):
+        from shelf.models import Book
+        self.sync(changes=[{'id': 'b1', 'modified': '2026-11-15T16:51:00Z', 'deleted': False, 'book': {'id': 'b1', 'title': 'X'}}])
+        Book.objects.filter(uid='b1').update(data={'id': 'b1', 'title': 'X', 'boeken': 'x'})
+        self.sync(changes=[{'id': 'b1', 'modified': '2026-11-15T16:55:00Z', 'deleted': False, 'book': {'id': 'b1', 'title': 'Y'}}])
+        self.assertNotIn('boeken', Book.objects.get(uid='b1').data)   # no boekenWanted: not a stale copy
+
+
 class LoginTests(TestCase):
     def setUp(self):
         get_user_model().objects.create_user('reader', password='correct horse battery')

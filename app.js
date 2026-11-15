@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.26.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.26.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2169,11 +2169,13 @@ function openDescribe(shared, found) {
       if (found && picked.length === 1) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
       if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
       // Another version of a book you have (its audiobook): a book of its own, which in the booklog
-      // is a reread of that one. What the assistant left out, the book you have says.
+      // is a reread of that one. Its series is the one you know it by, not the store's name for
+      // it; what else the find left out, the book you have says.
       const other = versionOfShelf(book);
       if (other) {
         book.versionOf = other.id;
-        for (const key of ['language', 'categories', 'tags', 'series', 'seriesNumber']) {
+        if (other.series) Object.assign(book, { series: other.series, seriesNumber: other.seriesNumber ?? null, seriesLabel: other.seriesLabel || '' });
+        for (const key of ['language', 'categories', 'tags']) {
           const missing = book[key] == null || book[key] === '' || (Array.isArray(book[key]) && !book[key].length);
           if (missing && other[key] != null && other[key] !== '') book[key] = structuredClone(other[key]);
         }

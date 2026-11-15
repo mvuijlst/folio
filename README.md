@@ -102,12 +102,15 @@ Books scanned before lists existed count as being in the *Library*.
   gone.)
 - **Another version of a book you have** (its audiobook, where you have the e-book) is a book
   of its own: its own format, lists, progress and reads. Adding it from a description or a
-  shared link, when the shelf has the book in another format, offers it as *Another version*,
-  and what the find leaves out (language, categories, tags, series) comes from the book you
-  have. In the booklog it is a reread of that book (`rereadOf`) in its own format; the book
-  remembers which one it is another version of (`versionOf`), so publishing changes only its
-  own posts and the import gives it back only its own reads. A book added some other way that
-  the booklog already has in another format is taken for another version when it is published.
+  shared link, when the shelf has the book in another format, offers it as *Another version*.
+  It takes the series of the book you have (not the store's name for it), and what the find
+  leaves out (language, categories, tags) comes from that book too. In the booklog it is a
+  reread of that book (`rereadOf`) in its own format; the book remembers which one it is
+  another version of (`versionOf`), so publishing changes only its own posts and the import
+  gives it back only its own reads. (A device that changes a book before it has heard the book
+  was published sends it back without its post; the server keeps what publishing added, so it
+  isn't published a second time.) A book added some other way that the booklog already has in
+  another format is taken for another version when it is published.
 - **Authors and others.** A book has people: those who wrote it, and those who drew, coloured,
   lettered, translated or read it, each with what they did (*beeld*, *kleur*, *stem*,
   *vertaling*: the booklog's own free words). No role means an author. A book shows its

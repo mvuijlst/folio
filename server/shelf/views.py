@@ -205,6 +205,30 @@ def clean_change(raw, key):
     return {'uid': uid, 'modified': modified, 'deleted': deleted, 'data': data, 'drop': deleted and bool(raw.get('drop'))}
 
 
+# What publishing to the booklog adds to a book and to its reads (shelf/publish.py).
+PUBLISHED_KEYS = ('boeken', 'url', 'boekenState', 'versionOf')
+PUBLISHED_REVIEW_KEYS = ('boeken', 'url', 'sum')
+
+
+def kept_from_publishing(old, new):
+    """A device that changed a book before it heard the book was published sends it back as it
+    knew it: still waiting to go to the booklog, without its post. Taken as it comes, that
+    would forget the post, and the book would be published a second time. What publishing
+    added stays, so the device's change becomes a change of that post."""
+    if not old.get('boeken') or new.get('boeken') or not new.get('boekenWanted'):
+        return new
+    new = {k: v for k, v in new.items() if k != 'boekenWanted'}
+    for key in PUBLISHED_KEYS:
+        if key in old and key not in new:
+            new[key] = old[key]
+    linked = {r['id']: r for r in old.get('reviews') or [] if isinstance(r, dict) and r.get('id') and r.get('boeken')}
+    if isinstance(new.get('reviews'), list):
+        new['reviews'] = [{**r, **{k: linked[r['id']][k] for k in PUBLISHED_REVIEW_KEYS if k in linked[r['id']]}}
+                          if isinstance(r, dict) and r.get('id') in linked and not r.get('boeken') else r
+                          for r in new['reviews']]
+    return new
+
+
 def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
     """Store the client's changes that are newer than ours; return the rows the client lacks, by uid."""
     changes = [c for c in (clean_change(raw, model.KEY) for raw in raw_changes) if c]
@@ -220,6 +244,9 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
             # A book given up for good that is in the booklog: its tombstone remembers which,
             # so the page there can go too (shelf/publish.py). Clients never see this.
             c['data'] = {'drop': {'boeken': row.data['boeken'], 'title': row.title}}
+        sent = c['data']
+        if row and not c['deleted'] and not row.deleted and model.KEY == 'book':
+            c['data'] = kept_from_publishing(row.data, c['data'])
         if row:
             if not c['deleted']:
                 setattr(row, model.LABEL, label)   # a tombstone keeps its label for the admin
@@ -229,7 +256,8 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
             row = model.objects.create(user=user, uid=c['uid'], data=c['data'], deleted=c['deleted'],
                                        modified=c['modified'], changed=now, **{model.LABEL: label})
             existing[c['uid']] = row
-        accepted.add(c['uid'])
+        if c['data'] is sent:
+            accepted.add(c['uid'])   # else the device gets the book back as it is kept now
 
     outgoing = model.objects.filter(user=user)
     if since:
