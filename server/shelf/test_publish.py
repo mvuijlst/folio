@@ -203,13 +203,13 @@ class PublishTests(BooklogCase):
 
     # ── format: paper, e-book or audiobook, per read
 
-    def test_a_read_said_to_be_an_audiobook_gets_its_length_and_the_category(self):
+    def test_a_read_said_to_be_an_audiobook_gets_its_length_and_no_category(self):
         def listened(data):
             data['reviews'][1]['edition'] = {**data['reviews'][1]['edition'], 'format': 'audiobook', 'duration': '21u 2m'}
         self.change('dune', listened)
         self.publish()
         self.assertEqual(self.changed_lines('dune-herlezing'), [
-            '+categories: ["audiobook"]', '+duration: "21u 2m"', '+format: "audiobook"', '-pages: 535'])
+            '+duration: "21u 2m"', '+format: "audiobook"', '-pages: 535'])   # `format` says it: no audiobook category
         self.import_booklog()
         book = self.book('dune').data
         self.assertEqual((book['format'], book['reviews'][1]['edition']['format']), ('audiobook', 'audiobook'))
@@ -230,7 +230,7 @@ class PublishTests(BooklogCase):
         self.change('katabasis', audio)
         self.publish()
         self.assertEqual(self.changed_lines('katabasis'), [
-            '+categories: ["audiobook"]', '+duration: "18u 30m"', '+format: "audiobook"', '-pages: 559'])
+            '+duration: "18u 30m"', '+format: "audiobook"', '-pages: 559'])
         self.import_booklog()
         self.assertEqual(self.publish()[0]['published'], 0)
 
@@ -390,7 +390,7 @@ class AddToBooklogTests(BooklogCase):
 
     def setUp(self):
         super().setUp()
-        for kind, slug in (('categories', 'sf'), ('categories', 'fictie'), ('categories', 'audiobook'), ('tags', 'desert')):
+        for kind, slug in (('categories', 'sf'), ('categories', 'fictie'), ('tags', 'desert')):
             page = self.repo / 'site' / 'content' / kind / slug / '_index.md'
             page.parent.mkdir(parents=True)
             page.write_text(f'---\ntitle: "{slug}"\nslug: "{slug}"\n---\n', encoding='utf-8', newline='')
@@ -413,13 +413,13 @@ class AddToBooklogTests(BooklogCase):
         self.assertIn('roles:\n  herbert-frank: "tekst"\n  artist-ann: "beeld"\n', post)
         self.assertIn('authors: ["herbert-frank", "artist-ann", "co-writer-plain"]\n', post)
 
-    def test_a_new_audiobook_has_a_length_no_pages_and_the_category(self):
+    def test_a_new_audiobook_has_a_length_no_pages_and_no_category(self):
         self.scan(format='audiobook', duration='16u 5m')
         self.publish()
         post = self.post('children-of-dune')
         self.assertIn('format: "audiobook"\nduration: "16u 5m"\n', post)
         self.assertNotIn('pages:', post)
-        self.assertIn('categories: ["sf", "audiobook"]\n', post)
+        self.assertIn('categories: ["sf"]\n', post)   # `format` says it is one
 
     def test_surnames_first(self):
         self.assertEqual(publish.author_slug('Rebecca Yarros'), ('yarros-rebecca', 'Yarros - Rebecca'))

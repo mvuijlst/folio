@@ -315,17 +315,11 @@ def plan_book(repo, data, group, taken, now):
 
     def set_format(post, wanted):
         """What that read was read as. Said in the post only where it differs from what the post
-        already amounts to; the audiobook category follows, as the booklog's shelves go by it."""
+        already amounts to. (The booklog's audiobook and kindle categories said this once; `format` replaced them.)"""
         wanted = wanted if wanted in boeken.FORMATS else ''
         if wanted == boeken.format_of(post):
             return False
-        front = edit(post)['front']
-        front['format'] = wanted or None
-        categories = [str(c) for c in post.get('categories') or []]
-        if wanted == 'audiobook' and 'audiobook' not in categories:
-            front['categories'] = categories + ['audiobook']
-        elif wanted != 'audiobook' and 'audiobook' in categories:
-            front['categories'] = [c for c in categories if c != 'audiobook']
+        edit(post)['front']['format'] = wanted or None
         return True
 
     def set_edition(post, review):
@@ -655,8 +649,6 @@ def plan_new(repo, data, posts, taken, now):
     taken.add(slug)
 
     categories = [str(c) for c in data['categories']]
-    if data.get('format') == 'audiobook' and 'audiobook' not in categories:
-        categories.append('audiobook')   # the booklog's shelves go by the category
     for category in categories:
         if not (content / 'categories' / category / '_index.md').exists():
             raise ValueError(f'The booklog has no category "{category}".')

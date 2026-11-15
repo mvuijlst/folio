@@ -95,8 +95,9 @@ Books scanned before lists existed count as being in the *Library*.
   itself: *Read as* in a book's details and under *Edition read* in a review. An audiobook is
   measured in time (a length such as `11u 36m`, and its progress in time left); the others in
   pages. A book scanned or photographed is a paper book. In the booklog a post says so under
-  `format`; a post that doesn't is an audiobook if it has a length or the audiobook category,
-  and otherwise isn't said to be anything.
+  `format`; a post that doesn't is an audiobook if it has a length, and otherwise isn't said
+  to be anything. (The booklog's audiobook and kindle categories, which said this before, are
+  gone.)
 - **Authors and others.** A book has people: those who wrote it, and those who drew, coloured,
   lettered, translated or read it, each with what they did (*beeld*, *kleur*, *stem*,
   *vertaling*: the booklog's own free words). No role means an author. A book shows its
@@ -303,7 +304,7 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | --- | --- |
 | a review is edited | its post gets the new text, rating and reading date (a date in another month keeps the old address as an alias) |
 | the edition of a read is changed | that read's own post gets the publisher, year, pages or length, ISBN, language and cover |
-| what a read was read as changes | `format` on that read's post; an audiobook also gets the `audiobook` category and its length instead of pages |
+| what a read was read as changes | `format` on that read's post; an audiobook gets its length instead of pages |
 | the people of a read, or of the book, change | `authors` and `roles` of that read's post (the book's: its latest read); someone new gets an author page, and people who didn't change keep the page they had |
 | *To read* → *Reading* | the post's status, with progress started |
 | the page reached changes (on the book's page) | `pagesRead` and a line in `progressLog` |

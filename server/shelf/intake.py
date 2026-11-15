@@ -112,8 +112,8 @@ def system_prompt(categories):
         'gaat, geef dan alleen dat ene boek. Een reeks die je niet kent verzin je '
         'niet: geef dan één entry met de tekst als titel en de rest null.\n'
         f'Categorieën komen UITSLUITEND uit deze lijst: {", ".join(sorted(categories))}. Kies er minstens één '
-        "(meestal is dat genoeg); 'audiobook' alleen als de tekst zegt dat het om een "
-        'audioboek gaat, en geef dan duration in plaats van pages.\n'
+        '(meestal is dat genoeg). Zegt de tekst dat het om een audioboek gaat, geef dan '
+        'duration in plaats van pages.\n'
         "Tags: hooguit een paar, kleine-letter-slugs (bv. 'space-opera', "
         "'alternate-history'), alleen als ze echt iets toevoegen.\n"
         "Series: weergavenaam (bv. 'Malazan Book of the Fallen') plus volgnummer.\n"
@@ -436,7 +436,7 @@ def propose(text, booklog=None, categories=(), url='', image=None):
             'date': str(proposal.get('year') or ''),
             'pages': proposal.get('pages') if isinstance(proposal.get('pages'), int) else None,
             'duration': str(proposal.get('duration') or ''),
-            'format': 'audiobook' if proposal.get('duration') or 'audiobook' in (proposal.get('categories') or []) else '',
+            'format': 'audiobook' if proposal.get('duration') else '',
             'series': (booklog.series.get(plain(series), series) if booklog else series),
             'seriesNumber': number if series and isinstance(number, (int, float)) else None,
             'language': proposal['language'] if re.fullmatch(r'[a-z]{2}', str(proposal.get('language') or '')) else '',

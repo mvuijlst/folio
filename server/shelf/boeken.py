@@ -104,8 +104,8 @@ TRACKED = {1: PUBLISHED[:12], 2: PUBLISHED}
 TRACKS = 2
 
 # What a read was read as. A post says so under `format`; one that doesn't is an audiobook if
-# it has a length or the audiobook category, an e-book if it has the (old) kindle category,
-# and otherwise it isn't said: most posts were written before this was kept.
+# it has a length, and otherwise it isn't said. (The booklog's audiobook and kindle categories
+# said this before `format` did; they were retired once the posts said it themselves.)
 FORMATS = ('paper', 'ebook', 'audiobook')
 
 
@@ -113,10 +113,7 @@ def format_of(post):
     said = str(post.get('format') or '').strip().lower()
     if said in FORMATS:
         return said
-    categories = {str(c) for c in post.get('categories') or []}
-    if post.get('duration') or 'audiobook' in categories:
-        return 'audiobook'
-    return 'ebook' if 'kindle' in categories else ''
+    return 'audiobook' if post.get('duration') else ''
 
 
 # The people of a book: who wrote it, and who drew, coloured, lettered, translated or read it.
