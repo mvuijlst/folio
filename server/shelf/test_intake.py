@@ -59,6 +59,7 @@ class IntakeTests(TestCase):
         self.assertEqual(res.json()['books'], [{
             'title': 'Children of Dune',
             'author': 'Frank Herbert',            # as the booklog writes him; the translator is not an author
+            'people': [{'name': 'Frank Herbert', 'role': ''}, {'name': 'Jan Vertaler', 'role': 'vertaling'}],  # but is one of its people
             'publisher': 'Ace', 'date': '1987', 'pages': 408,
             'series': 'Dune', 'seriesNumber': 3,  # the booklog's spelling of the series
             'language': 'en',
@@ -194,6 +195,37 @@ class SharedTests(TestCase):
         with mock.patch.object(intake, 'public_page') as fetched:
             self.assertEqual(intake.isbn_from_url('https://www.amazon.com/Dune-Frank-Herbert/dp/0441172717/ref=x'), '9780441172719')
         fetched.assert_not_called()
+
+    AUDIBLE = {'product': {
+        'asin': 'B07CL3F5H2', 'title': 'Fire & Blood (HBO Tie-in Edition)',
+        'authors': [{'name': 'George R. R. Martin'}, {'name': 'Jan Jansen - translator'}], 'narrators': [{'name': 'Simon Vance'}],
+        'publisher_name': 'Random House Audio', 'release_date': '2018-11-20', 'runtime_length_min': 1584, 'language': 'english',
+        'series': [{'title': 'The Targaryen Dynasty', 'sequence': '2'}],
+        'product_images': {'500': 'https://m.media-amazon.com/s.jpg', '1000': 'https://m.media-amazon.com/l.jpg'}}}
+
+    def test_an_audible_page_is_the_audiobook_itself(self):
+        url = ('https://www.audible.com/pd/Fire-Blood-HBO-Tie-in-Edition-Audiobook/B07CL3F5H2'
+               '?clientContext=131-5889522-6181935&lazySso=true')
+        with mock.patch.object(intake, 'get_json', return_value=self.AUDIBLE) as asked, \
+                mock.patch.object(intake, 'public_page') as fetched, mock.patch.object(intake, 'post_json') as model:
+            res = self.ask(url=url)
+        model.assert_not_called()
+        fetched.assert_not_called()
+        self.assertTrue(asked.call_args[0][0].startswith('https://api.audible.com/1.0/catalog/products/B07CL3F5H2?'))
+        self.assertEqual(res.json()['books'], [{
+            'title': 'Fire & Blood', 'author': 'George R. R. Martin',
+            'people': [{'name': 'George R. R. Martin', 'role': ''}, {'name': 'Jan Jansen', 'role': 'vertaling'},
+                       {'name': 'Simon Vance', 'role': 'stem'}],
+            'publisher': 'Random House Audio', 'date': '2018', 'duration': '26u 24m', 'format': 'audiobook',
+            'series': 'The Targaryen Dynasty', 'seriesNumber': 2, 'language': 'en', 'cover': 'https://m.media-amazon.com/l.jpg'}])
+
+    def test_each_audible_store_is_asked_first_then_the_american_one(self):
+        with mock.patch.object(intake, 'get_json', side_effect=[{'product': {'asin': 'B0X'}}, self.AUDIBLE]) as asked:
+            self.assertEqual(intake.lookup_audible('https://www.audible.nl/pd/B07CL3F5H2')['duration'], '26u 24m')
+        self.assertEqual([c[0][0].split('/1.0')[0] for c in asked.call_args_list], ['https://api.audible.de', 'https://api.audible.com'])
+        self.assertIsNone(intake.audible_asin('https://www.audible.com/search?keywords=dune'))
+        self.assertIsNone(intake.audible_asin('https://example.org/pd/B07CL3F5H2'))
+        self.assertEqual((intake.duration(540), intake.duration(724)), ('9u', '12u 04m'))
 
     def test_without_an_isbn_and_without_a_model_it_says_so(self):
         with mock.patch.object(intake, 'public_page', return_value='<html>nothing here</html>'):

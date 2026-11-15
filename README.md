@@ -173,6 +173,12 @@ Installed, the app is in the phone's share menu:
 - **A picture** becomes a cover: you pick the book it belongs to, and for a book read in
   several editions which read.
 - **A page of the booklog** opens that book.
+- **An Audible page** (from the Audible app's share menu, or its address pasted into *Describe
+  it*) is that audiobook: Audible's catalogue is asked for it by the number in the address (the
+  ASIN), without the assistant. It comes with its author, its narrator (as `stem`), publisher,
+  year, length, series, language and the square audiobook cover, as an audiobook; categories
+  and tags are left to you. Each Audible store has its own numbers, so the link's own store is
+  asked first and then the American one (audible.nl is the German store).
 - **Anything else** (a bookshop's page, a Goodreads link, a line of text) is looked up and
   proposed for adding, like a description. An ISBN in the text or on the shared page settles
   which book and edition it is, with Open Library and without the assistant; only without an

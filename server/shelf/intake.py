@@ -14,7 +14,8 @@ is a proposal: nothing is added until the user says so in the app.
 
 What is shared to the app from another app (a page of a bookshop, a line of text) comes
 here too. An ISBN in the text, or on the shared page, settles which book it is without
-asking the model: Open Library is asked for that edition.
+asking the model: Open Library is asked for that edition. An Audible page settles it the same
+way: Audible's catalogue is asked for that audiobook.
 
 A photograph of a cover comes here as well (the scanner's "no barcode" path): the model
 looks at it and names the book, which reads stylised cover lettering far better than
@@ -328,6 +329,85 @@ def isbn_from_url(url):
     return (isbn13(match.group(1)) if match else '') or find_isbn(page)
 
 
+# ───────────────────────── An Audible page: the audiobook itself ─────────────────────────
+
+AUDIBLE_HOST = re.compile(r'(?:^|\.)audible\.(com|co\.uk|de|fr|it|es|ca|com\.au|co\.jp|in|com\.br|nl)$')
+AUDIBLE_ASIN = re.compile(r'/pd/(?:[^/]+/)?([0-9A-Z]{10})/?$')
+AUDIBLE_ROLES = {'translator': 'vertaling', 'editor': 'redactie', 'foreword': 'voorwoord',
+                 'introduction': 'inleiding', 'afterword': 'nawoord', 'illustrator': 'beeld'}
+AUDIBLE_LANGUAGES = {'english': 'en', 'dutch': 'nl', 'german': 'de', 'french': 'fr', 'spanish': 'es', 'italian': 'it'}
+
+
+def audible_asin(url):
+    """(store, ASIN) of an Audible page (…/pd/Fire-Blood-Audiobook/B07CL3F5H2?…), or None.
+    The store is the API's own host: each store has its own ASINs. audible.nl is the German store."""
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:
+        return None
+    store = AUDIBLE_HOST.search((parts.hostname or '').lower())
+    asin = AUDIBLE_ASIN.search(parts.path)
+    if not (store and asin):
+        return None
+    return ('de' if store.group(1) == 'nl' else store.group(1)), asin.group(1)
+
+
+def duration(minutes):
+    """1584 → '26u 24m', 540 → '9u': the booklog's way of saying a length."""
+    hours, rest = divmod(int(minutes), 60)
+    return f'{hours}u {rest:02d}m' if rest else f'{hours}u'
+
+
+def lookup_audible(url):
+    """The audiobook an Audible page is about, from Audible's catalogue, as the model would have
+    proposed it; None if the address isn't one or the catalogue doesn't know it. Its people are
+    who wrote it and who read it (stem); its cover is the square audiobook one. No ISBN: the
+    ones Open Library knows are of the printed book."""
+    found = audible_asin(url)
+    if not found:
+        return None
+    store, asin = found
+    product = {}
+    for host in dict.fromkeys([store, 'com']):
+        try:
+            product = get_json(f'https://api.audible.{host}/1.0/catalog/products/{asin}?' + urllib.parse.urlencode({
+                'response_groups': 'contributors,product_attrs,media,series', 'image_sizes': '1000,500'})).get('product') or {}
+        except Exception:
+            product = {}
+        if product.get('title'):
+            break
+    if not product.get('title'):
+        return None
+    people = []
+    for author in product.get('authors') or []:
+        # Audible lists translators and the like among the authors: "Jan Jansen - translator".
+        name, _, role = str(author.get('name') or '').partition(' - ')
+        role = role.strip().lower()
+        if name.strip():
+            people.append({'name': name.strip(), 'role': AUDIBLE_ROLES.get(role, role) or None})
+    people += [{'name': n['name'].strip(), 'role': 'stem'} for n in product.get('narrators') or [] if (n.get('name') or '').strip()]
+    series = (product.get('series') or [{}])[0]
+    try:
+        number = float(series.get('sequence'))
+    except (TypeError, ValueError):
+        number = None
+    year = re.match(r'(\d{4})', product.get('release_date') or '')
+    images = product.get('product_images') or {}
+    title = re.sub(r'\s*\([^)]*\b(?:[Ee]dition|[Ee]ditie|Ausgabe|[Uu]nabridged|[Dd]ramatized)\b[^)]*\)\s*$', '', product['title']).strip()
+    proposal = {
+        'title': title or product['title'], 'authors': people,
+        'publisher': product.get('publisher_name') or None, 'year': int(year.group(1)) if year else None,
+        'pages': None, 'duration': duration(product['runtime_length_min']) if product.get('runtime_length_min') else None,
+        'series': series.get('title') or None, 'series_number': number,
+        'language': AUDIBLE_LANGUAGES.get(str(product.get('language') or '').lower()),
+        'categories': [], 'tags': [], 'note': '',
+    }
+    cover = images.get('1000') or images.get('500') or next(iter(images.values()), '')
+    if cover:
+        proposal['cover'] = cover
+    return proposal
+
+
 def lookup_isbn(isbn):
     """Open Library's edition with this ISBN, as the model would have proposed it; None if it has none."""
     try:
@@ -411,9 +491,11 @@ class Booklog:
 def propose(text, booklog=None, categories=(), url='', image=None):
     """`text` (and a shared `url`, or a photographed cover) → books as the app keeps them, ready to be shown as proposals."""
     categories = set(booklog.categories if booklog else categories)
-    # An ISBN says exactly which book and which edition; only without one is the model asked.
-    isbn = find_isbn(text) or (isbn_from_url(url) if url else '')
-    known = lookup_isbn(isbn) if isbn else None
+    # An Audible page or an ISBN says exactly which book and which edition; only without one is the model asked.
+    known = lookup_audible(url) if url else None
+    if not known:
+        isbn = find_isbn(text) or (isbn_from_url(url) if url else '')
+        known = lookup_isbn(isbn) if isbn else None
     if known:
         proposals = [known]
     else:
@@ -429,9 +511,14 @@ def propose(text, booklog=None, categories=(), url='', image=None):
         if isinstance(number, float) and number.is_integer():
             number = int(number)
         tags = [(booklog.tag(tag) if booklog else str(tag)) for tag in proposal.get('tags') or []]
+        # Everyone who did something else (read it: stem; translated it…) is kept as the book's people.
+        named = [a for a in proposal.get('authors') or [] if str(a.get('name') or '').strip()]
+        people = [{'name': booklog.author(a['name']) if booklog else str(a['name']).strip(), 'role': str(a.get('role') or '').strip()}
+                  for a in named] if any(a.get('role') for a in named) else []
         book = {
             'title': str(proposal.get('title') or '').strip(),
             'author': ', '.join(booklog.author(name) if booklog else name for name in writers),
+            'people': people,
             'publisher': str(proposal.get('publisher') or ''),
             'date': str(proposal.get('year') or ''),
             'pages': proposal.get('pages') if isinstance(proposal.get('pages'), int) else None,
