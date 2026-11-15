@@ -99,8 +99,6 @@ BOEKEN_PUSH = os.environ.get('BOEKEN_PUSH') == '1'
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-5.5')
 OPENAI_COVER_EFFORT = os.environ.get('OPENAI_COVER_EFFORT', 'low')
-# How many questions one user may ask it in an hour (each costs a call to the model).
-ASSISTANT_PER_HOUR = int(os.environ.get('ASSISTANT_PER_HOUR') or 60)
 
 # Cover thumbnails are written next to the app and served from there as plain files.
 COVERS_DIR = BASE_DIR.parent / 'covers'

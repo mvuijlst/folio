@@ -1,4 +1,6 @@
 import json
+import time
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -117,6 +119,17 @@ class LoginTests(TestCase):
             self.assertEqual(self.post('/api/login', {'username': 'reader', 'password': 'nope'}).status_code, 401)
         res = self.post('/api/login', {'username': 'reader', 'password': 'correct horse battery'})
         self.assertEqual(res.status_code, 429)
+
+    def test_the_lockout_lifts_a_quarter_of_an_hour_after_the_first_failure(self):
+        start = time.time()
+        with mock.patch('shelf.views.time.time', return_value=start):
+            for _ in range(10):
+                self.post('/api/login', {'username': 'reader', 'password': 'nope'})
+        with mock.patch('shelf.views.time.time', return_value=start + 14 * 60):
+            self.assertEqual(self.post('/api/login', {'username': 'reader', 'password': 'nope'}).status_code, 429)
+        with mock.patch('shelf.views.time.time', return_value=start + 15 * 60 + 1):
+            res = self.post('/api/login', {'username': 'reader', 'password': 'correct horse battery'})
+            self.assertEqual(res.status_code, 200)
 
     def test_csrf_is_enforced(self):
         client = self.client_class(enforce_csrf_checks=True)

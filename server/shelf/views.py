@@ -42,8 +42,6 @@ MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
 LOGIN_LIMIT = 10              # failed attempts …
 LOGIN_WINDOW = 15 * 60        # … per this many seconds, per address and per username
-SUGGEST_WINDOW = 60 * 60      # questions to the assistant are counted per user per this many seconds
-                              # (how many: settings.ASSISTANT_PER_HOUR)
 
 
 def error(message, status=400):
@@ -82,7 +80,7 @@ def count(key, window):
     """Count key once more. Its window runs from the first count, so more counts don't extend it.
 
     (The cache's own incr() would: it stores the new value with the default timeout of five
-    minutes, which turned an hour's limit into one that only lifted after five quiet minutes.)"""
+    minutes, so a lockout only lifted after five quiet minutes, however long it was meant to be.)"""
     n, left = counted(key)
     if not left:
         left = window
@@ -171,14 +169,6 @@ def suggest(request):
             return error('That photograph is too large.', 413)
     if (not text and not url and not image) or len(text) > 2000:
         return error('Describe the book in a few words.')
-
-    # Turned-away questions are not counted, so asking again doesn't push the wait further out.
-    key = f'asked:{request.user.pk}'
-    asked, left = counted(key)
-    if asked >= settings.ASSISTANT_PER_HOUR:
-        minutes = max(1, math.ceil(left / 60))
-        return JsonResponse({'error': 'That is a lot of questions. Try again in {n} min.', 'values': {'n': minutes}}, status=429)
-    count(key, SUGGEST_WINDOW)
 
     try:
         if settings.BOEKEN_REPO:

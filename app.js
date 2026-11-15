@@ -537,7 +537,7 @@ async function api(path, data) {
     if (res.status === 403) { await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' }); res = await post(); }
   }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(json.error ? t(json.error, json.values) : t('Server error {n}', { n: res.status })), { status: res.status });
+  if (!res.ok) throw Object.assign(new Error(json.error ? t(json.error) : t('Server error {n}', { n: res.status })), { status: res.status });
   return json;
 }
 
