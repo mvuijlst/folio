@@ -1,6 +1,7 @@
 """The assistant: what it asks, what it believes, and how it fits proposals to the booklog."""
 import json
 import tempfile
+import time
 from pathlib import Path
 from unittest import mock
 
@@ -142,10 +143,25 @@ class IntakeTests(TestCase):
         self.client.logout()
         self.assertEqual(self.ask().status_code, 401)
 
+    @override_settings(ASSISTANT_PER_HOUR=40)
     def test_it_is_not_asked_without_end(self):
         with mock.patch.object(intake, 'post_json', return_value=model_says()), mock.patch.object(intake, 'get_json', return_value={'docs': []}):
             answers = [self.ask().status_code for _ in range(42)]
         self.assertEqual((answers[39], answers[40]), (200, 429))
+
+    @override_settings(ASSISTANT_PER_HOUR=2)
+    def test_the_hour_runs_from_the_first_question_and_asking_again_does_not_extend_it(self):
+        start = time.time()
+        with mock.patch.object(intake, 'post_json', return_value=model_says()), mock.patch.object(intake, 'get_json', return_value={'docs': []}):
+            with mock.patch('shelf.views.time.time', return_value=start):
+                self.assertEqual([self.ask().status_code for _ in range(2)], [200, 200])
+            with mock.patch('shelf.views.time.time', return_value=start + 50 * 60):
+                res = self.ask()
+                self.assertEqual(res.status_code, 429)
+                self.assertEqual(res.json()['values'], {'n': 10})
+                self.assertEqual(self.ask().status_code, 429)
+            with mock.patch('shelf.views.time.time', return_value=start + 60 * 60 + 1):
+                self.assertEqual(self.ask().status_code, 200)
 
     def test_sync_says_whether_there_is_an_assistant(self):
         ask = lambda: self.client.post('/api/sync', json.dumps({'since': None, 'changes': []}), content_type='application/json').json()

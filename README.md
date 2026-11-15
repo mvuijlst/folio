@@ -352,7 +352,8 @@ post of its own, and from then on it is a booklog book like the others.
 Settings, in `server/.env`: `BOEKEN_REPO_PATH` (a clone of the booklog that only this server
 writes to, outside the web root), `BOEKEN_GIT_AUTHOR` (`Name <address>` for its commits) and
 `BOEKEN_PUSH=1` (without it commits are made but not pushed, so nothing is public). For the
-assistant: `OPENAI_API_KEY` and `OPENAI_MODEL`; without a key the app does not offer it. On the
+assistant: `OPENAI_API_KEY` and `OPENAI_MODEL`; without a key the app does not offer it.
+`ASSISTANT_PER_HOUR` (default 60) is how many questions one user may ask it in an hour. On the
 server a systemd timer runs `sync_boeken` every two minutes.
 
 ## Updating

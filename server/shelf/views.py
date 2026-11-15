@@ -18,6 +18,8 @@ already have, so every device converges on the same shelf.
 import base64
 import json
 import logging
+import math
+import time
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth import authenticate, login, logout
@@ -40,8 +42,8 @@ MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
 LOGIN_LIMIT = 10              # failed attempts …
 LOGIN_WINDOW = 15 * 60        # … per this many seconds, per address and per username
-SUGGEST_LIMIT = 40            # questions to the assistant per user …
-SUGGEST_WINDOW = 60 * 60      # … per this many seconds
+SUGGEST_WINDOW = 60 * 60      # questions to the assistant are counted per user per this many seconds
+                              # (how many: settings.ASSISTANT_PER_HOUR)
 
 
 def error(message, status=400):
@@ -69,6 +71,24 @@ def when(value):
     return dt if timezone.is_aware(dt) else timezone.make_aware(dt, dt_timezone.utc)
 
 
+def counted(key):
+    """How many times key was counted in its current window, and the seconds that window has left."""
+    count, until = cache.get(key) or (0, 0)
+    left = until - time.time()
+    return (count, left) if left > 0 else (0, 0)
+
+
+def count(key, window):
+    """Count key once more. Its window runs from the first count, so more counts don't extend it.
+
+    (The cache's own incr() would: it stores the new value with the default timeout of five
+    minutes, which turned an hour's limit into one that only lifted after five quiet minutes.)"""
+    n, left = counted(key)
+    if not left:
+        left = window
+    cache.set(key, (n + 1, time.time() + left), math.ceil(left))
+
+
 def client_ip(request):
     return request.META.get('HTTP_X_REAL_IP') or request.META.get('REMOTE_ADDR', '')
 
@@ -92,18 +112,14 @@ def login_view(request):
     if not username or not password:
         return error('Enter your username and password.')
 
-    keys = [f'login-fail:ip:{client_ip(request)}', f'login-fail:user:{username.lower()}']
-    if any((cache.get(k) or 0) >= LOGIN_LIMIT for k in keys):
+    keys = [f'login-failed:ip:{client_ip(request)}', f'login-failed:user:{username.lower()}']
+    if any(counted(k)[0] >= LOGIN_LIMIT for k in keys):
         return error('Too many attempts. Try again in a quarter of an hour.', 429)
 
     user = authenticate(request, username=username, password=password)
     if user is None:
         for k in keys:
-            cache.add(k, 0, LOGIN_WINDOW)
-            try:
-                cache.incr(k)
-            except ValueError:
-                cache.set(k, 1, LOGIN_WINDOW)
+            count(k, LOGIN_WINDOW)
         return error('That username and password don’t match.', 401)
 
     login(request, user)
@@ -156,13 +172,13 @@ def suggest(request):
     if (not text and not url and not image) or len(text) > 2000:
         return error('Describe the book in a few words.')
 
-    key = f'suggest:{request.user.pk}'
-    cache.add(key, 0, SUGGEST_WINDOW)
-    try:
-        if cache.incr(key) > SUGGEST_LIMIT:
-            return error('That is a lot of questions. Try again in an hour.', 429)
-    except ValueError:
-        cache.set(key, 1, SUGGEST_WINDOW)
+    # Turned-away questions are not counted, so asking again doesn't push the wait further out.
+    key = f'asked:{request.user.pk}'
+    asked, left = counted(key)
+    if asked >= settings.ASSISTANT_PER_HOUR:
+        minutes = max(1, math.ceil(left / 60))
+        return JsonResponse({'error': 'That is a lot of questions. Try again in {n} min.', 'values': {'n': minutes}}, status=429)
+    count(key, SUGGEST_WINDOW)
 
     try:
         if settings.BOEKEN_REPO:

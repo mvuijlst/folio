@@ -322,6 +322,7 @@ export default {
   '{n} ago': '{n} geleden',
   'Server error {n}': 'Serverfout {n}',
   // Answers from the server
+  'That is a lot of questions. Try again in {n} min.': 'Dat zijn veel vragen. Probeer het over {n} min. opnieuw.',
   'Too many attempts. Try again in a quarter of an hour.': 'Te veel pogingen. Probeer het over een kwartier opnieuw.',
   'That username and password don’t match.': 'Die gebruikersnaam en dat wachtwoord kloppen niet.',
 
