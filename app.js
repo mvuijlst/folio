@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.26.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.26.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -28,6 +28,9 @@ function h(tag, props, ...kids) {
   for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid);
   return e;
 }
+
+/** el.replaceChildren(), skipping what h() skips: replaceChildren itself writes out an undefined or false as text. */
+const fill = (el, ...kids) => el.replaceChildren(...kids.flat().filter((kid) => kid != null && kid !== false));
 
 function icon(name) {
   const s = document.createElementNS(SVG_NS, 'svg');
@@ -1303,7 +1306,7 @@ function renderNav() {
   const edit = () => h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }));
 
   // Beside the books on a wide screen.
-  $('lists').replaceChildren(
+  fill($('lists'),
     h('div', { class: 'nav-group' }, reading.map((l) => item(l.id, listName(l), counts.get(l.id)))),
     h('div', { class: 'nav-group' }, item(null, t('All books'), books.length), series()),
     kept.length > 0 && h('div', { class: 'nav-group' },
@@ -2117,7 +2120,7 @@ function openDescribe(shared, found) {
     const booklog = host && h('label', { class: 'check-line' },
       h('input', { type: 'checkbox', checked: toBooklog, onchange: (e) => { toBooklog = e.target.checked; } }),
       h('span', { text: t('Also add to {host}', { host }) }));
-    results.replaceChildren(
+    fill(results,
       ...proposals.map(row),
       proposals.length > 0 && hasStatus() && booklog,
       proposals.length > 0 && h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: !picked.length, onclick: add },
@@ -2305,7 +2308,7 @@ async function openCoverFor(blob) {
     const found = (query
       ? books.filter((b) => searchText(b).includes(query)).sort((a, b) => rank(a) - rank(b))
       : [...books].sort((a, b) => ((a.modified || a.added) < (b.modified || b.added) ? 1 : -1))).slice(0, 30);
-    results.replaceChildren(...found.map((b) => { const row = bookRow(b, choose); row.classList.add('cand'); return row; }),
+    fill(results, ...found.map((b) => { const row = bookRow(b, choose); row.classList.add('cand'); return row; }),
       !found.length && h('p', { class: 'no-results', text: t('No books match that search.') }));
   }
   search.addEventListener('input', draw);
