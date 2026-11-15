@@ -75,7 +75,9 @@ class Command(BaseCommand):
         # Reading the booklog and making thumbnails takes minutes the first time. That happens
         # before the database is touched: a transaction here holds up every device's sync.
         if not remove:
-            incoming = boeken.books(repo)
+            # Another version of a book (the audiobook of an e-book you have) keeps its own reads.
+            claims = boeken.version_claims(b.data for b in Book.objects.filter(user=user, deleted=False, data__versionOf__isnull=False))
+            incoming = boeken.books(repo, claims)
             made = self.thumbnails(incoming, Path(covers_dir) if covers_dir else covers.folder('boeken'), dry_run)
         with transaction.atomic():
             counts = self.remove(user) if remove else {**self.merge(user, incoming), 'cover thumbnails made': made}

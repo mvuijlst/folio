@@ -25,6 +25,9 @@ What a change in the app means in the booklog:
   the cover is replaced              the picture goes into media/ and the post points at it
   a book that is not in the booklog  a new post, with its cover and whatever author, tag and
     is added to it (`boekenWanted`)    series pages do not exist yet (see plan_new)
+  another version of a book the      a new post, a reread of that book's first post, in its own
+    booklog has (`versionOf`, or in    format; from then on that version's posts are its own
+    another format) is added
   a book to read is dropped          its post is deleted, with its cover and the author, tag
                                        and series pages nothing else uses (see plan_drop)
 
@@ -604,13 +607,25 @@ def needs(data):
     return lacking
 
 
-def plan_new(repo, data, posts, taken, now):
+def is_version(data, other):
+    """Is book `data` another version of book `other`, rather than the same book twice? So when
+    the app says so (`versionOf`), or when both say what they are and that differs (an
+    audiobook of an e-book you have)."""
+    if data.get('versionOf') or other.get('versionOf') == data.get('id'):
+        return True
+    return bool(data.get('format') and other.get('format') and data['format'] != other['format'])
+
+
+def plan_new(repo, data, posts, taken, now, reread_of=None):
     """The Plan that adds a book to the booklog: its post, its cover, and the author, tag and
     series pages that don't exist yet. → (plan, slug of the post it is or becomes)
 
     If the booklog already has the book (the same ISBN, or the same title by the same
     author), nothing is added: the book is tied to that post instead, and what differs is
     then a change like any other.
+
+    `reread_of`: the book is another version of a book the booklog has (its first post's
+    slug): its post is a reread of that one, with its own format and edition.
     """
     lacking = needs(data)
     if lacking:
@@ -625,7 +640,7 @@ def plan_new(repo, data, posts, taken, now):
 
     # Already there?
     isbn = str(data.get('isbn') or '')
-    for post in posts:
+    for post in [] if reread_of else posts:
         same_isbn = isbn and str(post.get('isbn') or '') == isbn
         same_book = boeken.fold(post['title']) == boeken.fold(title) and set(post.get('authors') or []) & set(authors)
         if same_isbn or same_book:
@@ -642,10 +657,11 @@ def plan_new(repo, data, posts, taken, now):
     review = dated[0] if shelf in ('read', 'abandoned') and dated else next((r for r in reviews if not r.get('date')), None)
     day = review['date'] if review and review.get('date') else today
 
-    slug, n = slugify(title), 1
+    base = f'{slugify(reread_of)}-herlezing' if reread_of else slugify(title) or 'boek'
+    slug, n = (base if reread_of else slugify(title)), 1
     while slug in taken or not slug:
         n += 1
-        slug = f'{slugify(title) or "boek"}-{n}'
+        slug = f'{base}-{n}'
     taken.add(slug)
 
     categories = [str(c) for c in data['categories']]
@@ -676,6 +692,7 @@ def plan_new(repo, data, posts, taken, now):
         'series_number_label': (data.get('seriesLabel') or None) if series else None,
         'date': local(now) if day == today else on_day(day, time(20)),
         'slug': slug,
+        'rereadOf': reread_of,
         'rating': review.get('rating') if review and shelf in ('read', 'abandoned') else None,
         'review': (shelf == 'read' and len(text) > 200) or None,
         'publisher': str(data.get('publisher') or '').strip(),
@@ -692,7 +709,11 @@ def plan_new(repo, data, posts, taken, now):
         'tags': tags,
         'authors': authors,
     }
-    if shelf == 'reading':
+    if shelf == 'reading' and fields['duration']:
+        # Listening: how much is left, as an audiobook's progress is said.
+        left = parse_duration(data.get('durationLeft'))
+        fields['durationLeft'] = format_duration(left if left is not None else parse_duration(fields['duration']) - 1)
+    elif shelf == 'reading':
         page = data.get('pagesRead')
         fields['pagesRead'] = page if isinstance(page, int) and page > 0 else 1
 
@@ -712,7 +733,7 @@ def plan_new(repo, data, posts, taken, now):
         plan.links.append((review.get('id'), slug, f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'))
     plan.url = f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'
     plan.message = {'to-read': 'Te lezen', 'reading': 'Lezende', 'abandoned': 'Niet uit'}.get(shelf, 'Uitgelezen') + f': {title}'
-    plan.notes.append('new in the booklog')
+    plan.notes.append(f'new in the booklog, another version of {reread_of}' if reread_of else 'new in the booklog')
     return plan, slug
 
 
@@ -884,6 +905,10 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
         taken.add(post['slug'])
     for group in groups.values():
         group.sort(key=lambda p: p['_when'])
+    # Another version of a book (the audiobook of an e-book you have) is a book of its own here:
+    # its posts are rereads of that book in the booklog, but they are its own to change.
+    boeken.split_versions(groups, boeken.version_claims(
+        r.data for r in Book.objects.filter(user=user, deleted=False, data__versionOf__isnull=False)))
 
     counts = {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0}
 
@@ -934,6 +959,11 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
         try:
             plan, key = plan_new(repo, row.data, every, taken, now)
             twin = None if plan.writes else Book.objects.filter(user=user, deleted=False, data__boeken=key).exclude(pk=row.pk).first()
+            if twin and is_version(row.data, twin.data):
+                # Another version of a book the booklog has: a reread of it, in its own format.
+                plan, key = plan_new(repo, row.data, every, taken, now, reread_of=key)
+                row.data = {**row.data, 'versionOf': row.data.get('versionOf') or twin.uid}
+                twin = None
             if twin:
                 # The booklog has this book and so does the shelf, as another entry: adding it
                 # again would make two of one book. Say so once, and stop asking.

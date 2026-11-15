@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.25.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.26.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2067,11 +2067,18 @@ function openAdd(inScanner = false) {
 
 /* The assistant: a few words about a book → proposals to add */
 
-/** Is this book (as the assistant proposed it) on the shelf already? */
+/** The books on the shelf that are this one (as the assistant proposed it): the same ISBN, or title and first author. */
+const sameBooks = (p) => books.filter((b) => (p.isbn && b.isbn === p.isbn)
+  || (fold(b.title) === fold(p.title) && fold(b.author).split(',')[0].trim() === fold(p.author || '').split(',')[0].trim()));
+
+/** Is this book (as the assistant proposed it) on the shelf already? Not when what you have is
+    another version of it: the e-book, where this is the audiobook. */
 function onShelfAlready(p) {
-  return books.find((b) => (p.isbn && b.isbn === p.isbn)
-    || (fold(b.title) === fold(p.title) && fold(b.author).split(',')[0].trim() === fold(p.author || '').split(',')[0].trim()));
+  return sameBooks(p).find((b) => !formatOf(p) || !formatOf(b) || formatOf(b) === formatOf(p));
 }
+
+/** The book on the shelf that this one is another version of (you have the e-book; this is the audiobook), or undefined. */
+const versionOfShelf = (p) => !onShelfAlready(p) && sameBooks(p).find((b) => formatOf(b) && formatOf(p) && formatOf(b) !== formatOf(p));
 
 /**
  * `shared`: {text, url} from another app; the search then starts by itself.
@@ -2095,7 +2102,7 @@ function openDescribe(shared, found) {
   function drawResults() {
     const picked = proposals.filter((p) => p.picked);
     const row = (p) => {
-      const there = onShelfAlready(p);
+      const there = onShelfAlready(p), other = !there && versionOfShelf(p);
       const box = h('input', { type: 'checkbox', checked: p.picked, disabled: !!there, onchange: () => { p.picked = box.checked; drawResults(); } });
       return h('label', { class: 'proposal' + (there ? ' is-there' : '') },
         box, coverEl(p),
@@ -2103,6 +2110,7 @@ function openDescribe(shared, found) {
           h('div', { class: 'book-title', text: p.title }),
           h('div', { class: 'book-author', text: [p.author, seriesLine(p)].filter(Boolean).join(' · ') }),
           h('div', { class: 'book-meta', text: there ? t('Already on your shelf') : metaLine(p) }),
+          other && h('div', { class: 'book-meta', text: t('Another version: you have it as {format}', { format: formatName(formatOf(other)).toLowerCase() }) }),
           p.note && h('p', { class: 'card-excerpt', text: p.note }),
           h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text })))));
     };
@@ -2157,6 +2165,16 @@ function openDescribe(shared, found) {
       // and a barcode that was scanned first but found nowhere is its ISBN.
       if (found && picked.length === 1) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
       if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
+      // Another version of a book you have (its audiobook): a book of its own, which in the booklog
+      // is a reread of that one. What the assistant left out, the book you have says.
+      const other = versionOfShelf(book);
+      if (other) {
+        book.versionOf = other.id;
+        for (const key of ['language', 'categories', 'tags', 'series', 'seriesNumber']) {
+          const missing = book[key] == null || book[key] === '' || (Array.isArray(book[key]) && !book[key].length);
+          if (missing && other[key] != null && other[key] !== '') book[key] = structuredClone(other[key]);
+        }
+      }
       // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
       if (note) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
       // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.

@@ -219,13 +219,38 @@ class SharedTests(TestCase):
             'publisher': 'Random House Audio', 'date': '2018', 'duration': '26u 24m', 'format': 'audiobook',
             'series': 'The Targaryen Dynasty', 'seriesNumber': 2, 'language': 'en', 'cover': 'https://m.media-amazon.com/l.jpg'}])
 
+    @override_settings(OPENAI_API_KEY='test-key', OPENAI_MODEL='test-model')
+    def test_the_assistant_adds_categories_tags_and_a_sentence_to_what_was_found(self):
+        from django.utils import timezone
+        from shelf.models import Book
+        Book.objects.create(user=get_user_model().objects.get(username='reader'), uid='x', modified=timezone.now(), changed=timezone.now(),
+                            data={'title': 'x', 'categories': ['fantasy']})
+        says = {**PIRANESI, 'title': 'Fire and Blood', 'categories': ['fantasy', 'made-up'], 'tags': ['targaryen'],
+                'note': 'Kroniek van het huis Targaryen.', 'language': 'nl', 'duration': '1u'}
+        with mock.patch.object(intake, 'get_json', return_value=self.AUDIBLE), \
+                mock.patch.object(intake, 'post_json', return_value=model_says(says)) as model:
+            book = self.ask(url='https://www.audible.com/pd/B07CL3F5H2').json()['books'][0]
+        question = model.call_args[0][1]['messages'][1]['content']
+        self.assertIn('Titel: Fire & Blood', question)
+        self.assertIn('Reeks: The Targaryen Dynasty #2', question)
+        self.assertEqual((book['categories'], book['tags'], book['note']), (['fantasy'], ['targaryen'], 'Kroniek van het huis Targaryen.'))
+        # What the catalogue said stays: its title, length and language, not the model's.
+        self.assertEqual((book['title'], book['duration'], book['language']), ('Fire & Blood', '26u 24m', 'en'))
+
+    @override_settings(OPENAI_API_KEY='test-key', OPENAI_MODEL='test-model')
+    def test_a_found_book_still_comes_when_the_assistant_fails(self):
+        with mock.patch.object(intake, 'get_json', return_value=self.AUDIBLE), \
+                mock.patch.object(intake, 'post_json', side_effect=OSError('down')):
+            book = self.ask(url='https://www.audible.com/pd/B07CL3F5H2').json()['books'][0]
+        self.assertEqual((book['title'], book.get('categories')), ('Fire & Blood', None))
+
     def test_each_audible_store_is_asked_first_then_the_american_one(self):
         with mock.patch.object(intake, 'get_json', side_effect=[{'product': {'asin': 'B0X'}}, self.AUDIBLE]) as asked:
             self.assertEqual(intake.lookup_audible('https://www.audible.nl/pd/B07CL3F5H2')['duration'], '26u 24m')
         self.assertEqual([c[0][0].split('/1.0')[0] for c in asked.call_args_list], ['https://api.audible.de', 'https://api.audible.com'])
         self.assertIsNone(intake.audible_asin('https://www.audible.com/search?keywords=dune'))
         self.assertIsNone(intake.audible_asin('https://example.org/pd/B07CL3F5H2'))
-        self.assertEqual((intake.duration(540), intake.duration(724)), ('9u', '12u 04m'))
+        self.assertEqual((intake.duration(540), intake.duration(724)), ('9u', '12u 4m'))
 
     def test_without_an_isbn_and_without_a_model_it_says_so(self):
         with mock.patch.object(intake, 'public_page', return_value='<html>nothing here</html>'):

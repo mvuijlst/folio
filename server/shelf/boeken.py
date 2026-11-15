@@ -247,17 +247,48 @@ def author_names(repo):
     return names
 
 
-def books(repo):
+def split_versions(groups, claims):
+    """Take the posts of another version out of the book they are rereads of. `groups`: {root:
+    [posts]}; `claims`: {key: slugs}, for each book on the shelf that is another version of a
+    book (the audiobook of an e-book you have): its own first post and those of its reads.
+    Those posts become a group of their own under `key`. A book's first post stays its own."""
+    for key, slugs in (claims or {}).items():
+        mine = []
+        for root, posts in list(groups.items()):
+            if root == key:
+                continue
+            taken = [p for p in posts if p['slug'] in slugs and p['slug'] != root]
+            if taken:
+                groups[root] = [p for p in posts if p not in taken]
+                mine += taken
+        if mine:
+            groups[key] = sorted(mine + groups.get(key, []), key=lambda p: p['_when'])
+    return groups
+
+
+def version_claims(datas):
+    """{key: slugs} for split_versions, from books as the app keeps them: each book that is
+    another version (`versionOf`) and is in the booklog claims its own posts."""
+    claims = {}
+    for data in datas:
+        if data.get('versionOf') and data.get('boeken'):
+            claims[str(data['boeken'])] = {str(data['boeken'])} | {
+                str(r['boeken']) for r in data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken')}
+    return claims
+
+
+def books(repo, claims=None):
     """The booklog as Folio books: [{'key', 'list', 'at', 'added', 'isbns', 'cover_file', 'reviews',
     'review_covers', 'fields'}], oldest first.
 
     `fields` holds the FIELDS that have a value; `list` is the reading list the book is on
-    and `at` since when (both taken from the latest read).
+    and `at` since when (both taken from the latest read). `claims`: see split_versions.
     """
     names = author_names(repo)
     groups = {}
     for post in read_posts(repo):
         groups.setdefault(str(post.get('rereadOf') or post['slug']), []).append(post)
+    split_versions(groups, claims)
 
     out = []
     for key, reads in groups.items():

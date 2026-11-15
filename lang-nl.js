@@ -361,6 +361,7 @@ export default {
   'Edit': 'Bewerken',
   'Already on {lists}': 'Staat al op {lists}',
   'Already on your shelf': 'Staat al in je boekenkast',
+  'Another version: you have it as {format}': 'Een andere versie: je hebt het al als {format}',
   'Put on {lists}': 'Op {lists} gezet',
   'Another copy': 'Nog een exemplaar',
   'Looking up {isbn}…': '{isbn} opzoeken…',

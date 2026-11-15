@@ -100,6 +100,14 @@ Books scanned before lists existed count as being in the *Library*.
   `format`; a post that doesn't is an audiobook if it has a length, and otherwise isn't said
   to be anything. (The booklog's audiobook and kindle categories, which said this before, are
   gone.)
+- **Another version of a book you have** (its audiobook, where you have the e-book) is a book
+  of its own: its own format, lists, progress and reads. Adding it from a description or a
+  shared link, when the shelf has the book in another format, offers it as *Another version*,
+  and what the find leaves out (language, categories, tags, series) comes from the book you
+  have. In the booklog it is a reread of that book (`rereadOf`) in its own format; the book
+  remembers which one it is another version of (`versionOf`), so publishing changes only its
+  own posts and the import gives it back only its own reads. A book added some other way that
+  the booklog already has in another format is taken for another version when it is published.
 - **Authors and others.** A book has people: those who wrote it, and those who drew, coloured,
   lettered, translated or read it, each with what they did (*beeld*, *kleur*, *stem*,
   *vertaling*: the booklog's own free words). No role means an author. A book shows its
@@ -176,14 +184,15 @@ Installed, the app is in the phone's share menu:
 - **An Audible page** (from the Audible app's share menu, or its address pasted into *Describe
   it*) is that audiobook: Audible's catalogue is asked for it by the number in the address (the
   ASIN), without the assistant. It comes with its author, its narrator (as `stem`), publisher,
-  year, length, series, language and the square audiobook cover, as an audiobook; categories
-  and tags are left to you. Each Audible store has its own numbers, so the link's own store is
+  year, length, series, language and the square audiobook cover, as an audiobook. The
+  assistant, where there is one, adds categories, tags and the one sentence, as it does for a
+  book found by its ISBN. Each Audible store has its own numbers, so the link's own store is
   asked first and then the American one (audible.nl is the German store).
 - **Anything else** (a bookshop's page, a Goodreads link, a line of text) is looked up and
   proposed for adding, like a description. An ISBN in the text or on the shared page settles
-  which book and edition it is, with Open Library and without the assistant; only without an
-  ISBN is the assistant asked. The server fetches a shared page only over https from the
-  public internet.
+  which book and edition it is, with Open Library; the assistant then only adds categories,
+  tags and the sentence. Without an ISBN the assistant is asked for the whole book. The
+  server fetches a shared page only over https from the public internet.
 
 The service worker receives what is shared (`share_target` in the manifest posts it to
 `share`, which no server answers) and opens the app with it, so sharing works offline up to

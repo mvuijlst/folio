@@ -353,9 +353,9 @@ def audible_asin(url):
 
 
 def duration(minutes):
-    """1584 → '26u 24m', 540 → '9u': the booklog's way of saying a length."""
+    """1584 → '26u 24m', 540 → '9u', 724 → '12u 4m': as publishing writes a length in the booklog."""
     hours, rest = divmod(int(minutes), 60)
-    return f'{hours}u {rest:02d}m' if rest else f'{hours}u'
+    return f'{hours}u {rest}m' if hours and rest else f'{hours}u' if hours else f'{rest}m'
 
 
 def lookup_audible(url):
@@ -488,6 +488,33 @@ class Booklog:
         return next((known for known in self.tags if known.replace('-', '') == slug.replace('-', '')), slug)
 
 
+def classify(proposal, categories):
+    """A book found exactly (by its ISBN, on Audible) gets what only the assistant gives: categories
+    from the booklog's list, tags and the one dry sentence, and the language if the catalogue didn't
+    say. The rest stays as the catalogue has it. Without an assistant, or when it fails, the book
+    comes as it is."""
+    writers = [a['name'] for a in proposal.get('authors') or [] if a.get('name') and not a.get('role')]
+    series = proposal.get('series')
+    number = proposal.get('series_number')
+    number = int(number) if isinstance(number, float) and number.is_integer() else number
+    said = '\n'.join(filter(None, [
+        f'Titel: {proposal["title"]}',
+        writers and 'Auteur: ' + ', '.join(writers),
+        series and f'Reeks: {series}' + (f' #{number}' if number else ''),
+        proposal.get('year') and f'Jaar: {proposal["year"]}',
+        proposal.get('duration') and 'Audioboek',
+        'Dit is precies één boek: geef één entry.']))
+    try:
+        answer = analyse(said, categories)
+    except IntakeError:
+        return proposal
+    if not answer:
+        return proposal
+    first = answer[0]
+    return {**proposal, 'categories': first.get('categories') or [], 'tags': first.get('tags') or [],
+            'note': first.get('note') or '', 'language': proposal.get('language') or first.get('language')}
+
+
 def propose(text, booklog=None, categories=(), url='', image=None):
     """`text` (and a shared `url`, or a photographed cover) → books as the app keeps them, ready to be shown as proposals."""
     categories = set(booklog.categories if booklog else categories)
@@ -497,7 +524,7 @@ def propose(text, booklog=None, categories=(), url='', image=None):
         isbn = find_isbn(text) or (isbn_from_url(url) if url else '')
         known = lookup_isbn(isbn) if isbn else None
     if known:
-        proposals = [known]
+        proposals = [classify(known, categories)]
     else:
         proposals = analyse('\n'.join(filter(None, [text, url])), categories, image)
         for proposal in proposals:

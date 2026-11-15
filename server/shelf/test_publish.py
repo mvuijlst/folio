@@ -501,6 +501,45 @@ class AddToBooklogTests(BooklogCase):
         self.assertNotIn('boeken', book)
         self.assertEqual(self.publish()[0]['failed'], 0)
 
+    def test_another_version_is_a_reread_in_the_booklog_and_a_book_of_its_own_on_the_shelf(self):
+        # You have Dune (in the booklog, read twice); now you are listening to its audiobook.
+        self.scan(title='Dune', isbn='', publisher='Macmillan Audio', pages=None, format='audiobook', duration='21u 2m',
+                  versionOf='boeken-dune', people=[{'name': 'Frank Herbert', 'role': ''}, {'name': 'Simon Vance', 'role': 'stem'}],
+                  lists={'reading': {'at': '2026-11-14T10:00:00.000Z'}})
+        counts, said = self.publish()
+        self.assertEqual(counts['published'], 1, said)
+        post = self.post('dune-herlezing-2')
+        self.assertIn('slug: "dune-herlezing-2"\nrereadOf: "dune"\n', post)
+        self.assertIn('format: "audiobook"\nduration: "21u 2m"\ndurationLeft: "21u 1m"\n', post)
+        self.assertIn('status: "reading"\n', post)
+        self.assertNotIn('pagesRead', post)
+        version = Book.objects.get(uid='s1').data
+        self.assertEqual((version['boeken'], version['versionOf']), ('dune-herlezing-2', 'boeken-dune'))
+        # Back from the booklog: each keeps its own reads.
+        self.import_booklog()
+        self.assertEqual(sorted(r['boeken'] for r in self.book('dune').data['reviews']), ['dune', 'dune-herlezing'])
+        version = Book.objects.get(uid='s1').data
+        self.assertEqual((version['format'], version['duration'], set(version['lists'])), ('audiobook', '21u 2m', {'reading'}))
+        self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
+        # Finished: its own post is finished, not the e-book's.
+        self.change('dune-herlezing-2', lambda d: (d['lists'].pop('reading'), d['lists'].update(read={'at': '2026-11-20T10:00:00.000Z'}),
+                                                   d.update(reviews=[{'id': 'r9', 'date': '2026-11-20', 'rating': 8, 'text': 'Vance!'}])))
+        self.publish()
+        post = self.post('dune-herlezing-2')
+        self.assertNotIn('status:', post)
+        self.assertIn('rating: 8\n', post)
+        self.assertIn('rating: 10\n', self.post('dune-herlezing'))
+        self.import_booklog()
+        self.assertEqual(len(self.book('dune').data['reviews']), 2)
+
+    def test_a_book_in_another_format_is_taken_for_another_version(self):
+        Book.objects.filter(uid='boeken-dune').update(data={**self.book('dune').data, 'format': 'ebook'})
+        self.scan(title='Dune', isbn='', format='audiobook', duration='21u 2m')
+        counts, said = self.publish()
+        self.assertEqual((counts['published'], counts['failed']), (1, 0), said)
+        self.assertIn('rereadOf: "dune"\n', self.post('dune-herlezing-2'))
+        self.assertEqual(Book.objects.get(uid='s1').data['versionOf'], 'boeken-dune')
+
     def test_a_book_the_booklog_has_but_the_shelf_lost_is_tied_to_its_post(self):
         # Dune is in the booklog as read, but was deleted from the shelf; the scanned copy is being read again.
         Book.objects.filter(uid='boeken-dune').update(deleted=True, data={})
