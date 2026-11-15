@@ -75,8 +75,9 @@ Books scanned before lists existed count as being in the *Library*.
   role, in a book's details (for the book, which is its latest read) and under *Edition read*
   in a review (for that read). Any name leads to all of that person's books
   (`#/author/<name>`), whatever they did on them.
-- **A book without a cover** offers *Search for a cover*: a picture search for its title and
-  author, large pictures only, in a new tab. Copy one and paste it in the book's details.
+- **A book without a cover**, or with only the photograph you took when adding it, offers a
+  search for a (better) cover: a picture search for its title and author, large pictures only,
+  in a new tab. Copy one and paste it in the book's details.
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
 - **Reviews.** A book can have any number, each with an optional reading date and an optional

@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.21.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.21.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2320,14 +2320,15 @@ async function tintSheet(book) {
   $('sheet').classList.toggle('tinted', !!colour);
 }
 
-/** A picture search for a book that has no cover: large images of its title and author, in a new tab. */
+/** A picture search for a book that has no cover, or only the photograph taken of it when it
+ *  was added: large images of its title and author, in a new tab. */
 function coverSearch(book) {
-  if (book.cover || book.thumb || !book.title) return null;
+  if (book.cover || !book.title) return null;   // `thumb` alone is your own photograph
   const q = [book.title, (book.author || '').split(',')[0]].filter(Boolean).join(' ');
   return h('a', {
     class: 'link-btn cover-search', target: '_blank', rel: 'noopener',
     href: `https://www.google.com/search?tbm=isch&tbs=isz:l&q=${encodeURIComponent(q)}`,
-  }, icon('search'), t('Search for a cover'));
+  }, icon('search'), book.thumb ? t('Search for a better cover') : t('Search for a cover'));
 }
 
 /* From a book to the one before or after it in the list it was opened from: swipe right or
