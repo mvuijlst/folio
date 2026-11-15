@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.25.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.25.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2994,8 +2994,13 @@ function openExport() {
 
 /* ───────────────────────── Settings sheet ───────────────────────── */
 
+/** Offered only on a phone or tablet (a touch screen): on a desktop the browser tab does fine,
+    and the browser has its own install button for whoever wants one. */
 let installPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; });
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  if (matchMedia('(pointer: coarse)').matches) installPrompt = e;
+});
 
 function openSettings() {
   const chips = Object.entries(OCR_LANGS).map(([code, label]) => {
