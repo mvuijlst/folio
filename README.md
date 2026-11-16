@@ -12,8 +12,8 @@ Folio is a personal project, used every day by its author, with one deployment. 
 works for anyone: it needs no account and keeps your shelf on your device. The optional server
 is built for that one deployment: accounts are made by hand in the Django admin (there is no
 sign-up), and publishing goes to one particular Hugo booklog,
-[boeken.tsuk.org](https://boeken.tsuk.org). Every push to `main` deploys. There are no
-releases, the app has no automated tests (the server has), and no license has been chosen yet.
+[boeken.tsuk.org](https://boeken.tsuk.org). Every push to the default branch deploys. There are no
+releases, and the app has no automated tests (the server has).
 
 ## What it does
 
@@ -63,3 +63,8 @@ Fonts: Fraunces and Instrument Sans (SIL Open Font License). Cover reading:
 icons: [Lucide](https://lucide.dev) (ISC).
 
 Folio began as *Bookscan*, which is why a few internal names still say so.
+
+## License
+
+[MIT](LICENSE). The fonts and libraries in `fonts/` and `vendor/` keep their own licenses,
+listed above.
