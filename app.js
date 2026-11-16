@@ -1423,7 +1423,11 @@ function surnameFirst(name) {
   while (cut > 1 && PARTICLES.has(words[cut - 1].toLowerCase())) cut--;
   return fold(`${words.slice(cut).join(' ')} ${words.slice(0, cut).join(' ')}`);
 }
-const titleKey = (b) => fold(b.title).replace(/^[^\p{L}\p{N}]+/u, '').replace(/^(the|a|an|de|het|een|le|la|les|l|der|die|das|un|une) /, '');
+/** "The Lord of the Rings" → "lord of the rings", "L'Étranger" → "etranger", "'t Hart" → "hart":
+ *  a title or a series name as it is put in order, without the article it starts with. */
+const sortKey = (s) => fold(s).replace(/^[^\p{L}\p{N}]+/u, '')
+  .replace(/^(?:(?:the|a|an|de|het|een|t|le|la|les|der|die|das|ein|eine|un|une|el|los|las|il|lo|gli)\s+|l['’]\s*)(?=[\p{L}\p{N}])/u, '');
+const titleKey = (b) => sortKey(b.title);
 /** The day a book was last read ('' if it wasn't, or it isn't said when). */
 const lastRead = (b) => (b.reviews || []).reduce((latest, r) => (r.date && r.date > latest ? r.date : latest), '');
 /** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons. */
@@ -1441,7 +1445,7 @@ const SORTS = {
   rating: { name: () => t('Rating'), dir: -1, value: (b) => b.rating ?? null, heading: (v) => (v == null ? t('Not rated') : `★ ${v}`) },
   year: { name: () => t('Year published'), dir: -1, value: (b) => yearOf(b.date) || null, heading: (v) => v || t('No year') },
   length: { name: () => t('Length'), dir: 1, value: (b) => lengthOf(b), heading: () => '' },
-  series: { name: () => t('Series'), dir: 1, value: (b) => (b.series ? `${fold(b.series)} ${String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0')}` : null), heading: (v, b) => b.series || t('Not in a series') },
+  series: { name: () => t('Series'), dir: 1, value: (b) => (b.series ? `${sortKey(b.series)} ${String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0')}` : null), heading: (v, b) => b.series || t('Not in a series') },
 };
 
 /** What the order is kept under: each place has its own. */
@@ -1574,7 +1578,7 @@ function drawActiveFilters(facets) {
 
 /** All series, by name: a few covers, how many books, how many of them read. */
 function renderSeriesIndex(query) {
-  const all = [...seriesMap()].sort((a, b) => a[0].localeCompare(b[0], LOCALE, { sensitivity: 'base' }));
+  const all = [...seriesMap()].sort((a, b) => sortKey(a[0]).localeCompare(sortKey(b[0]), LOCALE, { sensitivity: 'base' }) || a[0].localeCompare(b[0], LOCALE));
   const found = query ? all.filter(([name, members]) => fold(name + ' ' + members.map((b) => b.author).join(' ')).includes(query)) : all;
   $('searchWrap').hidden = all.length < 8 && !query;
   shown = { rows: [], next: 0, lastDay: '', key: 'series', current: null, query, series: null, heading: () => '' };
