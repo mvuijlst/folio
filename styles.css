@@ -146,6 +146,7 @@ img { display: block; max-width: 100%; }
   padding: calc(var(--safe-t) + 20px) 20px calc(var(--safe-b) + 170px);
   animation: fadeUp .4s ease both;
 }
+@keyframes chipsIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
 @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 .top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 8px 0 20px; }
@@ -863,6 +864,8 @@ div.list-name { cursor: default; }
     margin: -20px -8px 0; padding: 20px 8px 10px;
     background: var(--bg);
   }
+  .tools.tucked .active-filters { display: none; }
+  .tools:not(.tucked) .active-filters { animation: chipsIn .18s ease both; }
   .tools::after {
     content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 12px;
     background: linear-gradient(var(--bg), transparent); pointer-events: none;

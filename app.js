@@ -1603,6 +1603,42 @@ window.addEventListener('scroll', () => {
   if (more && more.getBoundingClientRect().top < window.innerHeight + 800) appendRows();
 }, { passive: true });
 
+// On a wide screen the tools stay at the top of the window. The chips of the filters that are
+// on can fill a few rows there, so they step aside while you scroll down through the books and
+// come back as soon as you scroll up (or reach the top, or tab into them).
+{
+  const wide = matchMedia('(min-width: 900px)');
+  let lastY = window.scrollY, travel = 0;
+  const tuck = (on) => {
+    const tools = $('tools');
+    if (tools.classList.contains('tucked') === on) return;
+    // While the tools are stuck, the chips leaving or rejoining the flow would make the books
+    // under them jump: keep those where they are (browsers with scroll anchoring already did;
+    // this is for the ones without). At rest, the chips simply push the books down again.
+    const stuck = tools.getBoundingClientRect().top <= 1 && window.scrollY > 0;
+    const before = $('library').getBoundingClientRect().top;
+    tools.classList.toggle('tucked', on);
+    const shift = $('library').getBoundingClientRect().top - before;
+    if (stuck && shift) window.scrollBy(0, shift);
+    lastY = window.scrollY;
+    travel = 0;
+  };
+  const update = () => {
+    const tools = $('tools');
+    const y = window.scrollY, delta = y - lastY;
+    lastY = y;
+    const stuck = tools.getBoundingClientRect().top <= 1 && y > 0;
+    const tabbedIn = $('activeFilters').contains(document.activeElement) && document.activeElement.matches(':focus-visible');
+    if (!wide.matches || !stuck || tabbedIn) return tuck(false);
+    travel = Math.sign(delta) === Math.sign(travel) ? travel + delta : delta;
+    if (travel > 40) tuck(true);
+    else if (travel < -8) tuck(false);
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  wide.addEventListener('change', update);
+  document.addEventListener('focusin', (e) => { if ($('tools').contains(e.target) && e.target.matches(':focus-visible')) tuck(false); });
+}
+
 function appendRows(upTo = shown.next + PAGE) {
   $('more')?.remove();
   const frag = document.createDocumentFragment();
