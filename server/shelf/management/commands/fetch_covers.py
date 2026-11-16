@@ -1,4 +1,4 @@
-"""Gives every book whose cover still lives at a book catalogue a copy on this server.
+"""Gives every edition whose cover still lives at a book catalogue a copy on this server.
 
     manage.py fetch_covers [--user NAME]
 
@@ -24,6 +24,6 @@ class Command(BaseCommand):
             users = users.filter(username=user)
         for account in users:
             done = len(covers.adopt(account, limit=None))
-            left = sum(1 for b in Book.objects.filter(user=account, deleted=False, data__cover__startswith='https://')
-                       if covers.wanted(b.data.get('cover')))
-            self.stdout.write(f'{account.get_username()}: {done} covers kept, {left} could not be fetched')
+            left = sum(1 for b in Book.objects.filter(user=account, deleted=False) for place in covers.places(b.data)
+                       if str(place.get('cover') or '').startswith('https://') and covers.wanted(place.get('cover')))
+            self.stdout.write(f'{account.get_username()}: {done} books given covers, {left} could not be fetched')

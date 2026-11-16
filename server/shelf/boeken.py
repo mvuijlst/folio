@@ -21,12 +21,13 @@ BRUSSELS = ZoneInfo('Europe/Brussels')
 STATUS_LISTS = {'read': 'read', 'reading': 'reading', 'to-read': 'to-read', 'abandoned': 'abandoned'}
 # People with one of these roles (or none) wrote the book; anyone else contributed to it.
 AUTHOR_ROLES = {'auteur', 'auteurs', 'author', 'schrijver', 'tekst', 'writer'}
-# What the import owns in a book: on every run these are set from the booklog, or removed.
-FIELDS = ['title', 'author', 'people', 'format', 'publisher', 'date', 'pages', 'isbn', 'cover', 'coverRatio', 'coverSource', 'rating',
-          'series', 'seriesNumber', 'seriesLabel', 'language', 'olid', 'duration', 'durationLeft', 'issues', 'pagesRead',
+# What the import owns in a book (the work): on every run these are set from the booklog, or
+# removed. What it owns in an edition is EDITION (below), with the cover's proportions and source.
+FIELDS = ['title', 'author', 'rating', 'series', 'seriesNumber', 'seriesLabel', 'olid', 'durationLeft', 'issues', 'pagesRead',
           'categories', 'tags', 'boeken', 'url', 'reviewed', 'reads']
 # The reads of a book also become its reviews (`reviews` in a book), which the app can add to
-# and edit; see review_sum for how the import tells its own text from an edited one.
+# and edit; see review_sum for how the import tells its own text from an edited one. Each read
+# is of an edition of the book (`ed` in a review: see shelf/works.py).
 
 FRONT_MATTER = re.compile(r'^---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n(.*))?$', re.S)
 
@@ -119,8 +120,8 @@ def format_of(post):
 # The people of a book: who wrote it, and who drew, coloured, lettered, translated or read it.
 # In the booklog a post lists them all under `authors` (their slugs) and says under `roles`
 # what each did, where that is worth saying. Here they are `people`: [{'name', 'role'}], in
-# the same order, the role '' for someone who simply wrote it. A book has the people of its
-# latest read; each read's edition has its own (the audiobook has a voice, the paperback not).
+# the same order, the role '' for someone who simply wrote it. Each edition of a book has its
+# own (the audiobook has a voice, the paperback not); the book itself names its writers (`author`).
 
 def tidy_people(people):
     """`people` as it is compared and published: names and roles as plain text, no one twice or nameless."""
@@ -200,7 +201,8 @@ def in_step(review):
     left = str(review.get('sum') or '')
     version = int(left[0]) if left[:2] in ('2:', '3:', '4:') else 1
     edition = review.get('edition') or {}
-    if any(key in edition for key in EDITION if key not in EDITION_AT.get(version, EDITION_AT[2])):
+    # (A fingerprint from before editions can't tell: every read has an edition now, the book's own.)
+    if version > 1 and any(key in edition for key in EDITION if key not in EDITION_AT.get(version, EDITION_AT[2])):
         return False   # something the fingerprint knows nothing of was said in the app since
     if version > 1:
         return review_sum(review, version=version) == left
@@ -247,48 +249,22 @@ def author_names(repo):
     return names
 
 
-def split_versions(groups, claims):
-    """Take the posts of another version out of the book they are rereads of. `groups`: {root:
-    [posts]}; `claims`: {key: slugs}, for each book on the shelf that is another version of a
-    book (the audiobook of an e-book you have): its own first post and those of its reads.
-    Those posts become a group of their own under `key`. A book's first post stays its own."""
-    for key, slugs in (claims or {}).items():
-        mine = []
-        for root, posts in list(groups.items()):
-            if root == key:
-                continue
-            taken = [p for p in posts if p['slug'] in slugs and p['slug'] != root]
-            if taken:
-                groups[root] = [p for p in posts if p not in taken]
-                mine += taken
-        if mine:
-            groups[key] = sorted(mine + groups.get(key, []), key=lambda p: p['_when'])
-    return groups
+def books(repo):
+    """The booklog as Folio books, one per `rereadOf` group, oldest first: [{'key', 'list', 'at',
+    'added', 'isbns', 'titles', 'open', 'posts', 'fields'}].
 
-
-def version_claims(datas):
-    """{key: slugs} for split_versions, from books as the app keeps them: each book that is
-    another version (`versionOf`) and is in the booklog claims its own posts."""
-    claims = {}
-    for data in datas:
-        if data.get('versionOf') and data.get('boeken'):
-            claims[str(data['boeken'])] = {str(data['boeken'])} | {
-                str(r['boeken']) for r in data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken')}
-    return claims
-
-
-def books(repo, claims=None):
-    """The booklog as Folio books: [{'key', 'list', 'at', 'added', 'isbns', 'cover_file', 'reviews',
-    'review_covers', 'fields'}], oldest first.
-
-    `fields` holds the FIELDS that have a value; `list` is the reading list the book is on
-    and `at` since when (both taken from the latest read). `claims`: see split_versions.
+    `fields` holds the work's FIELDS that have a value; `list` is the reading list the book is
+    on and `at` since when (both taken from the latest read). `posts` are the group's posts,
+    oldest first, each as {'slug', 'edition', 'cover_file', 'review'}: the edition it says was
+    read (its own facts, no gaps filled from other posts), the original of its cover when the
+    repository has it, and its review (None for a post with neither a reading date nor a text).
+    `open` is the post of a read that is planned or running (the latest, when its status is
+    to-read or reading), or None. `titles` are the titles the posts have.
     """
     names = author_names(repo)
     groups = {}
     for post in read_posts(repo):
         groups.setdefault(str(post.get('rereadOf') or post['slug']), []).append(post)
-    split_versions(groups, claims)
 
     out = []
     for key, reads in groups.items():
@@ -309,28 +285,17 @@ def books(repo, claims=None):
             number = None
         elif float(number).is_integer():
             number = int(number)
-        year = fact('year')
-        cover = str(fact('cover') or '')
-        cover_file = Path(repo, 'media', cover.lstrip('/')) if cover.startswith('/') else None
+        status = str(latest.get('status') or 'read')
         fields = {
-            'title': str(latest['title']),
+            'title': str(reads[0]['title']),   # the import keeps the one the app has while any read has it
             'author': ', '.join(names.get(s, s) for s in writers),
-            'people': people_of(slugs, fact('roles'), names),
-            'format': format_of(latest),   # of the latest read; each read's edition has its own
-            'publisher': str(fact('publisher') or ''),
-            'date': f'{year}–{fact("year_until")}' if year and fact('year_until') else str(year or ''),
-            'pages': fact('pages') if isinstance(fact('pages'), int) else None,
-            'isbn': str(fact('isbn') or ''),
-            'cover': SITE + cover if cover.startswith('/') else '',
             'rating': rated[-1]['rating'] if rated else None,
             'series': str(series[0]) if series else '',
             # Where the book stands in its series: the number sorts (4.5 comes between 4 and 5),
             # the label, if any, is what is shown instead ("4/5" for an omnibus).
             'seriesNumber': number,
             'seriesLabel': str(fact('series_number_label') or ''),
-            'language': str(fact('language') or ''),
             'olid': str(fact('olid') or ''),
-            'duration': str(fact('duration') or ''),
             'durationLeft': str(latest.get('durationLeft') or ''),
             'issues': fact('issues'),
             'pagesRead': latest.get('pagesRead'),
@@ -341,35 +306,37 @@ def books(repo, claims=None):
         }
         # One review per read: when it was read, the rating, and what was written about it. A
         # book not read yet has no reading date, and only an entry if something was written.
-        reviews, review_covers = [], {}
+        posts = []
         for post in reads:
-            was_read = str(post.get('status') or 'read') in ('read', 'abandoned')
+            said = str(post.get('status') or 'read')
+            was_read = said in ('read', 'abandoned')
             review = {
                 'id': uid_for(post['slug']),
                 'date': post['_day'] if was_read else '',
                 'rating': post['rating'] if isinstance(post.get('rating'), int) else None,
                 'text': post['_text'],
-                'edition': edition_of(post, names),   # what was read that time: its own publisher, length, cover, people
                 'boeken': str(post['slug']),
                 'url': post['_url'],
             }
-            if was_read or review['text']:
-                reviews.append(review)   # its `sum` follows once its cover has a thumbnail (import_boeken)
-                own = str(post.get('cover') or '')
-                picture = Path(repo, 'media', own.lstrip('/')) if own.startswith('/') else None
-                if picture and picture.is_file():
-                    review_covers[review['id']] = picture
-        status = str(latest.get('status') or 'read')
+            if said == 'abandoned':
+                review['dnf'] = True
+            own = str(post.get('cover') or '')
+            picture = Path(repo, 'media', own.lstrip('/')) if own.startswith('/') else None
+            posts.append({
+                'slug': str(post['slug']),
+                'edition': edition_of(post, names),   # what was read that time: its own publisher, length, cover, people
+                'cover_file': picture if picture and picture.is_file() else None,
+                'review': review if was_read or review['text'] else None,
+            })
         out.append({
             'key': key,
             'list': STATUS_LISTS.get(status, 'read'),
             'at': latest['_when'],
             'added': reads[0]['_when'],
             'isbns': {str(p['isbn']) for p in reads if p.get('isbn')},
-            # The original image, when the repository has it (covers live in its media/ folder).
-            'cover_file': cover_file if cover_file and cover_file.is_file() else None,
-            'reviews': reviews,
-            'review_covers': review_covers,   # review id → the original picture of the edition read
+            'titles': {str(p['title']) for p in reads},
+            'open': str(latest['slug']) if status in ('to-read', 'reading') else None,
+            'posts': posts,
             'fields': {k: v for k, v in fields.items() if v not in ('', None, [])},
         })
     out.sort(key=lambda b: b['added'])

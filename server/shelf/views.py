@@ -6,7 +6,7 @@
   POST /api/cover    an image as the request body, or {"url"} of a catalogue cover → {"cover", "coverFull", "coverRatio"}
   POST /api/suggest  {"text", "url"} → {"books": [proposal…]}: the book(s) a description or a
                      shared page is about (by ISBN where there is one, else the assistant)
-  POST /api/sync     {"since": cursor | null, "changes": [change…],
+  POST /api/sync     {"schema": 2, "since": cursor | null, "changes": [change…],
                       "listsSince": cursor | null, "lists": [change…]}
                      → {"cursor", "changes": [change…], "lists": [change…]}
 
@@ -14,6 +14,10 @@ Books travel in "changes" and the user's lists in "lists". A change is {"id", "m
 "deleted", "book"} (or "list"). The server keeps the newest change for each record (by
 "modified") and answers with everything stored after the cursor that the device doesn't
 already have, so every device converges on the same shelf.
+
+A book is a work with its editions (shelf/works.py, `schema` 2). A copy of the app from before
+editions would write books in the old shape over new ones, so its syncs are refused (409) with
+a sentence it shows under Settings; it updates itself the next time it is opened.
 """
 import base64
 import json
@@ -33,13 +37,15 @@ from django.views.decorators.http import require_GET, require_POST
 
 from django.conf import settings
 
-from . import covers, intake
+from . import covers, intake, works
 from .models import Book, List
 
 logger = logging.getLogger(__name__)
 
 MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
+SCHEMA = 2                    # the shape of a book the app must speak (works.py)
+OUT_OF_DATE = 'This version of Folio is out of date. Close and reopen it to update.'
 LOGIN_LIMIT = 10              # failed attempts …
 LOGIN_WINDOW = 15 * 60        # … per this many seconds, per address and per username
 
@@ -213,7 +219,7 @@ def clean_change(raw, key):
 
 
 # What publishing to the booklog adds to a book and to its reads (shelf/publish.py).
-PUBLISHED_KEYS = ('boeken', 'url', 'boekenState', 'versionOf')
+PUBLISHED_KEYS = ('boeken', 'url', 'boekenState')
 PUBLISHED_REVIEW_KEYS = ('boeken', 'url', 'sum')
 
 
@@ -240,6 +246,7 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
     """Store the client's changes that are newer than ours; return the rows the client lacks, by uid."""
     changes = [c for c in (clean_change(raw, model.KEY) for raw in raw_changes) if c]
     existing = {r.uid: r for r in model.objects.filter(user=user, uid__in=[c['uid'] for c in changes])}
+    statuses = works.status_lists(user) if model.KEY == 'book' and changes else None
     accepted, stale = set(), set()
     for c in changes:
         row = existing.get(c['uid'])
@@ -250,9 +257,15 @@ def merge(model, user, raw_changes, since, now, tombstones_when_fresh=False):
         if c['drop'] and row and not row.deleted and row.data.get('boeken'):
             # A book given up for good that is in the booklog: its tombstone remembers which,
             # so the page there can go too (shelf/publish.py). Clients never see this.
-            # Which posts are its own: another version of a book has some of that book's.
+            # Which posts are its own: those of its reads, whichever edition they were of.
             posts = [row.data['boeken'], *(r['boeken'] for r in row.data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken'))]
             c['data'] = {'drop': {'boeken': row.data['boeken'], 'title': row.title, 'posts': list(dict.fromkeys(posts))}}
+        if model.KEY == 'book' and not c['deleted']:
+            # As works.py has a book: in the old shape it is made new first. When that changes
+            # anything the device gets the book back.
+            kept = works.upgrade(c['data'], statuses)
+            if kept != c['data']:
+                c['data'] = kept
         sent = c['data']
         if row and not c['deleted'] and not row.deleted and model.KEY == 'book':
             c['data'] = kept_from_publishing(row.data, c['data'])
@@ -286,6 +299,8 @@ def sync(request):
     data = body(request)
     if data is None:
         return error('Bad request')
+    if data.get('schema') != SCHEMA:
+        return error(OUT_OF_DATE, 409)
     raw_books, raw_lists = data.get('changes') or [], data.get('lists') or []
     if not all(isinstance(raw, list) and len(raw) <= MAX_CHANGES for raw in (raw_books, raw_lists)):
         return error('Bad request')

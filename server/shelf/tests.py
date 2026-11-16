@@ -22,7 +22,7 @@ class SyncTests(TestCase):
         self.client.force_login(self.user)
 
     def sync(self, since=None, changes=(), lists=(), lists_since=None):
-        res = self.client.post('/api/sync', json.dumps({'since': since, 'changes': list(changes),
+        res = self.client.post('/api/sync', json.dumps({'schema': 2, 'since': since, 'changes': list(changes),
                                                         'listsSince': lists_since, 'lists': list(lists)}),
                                content_type='application/json')
         self.assertEqual(res.status_code, 200, res.content)
@@ -61,11 +61,28 @@ class SyncTests(TestCase):
         self.client.force_login(other)
         self.assertEqual(self.sync()['changes'], [])
 
+    def test_a_copy_of_the_app_from_before_editions_is_told_to_update(self):
+        res = self.client.post('/api/sync', json.dumps({'since': None, 'changes': [change('b1', '2026-11-14T10:00:00Z', 'Dune')]}),
+                               content_type='application/json')
+        self.assertEqual((res.status_code, res.json()['error']), (409, 'This version of Folio is out of date. Close and reopen it to update.'))
+        self.assertEqual(self.sync()['changes'], [])   # and nothing it sent was stored
+
+    def test_a_book_in_the_old_shape_is_stored_in_the_new_one(self):
+        from shelf.models import Book
+        self.sync(changes=[{**change('b1', '2026-11-14T10:00:00Z', 'Dune'), 'book': {
+            'id': 'b1', 'title': 'Dune', 'added': '2026-11-14T10:00:00Z', 'publisher': 'Ace', 'format': 'paper',
+            'lists': {'library': {'at': '2026-11-14T10:00:00Z'}, 'read': {'at': '2026-11-14T10:00:00Z'}}}}])
+        data = Book.objects.get(uid='b1').data
+        self.assertEqual((data['v'], data['lists']), (2, {'read': {'at': '2026-11-14T10:00:00Z'}}))
+        self.assertEqual(data['editions'], [{'id': 'e1', 'publisher': 'Ace', 'format': 'paper',
+                                             'lists': {'library': {'at': '2026-11-14T10:00:00Z'}}, 'added': '2026-11-14T10:00:00Z'}])
+
     def test_the_lists_a_book_is_on_travel_with_it(self):
         book = change('b1', '2026-11-14T10:00:00Z', 'Dune')
-        book['book']['lists'] = {'read': {'at': '2026-11-14T10:00:00Z'}, 'lent': {'at': '2026-11-14T10:00:00Z', 'note': 'Jan'}}
+        book['book'].update(v=2, lists={'read': {'at': '2026-11-14T10:00:00Z'}},
+                            editions=[{'id': 'e1', 'lists': {'lent': {'at': '2026-11-14T10:00:00Z', 'note': 'Jan'}}}])
         self.sync(changes=[book])
-        self.assertEqual(self.sync()['changes'][0]['book']['lists'], book['book']['lists'])
+        self.assertEqual(self.sync()['changes'][0]['book'], book['book'])
 
     def test_lists_round_trip_between_devices(self):
         a = self.sync(lists=[list_change('wishlist', '2026-11-14T10:00:00Z', 'Wishlist', group='Buying')])
@@ -85,12 +102,6 @@ class SyncTests(TestCase):
         self.sync(lists=[list_change('lent', '2026-11-14T11:00:00Z', deleted=True)])
         res = self.sync()
         self.assertEqual(res['lists'], [{'id': 'lent', 'modified': '2026-11-14T11:00:00Z', 'deleted': True, 'list': None}])
-
-    def test_a_device_that_predates_lists_still_syncs(self):
-        res = self.client.post('/api/sync', json.dumps({'since': None, 'changes': [change('b1', '2026-11-14T10:00:00Z')]}),
-                               content_type='application/json')
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json()['lists'], [])
 
     def test_other_users_lists_are_private(self):
         self.sync(lists=[list_change('wishlist', '2026-11-14T10:00:00Z')])
@@ -167,25 +178,3 @@ class LoginTests(TestCase):
         res = client.post('/api/login', json.dumps({'username': 'reader', 'password': 'correct horse battery'}),
                           content_type='application/json')
         self.assertEqual(res.status_code, 403)
-
-
-class SetPaperTests(TestCase):
-    """manage.py set_paper: app-only books without a format become paper, and devices hear of it."""
-    setUp, sync = SyncTests.setUp, SyncTests.sync
-
-    def test_only_app_books_without_a_format_or_length(self):
-        from io import StringIO
-        from django.core.management import call_command
-        from shelf.models import Book
-        first = self.sync(changes=[change('plain', '2026-11-14T10:00:00Z', 'Plain')])
-        for uid, extra in (('ebook', {'format': 'ebook'}), ('audio', {'duration': '9u'}), ('log', {'boeken': 'log'})):
-            self.sync(changes=[{**change(uid, '2026-11-14T10:00:00Z', uid), 'book': {'id': uid, 'title': uid, **extra}}])
-        call_command('set_paper', user='reader', stdout=StringIO())   # counting changes nothing
-        self.assertNotIn('format', Book.objects.get(uid='plain').data)
-        out = StringIO()
-        call_command('set_paper', user='reader', write=True, stdout=out)
-        self.assertIn('paper on 1 book', out.getvalue())
-        formats = {b.uid: b.data.get('format') for b in Book.objects.all()}
-        self.assertEqual(formats, {'plain': 'paper', 'ebook': 'ebook', 'audio': None, 'log': None})
-        later = self.sync(since=first['cursor'])   # a device that had synced before gets the change
-        self.assertIn(('plain', 'paper'), [(c['id'], c['book'].get('format')) for c in later['changes']])

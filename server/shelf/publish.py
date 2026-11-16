@@ -25,9 +25,8 @@ What a change in the app means in the booklog:
   the cover is replaced              the picture goes into media/ and the post points at it
   a book that is not in the booklog  a new post, with its cover and whatever author, tag and
     is added to it (`boekenWanted`)    series pages do not exist yet (see plan_new)
-  another version of a book the      a new post, a reread of that book's first post, in its own
-    booklog has (`versionOf`, or in    format; from then on that version's posts are its own
-    another format) is added
+  a read book goes back to To read   a new post, a reread of the first, with the facts and cover
+    or Reading                         of the edition that read is of (the audiobook, say)
   a book is deleted, and the app      its posts are deleted, with their covers and the author,
     is asked to delete it from the     tag and series pages nothing else uses (see plan_drop)
     booklog too (`drop`)
@@ -38,7 +37,12 @@ the first read, and the others rereads of it (see reroot).
 
 The front-matter editing is boeggn's (apps/core/services/books.py), which wrote these posts
 before: changes are made line by line, never by re-serialising the YAML.
+
+A book on the shelf is a work with its editions (shelf/works.py). Everything here reads it in
+the old shape, `works.flat`: the main edition's facts at the top level, each review with the
+edition it was of. What publishing writes back goes into the book as it is stored.
 """
+import copy
 import re
 import subprocess
 import sys
@@ -50,7 +54,7 @@ from pathlib import Path
 from django.conf import settings
 from django.utils import timezone
 
-from . import boeken, covers
+from . import boeken, covers, works
 from .boeken import BRUSSELS
 
 FRONT = re.compile(r'\A---\r?\n(.*?)\r?\n---\r?\n?', re.S)
@@ -70,6 +74,8 @@ LIST_KEYS = {'categories', 'tags', 'authors', 'series', 'aliases'}
 # What a reread copies from the read before it: the facts of the book and of the edition.
 BOOK_FACTS = ('title', 'series', 'series_number', 'series_number_label', 'publisher', 'year', 'format', 'pages',
               'duration', 'isbn', 'olid', 'language', 'roles', 'cover', 'categories', 'tags', 'authors')
+# The facts of a book that are its edition's: a post about another edition must not get them.
+EDITION_KEYS = {'publisher', 'date', 'pages', 'isbn', 'language', 'people', 'format', 'duration', 'cover'}
 
 
 def quote(value):
@@ -290,19 +296,53 @@ def plan_book(repo, data, group, taken, now):
             'language': str(edition.get('language') or '').strip() or None,
         }
 
+    def file_picture(picture, slug, day):
+        """A picture ((bytes, '.jpg')) filed in the booklog's media folder. → its address there"""
+        folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
+        name, n = f'{slug}{picture[1]}', 1
+        while Path(repo, 'media', folder, name).exists() or Path(repo, 'media', folder, name) in plan.pictures:
+            n += 1
+            name = f'{slug}-{n}{picture[1]}'
+        plan.pictures[Path(repo, 'media', folder, name)] = picture[0]
+        plan.notes.append('new cover')
+        return f'/{folder}/{name}'
+
+    filed = {}   # a picture filed once in this plan is named again, not filed twice
+
     def edition_picture(edition, slug, day):
         """A cover the user gave this edition, filed in the booklog's media folder. → its address there, or None"""
         picture = Path(settings.COVERS_DIR).parent / str(edition.get('coverFull') or '-')
         if not edition.get('coverFull') or not picture.is_file():
             return None
-        folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
-        name, n = f'{slug}.jpg', 1
-        while Path(repo, 'media', folder, name).exists() or Path(repo, 'media', folder, name) in plan.pictures:
-            n += 1
-            name = f'{slug}-{n}.jpg'
-        plan.pictures[Path(repo, 'media', folder, name)] = picture.read_bytes()
-        plan.notes.append('new cover')
-        return f'/{folder}/{name}'
+        if picture not in filed:
+            filed[picture] = file_picture((picture.read_bytes(), '.jpg'), slug, day)
+        return filed[picture]
+
+    def booklog_cover(edition):
+        """The address in the booklog of an edition's cover, when it is one of the booklog's own (another read's). → '/wp-content/…' or None"""
+        source = str(edition.get('coverSource') or edition.get('cover') or '')
+        return source[len(boeken.SITE):] if source.startswith(boeken.SITE + '/') else None
+
+    def cover_front(edition, slug, day):
+        """An edition's cover as a post names it. → (address or None, whether it is still on its way)
+        The booklog's own picture of another read is named again; one the user gave, or a
+        catalogue's (fetched once more at its full size), goes into the media folder."""
+        own = booklog_cover(edition)
+        if own:
+            return own, False
+        cover = str(edition.get('cover') or '')
+        if cover.startswith('covers/boeken/'):
+            return None, False   # the booklog's own, from before it said where from: nothing to publish
+        picture = edition_picture(edition, slug, day)
+        if picture:
+            return picture, False
+        if cover.startswith(('covers/web/', 'https://')):
+            if cover not in filed:
+                found = covers.original(edition)
+                filed[cover] = found and file_picture(found, slug, day)
+            if filed[cover]:
+                return filed[cover], False
+        return None, True   # the larger picture hasn't reached the server yet
 
     def set_people(post, people):
         """Who made the book as that post has it: its authors, and the role of each who has one."""
@@ -342,8 +382,8 @@ def plan_book(repo, data, group, taken, now):
         if 'people' in review['edition']:
             set_people(post, review['edition']['people'])
         set_format(post, review['edition'].get('format'))
-        cover = edition_picture(review['edition'], post['slug'], post['_day'])
-        if cover:
+        cover = edition_picture(review['edition'], post['slug'], post['_day']) or booklog_cover(review['edition'])
+        if cover and cover != post.get('cover'):
             edit(post)['front']['cover'] = cover
 
     def move_date(post, day):
@@ -361,7 +401,9 @@ def plan_book(repo, data, group, taken, now):
         return f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'
 
     def reread(review=None, shelf=None):
-        """A new post for another read of the book: finished (with its review) or just begun."""
+        """A new post for another read of the book: finished (with its review) or just begun.
+        It is of the edition that review says, or, for a read just begun, of the book's main
+        edition (the audiobook you are about to listen to, after the e-book you read)."""
         slug, n = f'{slugify(root)}-herlezing', 1
         while slug in taken:
             n += 1
@@ -370,15 +412,17 @@ def plan_book(repo, data, group, taken, now):
         fields = {k: latest.get(k) for k in BOOK_FACTS}
         fields.update(slug=slug, rereadOf=root)
         text = ''
-        if review and isinstance(review.get('edition'), dict) and review['edition']:
-            # Read in another edition this time: its own publisher, length and cover.
-            own = edition_fields(review['edition'])
+        edition = review.get('edition') if review else {k: data[k] for k in works.MOVED if k in data}
+        if isinstance(edition, dict) and edition:
+            # Read in this edition: its own publisher, length, format, people and cover.
+            own = edition_fields(edition)
             if any(own.values()):
                 fields.update(own)
-            if boeken.tidy_people(review['edition'].get('people')):
-                authors, roles = people_front(repo, review['edition']['people'], plan, known_with(latest, boeken.author_names(repo)))
+                fields['format'] = edition.get('format') if edition.get('format') in boeken.FORMATS else None
+            if boeken.tidy_people(edition.get('people')):
+                authors, roles = people_front(repo, edition['people'], plan, known_with(latest, boeken.author_names(repo)))
                 fields.update(authors=authors, roles=roles or None)
-            fields['cover'] = edition_picture(review['edition'], slug, review['date']) or fields.get('cover')
+            fields['cover'] = cover_front(edition, slug, review['date'] if review else today)[0] or fields.get('cover')
         if review:
             day = review['date']
             fields['date'] = local(now) if day == today else on_day(day, time(20))
@@ -390,7 +434,7 @@ def plan_book(repo, data, group, taken, now):
             day = today
             fields.update(date=local(now), status=shelf)
             if shelf == 'reading':
-                minutes = parse_duration(latest.get('duration'))
+                minutes = parse_duration(fields.get('duration'))
                 if minutes:
                     fields['durationLeft'] = format_duration(minutes - 1)
                 else:
@@ -462,6 +506,8 @@ def plan_book(repo, data, group, taken, now):
             reread(review=review)
         if not fresh and target in ('to-read', 'reading'):
             reread(shelf=target)
+            # The new post has the main edition's facts; the read before keeps its own.
+            changed -= EDITION_KEYS
 
     # 3. How far along: only for a book that is (still) being read.
     current = edits.get(latest['slug'], {}).get('front', {})
@@ -539,36 +585,15 @@ def plan_book(repo, data, group, taken, now):
     if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date', 'language', 'categories', 'tags'}:
         kinds.append('edit')
 
-    # 5. A new cover: the picture the server kept goes into the booklog's media folder.
+    # 5. A new cover: the picture the server kept goes into the booklog's media folder (a
+    #    catalogue's, which the server keeps small, is fetched once more at its full size).
     if 'cover' in changed:
-        picture = Path(settings.COVERS_DIR).parent / str(data.get('coverFull') or '-')
-        if data.get('coverFull') and picture.is_file():
-            day = current.get('date') or latest['_day']
-            folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
-            name, n = f'{latest["slug"]}.jpg', 1
-            while Path(repo, 'media', folder, name).exists():
-                n += 1
-                name = f'{latest["slug"]}-{n}.jpg'
-            plan.pictures[Path(repo, 'media', folder, name)] = picture.read_bytes()
-            edit(latest)['front']['cover'] = f'/{folder}/{name}'
+        cover, coming = cover_front(data, latest['slug'], current.get('date') or latest['_day'])
+        if coming:
+            plan.deferred.add('cover')
+        elif cover and cover != latest.get('cover'):
+            edit(latest)['front']['cover'] = cover
             kinds.append('edit')
-            plan.notes.append('new cover')
-        elif str(data.get('cover') or '').startswith('covers/boeken/'):
-            pass   # back to the booklog's own cover: nothing to publish
-        elif str(data.get('cover') or '').startswith('covers/web/') and (picture := covers.original(data)):
-            # A catalogue's cover the server keeps small: fetched once more at its full size.
-            day = current.get('date') or latest['_day']
-            folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
-            name, n = f'{latest["slug"]}{picture[1]}', 1
-            while Path(repo, 'media', folder, name).exists():
-                n += 1
-                name = f'{latest["slug"]}-{n}{picture[1]}'
-            plan.pictures[Path(repo, 'media', folder, name)] = picture[0]
-            edit(latest)['front']['cover'] = f'/{folder}/{name}'
-            kinds.append('edit')
-            plan.notes.append('new cover')
-        else:
-            plan.deferred.add('cover')   # the larger picture hasn't reached the server yet
 
     # Turn the edits into file texts.
     for slug, change in edits.items():
@@ -651,25 +676,13 @@ def needs(data):
     return lacking
 
 
-def is_version(data, other):
-    """Is book `data` another version of book `other`, rather than the same book twice? So when
-    the app says so (`versionOf`), or when both say what they are and that differs (an
-    audiobook of an e-book you have)."""
-    if data.get('versionOf') or other.get('versionOf') == data.get('id'):
-        return True
-    return bool(data.get('format') and other.get('format') and data['format'] != other['format'])
-
-
-def plan_new(repo, data, posts, taken, now, reread_of=None):
+def plan_new(repo, data, posts, taken, now):
     """The Plan that adds a book to the booklog: its post, its cover, and the author, tag and
     series pages that don't exist yet. → (plan, slug of the post it is or becomes)
 
     If the booklog already has the book (the same ISBN, or the same title by the same
     author), nothing is added: the book is tied to that post instead, and what differs is
-    then a change like any other.
-
-    `reread_of`: the book is another version of a book the booklog has (its first post's
-    slug): its post is a reread of that one, with its own format and edition.
+    then a change like any other. (`data` is the book in the old shape: works.flat.)
     """
     lacking = needs(data)
     if lacking:
@@ -684,7 +697,7 @@ def plan_new(repo, data, posts, taken, now, reread_of=None):
 
     # Already there?
     isbn = str(data.get('isbn') or '')
-    for post in [] if reread_of else posts:
+    for post in posts:
         same_isbn = isbn and str(post.get('isbn') or '') == isbn
         same_book = boeken.fold(post['title']) == boeken.fold(title) and set(post.get('authors') or []) & set(authors)
         if same_isbn or same_book:
@@ -701,8 +714,8 @@ def plan_new(repo, data, posts, taken, now, reread_of=None):
     review = dated[0] if shelf in ('read', 'abandoned') and dated else next((r for r in reviews if not r.get('date')), None)
     day = review['date'] if review and review.get('date') else today
 
-    base = f'{slugify(reread_of)}-herlezing' if reread_of else slugify(title) or 'boek'
-    slug, n = (base if reread_of else slugify(title)), 1
+    base = slugify(title) or 'boek'
+    slug, n = slugify(title), 1
     while slug in taken or not slug:
         n += 1
         slug = f'{base}-{n}'
@@ -736,7 +749,6 @@ def plan_new(repo, data, posts, taken, now, reread_of=None):
         'series_number_label': (data.get('seriesLabel') or None) if series else None,
         'date': local(now) if day == today else on_day(day, time(20)),
         'slug': slug,
-        'rereadOf': reread_of,
         'rating': review.get('rating') if review and shelf in ('read', 'abandoned') else None,
         'review': (shelf == 'read' and len(text) > 200) or None,
         'publisher': str(data.get('publisher') or '').strip(),
@@ -777,7 +789,7 @@ def plan_new(repo, data, posts, taken, now, reread_of=None):
         plan.links.append((review.get('id'), slug, f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'))
     plan.url = f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{slug}/'
     plan.message = {'to-read': 'Te lezen', 'reading': 'Lezende', 'abandoned': 'Niet uit'}.get(shelf, 'Uitgelezen') + f': {title}'
-    plan.notes.append(f'new in the booklog, another version of {reread_of}' if reread_of else 'new in the booklog')
+    plan.notes.append('new in the booklog')
     return plan, slug
 
 
@@ -968,25 +980,28 @@ def commit(repo, plan):
 # ───────────────────────── All of a shelf ─────────────────────────
 
 def stamp(data, plan):
-    """The book as it is once its plan is published: its reviews and facts are in step again."""
-    data = dict(data)
+    """The book (as it is stored) once its plan is published: its reviews and facts are in step again."""
+    data = copy.deepcopy(data)
     links = {review_id: (slug, url) for review_id, slug, url in plan.links}
-    reviews = []
+    reviews, linked = [], set()
     for review in data.get('reviews') or []:
         if isinstance(review, dict) and review.get('id') in plan.forget:
             continue
         if isinstance(review, dict) and review.get('id') in links:
             slug, url = links[review['id']]
             review = {**review, 'boeken': slug, **({'url': url} if url else {})}
-            review['sum'] = boeken.review_sum(review)
-            if isinstance(review.get('edition'), dict):
-                # The picture is in the booklog now; the import brings its thumbnail.
-                review['edition'] = {k: v for k, v in review['edition'].items() if k != 'coverFull'}
-                review['sum'] = boeken.review_sum(review)
+            linked.add(review['id'])
+            # The picture is in the booklog now; the import brings its thumbnail.
+            edition = works.edition_of(data, review.get('ed')) if data.get('editions') else review.get('edition')
+            if isinstance(edition, dict):
+                edition.pop('coverFull', None)
         reviews.append(review)
     if reviews:
         data['reviews'] = reviews
-    state, before = boeken.state_of(data), data.get('boekenState') or {}
+    for review, seen in zip(data.get('reviews') or [], works.flat(data).get('reviews') or []):
+        if isinstance(review, dict) and review.get('id') in linked:
+            review['sum'] = boeken.review_sum(seen)
+    state, before = boeken.state_of(works.flat(data)), data.get('boekenState') or {}
     for key in plan.deferred:   # still to come: keep saying it differs
         state.pop(key, None)
         if key in before:
@@ -1009,7 +1024,7 @@ def settle_reads_gone(data, plan):
         data.pop('reviews', None)
     if plan.rekey == '':
         # Nothing of it is left in the booklog: it is a book of the shelf alone now.
-        for key in ('boeken', 'url', 'boekenState', 'versionOf', 'boekenError'):
+        for key in ('boeken', 'url', 'boekenState', 'boekenError'):
             data.pop(key, None)
         return data
     if plan.rekey:
@@ -1036,10 +1051,6 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
             taken.add(post['slug'])
         for group in groups.values():
             group.sort(key=lambda p: p['_when'])
-        # Another version of a book (the audiobook of an e-book you have) is a book of its own here:
-        # its posts are rereads of that book in the booklog, but they are its own to change.
-        boeken.split_versions(groups, boeken.version_claims(
-            r.data for r in Book.objects.filter(user=user, deleted=False, data__versionOf__isnull=False)))
         return groups, taken
 
     groups, taken = load()
@@ -1091,16 +1102,11 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
             counts['waiting'] += 1
             continue
         try:
-            plan, key = plan_new(repo, row.data, every, taken, now)
+            plan, key = plan_new(repo, works.flat(row.data), every, taken, now)
             twin = None if plan.writes else Book.objects.filter(user=user, deleted=False, data__boeken=key).exclude(pk=row.pk).first()
-            if twin and is_version(row.data, twin.data):
-                # Another version of a book the booklog has: a reread of it, in its own format.
-                plan, key = plan_new(repo, row.data, every, taken, now, reread_of=key)
-                row.data = {**row.data, 'versionOf': row.data.get('versionOf') or twin.uid}
-                twin = None
             if twin:
-                # The booklog has this book and so does the shelf, as another entry: adding it
-                # again would make two of one book. Say so once, and stop asking.
+                # The booklog has this book and so does the shelf, as another book: adding it
+                # again would make two of one book (combine them in the app). Say so once, and stop asking.
                 counts['failed'] += 1
                 message = f'The booklog already has this book: it is "{twin.title}" on your shelf.'
                 say(f'NOT added: {row.title}: {message}')
@@ -1126,7 +1132,7 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                     # with the import; the list the app has it on counts as a change to publish.
                     there = groups.get(key, [{}])[-1]
                     data['url'] = there.get('_url', '')
-                    data['boekenState'] = {**boeken.state_of(data), 'list': boeken.STATUS_LISTS.get(str(there.get('status') or 'read'))}
+                    data['boekenState'] = {**boeken.state_of(works.flat(data)), 'list': boeken.STATUS_LISTS.get(str(there.get('status') or 'read'))}
                 row.data = data
                 row.changed = timezone.now()
                 row.save(update_fields=['data', 'changed'])
@@ -1135,7 +1141,7 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
 
     for row in Book.objects.filter(user=user, deleted=False, data__boeken__isnull=False):
         group = groups.get(str(row.data.get('boeken')))
-        if not group or not is_pending(row.data):
+        if not group or not is_pending(works.flat(row.data)):
             continue
         if row.modified > now - timedelta(seconds=delay):
             counts['waiting'] += 1
@@ -1143,7 +1149,7 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
         try:
             if row.data.get('dropReads'):
                 # Reads deleted in the app: their posts go first, then whatever else changed.
-                plan = plan_reads_gone(repo, row.data, group, [p for g in groups.values() for p in g])
+                plan = plan_reads_gone(repo, works.flat(row.data), group, [p for g in groups.values() for p in g])
                 if plan.writes:
                     say(f'{plan.message}  [{", ".join(plan.notes)}]')
                     for path in plan.removals:
@@ -1158,9 +1164,9 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 row.changed = timezone.now()
                 row.save(update_fields=['data', 'changed'])
                 group = groups.get(str(row.data.get('boeken')))
-                if not group or not is_pending(row.data):
+                if not group or not is_pending(works.flat(row.data)):
                     continue
-            plan = plan_book(repo, row.data, group, taken, now)
+            plan = plan_book(repo, works.flat(row.data), group, taken, now)
             if plan is None:
                 continue
             if plan.writes:

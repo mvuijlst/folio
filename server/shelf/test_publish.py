@@ -1,4 +1,6 @@
 """Publishing from the app to the booklog, against a throwaway booklog with a remote of its own."""
+import copy
+import json
 import subprocess
 import tempfile
 from datetime import timedelta
@@ -10,9 +12,56 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
-from shelf import boeken, publish
+from shelf import boeken, publish, works
 from shelf.models import Book
 from shelf.test_boeken import POSTS, make_repo, png
+
+
+def edited(stored, edit):
+    """A book (as it is stored) changed as `edit` changes it in the old shape (works.flat), as a
+    test says it shortest: the book's own facts are its main edition's, and a review's edition
+    is the edition that read was of (a new review's, a new edition)."""
+    data = copy.deepcopy(stored)
+    view = works.flat(data)
+    view.setdefault('reviews', [])
+    before = copy.deepcopy(view)
+    edit(view)
+    main = works.main_edition(data)
+    for key in set(view) | set(before):
+        if key in ('editions', 'reviews', 'lists') or view.get(key) == before.get(key):
+            continue
+        place = main if key in works.MOVED else data
+        if view.get(key) in (None, '', []) and key in works.MOVED or key not in view:
+            place.pop(key, None)
+        else:
+            place[key] = view[key]
+    if view.get('lists') != before.get('lists'):
+        statuses = works.status_set()
+        data['lists'] = {k: v for k, v in view['lists'].items() if k in statuses}
+        for edition in data['editions']:
+            edition.pop('lists', None)
+        main['lists'] = {k: v for k, v in view['lists'].items() if k not in statuses}
+    prior = {r.get('id'): r for r in before.get('reviews') or []}
+    reviews = []
+    for review in view.get('reviews') or []:
+        review = dict(review)
+        edition = review.pop('edition', None)
+        was = prior.get(review.get('id'))
+        if was and edition is not None and edition != was.get('edition'):
+            target = works.edition_of(data, review.get('ed'))
+            for key in works.MOVED:
+                if edition.get(key) not in (None, '', []):
+                    target[key] = edition[key]
+                else:
+                    target.pop(key, None)
+        elif not was and edition:
+            review['ed'] = works.next_edition_id(data)
+            data['editions'].append({'id': review['ed'], **works.facts_of(edition)})
+        reviews.append(review)
+    data['reviews'] = reviews
+    if not reviews:
+        data.pop('reviews')
+    return works.settle(data)
 
 
 def git(folder, *args):
@@ -54,11 +103,19 @@ class BooklogCase(TestCase):
     def book(self, key):
         return Book.objects.get(user=self.user, data__boeken=key)
 
-    def change(self, key, edit):
-        """Change a book as the app would, long enough ago to be published."""
+    def flat(self, key):
+        return works.flat(self.book(key).data)
+
+    def change(self, key, edit, flat=True):
+        """Change a book as the app would, long enough ago to be published. `edit` changes it in
+        the old shape (see edited), or, with flat=False, as it is stored."""
         row = self.book(key)
-        data = {**row.data, 'reviews': [dict(r) for r in row.data.get('reviews') or []], 'lists': dict(row.data['lists'])}
-        edit(data)
+        if flat:
+            data = edited(row.data, edit)
+        else:
+            data = copy.deepcopy(row.data)
+            edit(data)
+            works.settle(data)
         row.data, row.modified = data, timezone.now() - timedelta(hours=1)
         row.save()
 
@@ -140,7 +197,7 @@ class PublishTests(BooklogCase):
         # The review now belongs to that post, and the import puts the book on Read.
         self.assertEqual(self.book('katabasis').data['reviews'][0]['boeken'], 'katabasis')
         self.import_booklog()
-        book = self.book('katabasis').data
+        book = self.flat('katabasis')
         self.assertEqual(list(book['lists']), ['read'])
         self.assertEqual([(r['id'], r['date'], r['rating']) for r in book['reviews']], [('boeken-katabasis', '2026-11-10', 8)])
         self.assertFalse(publish.is_pending(book))
@@ -190,7 +247,7 @@ class PublishTests(BooklogCase):
         term = self.repo / 'site' / 'content' / 'tags' / 'spice-trade' / '_index.md'
         self.assertEqual(term.read_text(encoding='utf-8'), '---\ntitle: "Spice Trade"\nslug: "spice-trade"\n---\n')
         self.import_booklog()
-        book = self.book('dune').data
+        book = self.flat('dune')
         self.assertEqual((book['language'], book['categories'], book['tags']), ('nl', ['sf', 'roman'], ['desert', 'spice-trade']))
         self.assertEqual(self.publish()[0]['published'], 0)
         # Taken off every read, a tag stays off.
@@ -213,10 +270,10 @@ class PublishTests(BooklogCase):
         older = {k: v for k, v in row.data['boekenState'].items() if k not in ('language', 'categories', 'tags')}
         row.data = {**row.data, 'categories': ['other'], 'boekenState': {**older, 'tracks': 2}}
         row.save()
-        self.assertEqual(publish.changed_keys(row.data), set())
+        self.assertEqual(publish.changed_keys(works.flat(row.data)), set())
 
     def test_every_read_has_its_own_edition(self):
-        first, second = self.book('dune').data['reviews']
+        first, second = self.flat('dune')['reviews']
         self.assertEqual(first['edition'], {'publisher': 'Ace', 'date': '1990', 'pages': 535, 'isbn': '9780441172719', 'language': 'en',
                                             'cover': 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg',
                                             'people': [{'name': 'Frank Herbert', 'role': 'auteur'}, {'name': 'Some Translator', 'role': 'vertaling'}]})
@@ -239,7 +296,7 @@ class PublishTests(BooklogCase):
         self.assertEqual(page.read_text(encoding='utf-8'), '---\ntitle: "Ned Narrator"\nslug: "narrator-ned"\nwpName: "Narrator - Ned"\n---\n')
         self.assertEqual(git(self.repo, 'show', '--stat', '--format=', 'HEAD').count('posts/'), 1)   # the first read's post is left alone
         self.import_booklog()
-        book = self.book('dune').data
+        book = self.flat('dune')
         self.assertEqual(book['people'], [{'name': 'Frank Herbert', 'role': ''}, {'name': 'Ned Narrator', 'role': 'stem'}])
         self.assertEqual(book['author'], 'Frank Herbert')   # a voice is not an author
         self.assertEqual(self.publish()[0]['published'], 0)
@@ -254,7 +311,7 @@ class PublishTests(BooklogCase):
         self.assertEqual(self.changed_lines('dune-herlezing'), [
             '+duration: "21u 2m"', '+format: "audiobook"', '-pages: 535'])   # `format` says it: no audiobook category
         self.import_booklog()
-        book = self.book('dune').data
+        book = self.flat('dune')
         self.assertEqual((book['format'], book['reviews'][1]['edition']['format']), ('audiobook', 'audiobook'))
         self.assertEqual(self.publish()[0]['published'], 0)
 
@@ -263,7 +320,7 @@ class PublishTests(BooklogCase):
         self.publish()
         self.assertEqual(self.changed_lines('katabasis'), ['+format: "ebook"'])
         self.import_booklog()
-        self.assertEqual(self.book('katabasis').data['format'], 'ebook')
+        self.assertEqual(self.flat('katabasis')['format'], 'ebook')
         self.assertEqual(self.publish()[0]['published'], 0)
 
     def test_the_book_turned_audiobook_trades_pages_for_a_length(self):
@@ -288,7 +345,7 @@ class PublishTests(BooklogCase):
 
     def test_people_that_did_not_change_are_not_published(self):
         # Saved in the app as it was: the same people in other words is no change.
-        self.change('dune', lambda data: data.update(people=[{'name': ' Frank  Herbert ', 'role': 'auteur', 'extra': 1}]))
+        self.change('dune', lambda data: data.update(people=[{'name': ' Frank  Herbert ', 'role': '', 'extra': 1}]))
         self.assertEqual(self.publish()[0]['published'], 0)
 
     def test_an_edition_changed_on_an_earlier_read_goes_to_that_reads_post(self):
@@ -320,22 +377,21 @@ class PublishTests(BooklogCase):
         self.assertEqual((self.repo / 'media/wp-content/uploads/2026/06/dune-herlezing-2.jpg').read_bytes(), png(500, 500))
         self.assertNotIn('Macmillan', self.post('dune'))               # the earlier reads keep their own edition
         self.import_booklog()
-        editions = [r['edition'] for r in self.book('dune').data['reviews']]
+        editions = [r['edition'] for r in self.flat('dune')['reviews']]
         self.assertEqual(editions[2]['duration'], '21u 2m')
         self.assertRegex(editions[2]['cover'], r'^covers/boeken/[0-9a-f]{16}-320[.]webp$')   # its own thumbnail
         self.assertEqual(self.publish()[0]['published'], 0)
 
     def test_a_review_from_before_editions_is_not_mistaken_for_an_edited_one(self):
-        import hashlib, json
+        import hashlib
         row = self.book('dune')
         old = dict(row.data['reviews'][0])
-        del old['edition']
         old['sum'] = hashlib.sha1(json.dumps([old['date'], old['rating'], old['text']], ensure_ascii=False).encode()).hexdigest()[:12]
         row.data = {**row.data, 'reviews': [old, row.data['reviews'][1]]}
         row.save()
-        self.assertFalse(publish.is_pending(self.book('dune').data))
+        self.assertFalse(publish.is_pending(self.flat('dune')))
         self.assertIn('0 reviews kept as edited in the app', self.import_booklog())
-        self.assertIn('edition', self.book('dune').data['reviews'][0])   # and the import gives it its edition
+        self.assertTrue(self.book('dune').data['reviews'][0]['sum'].startswith(f'{boeken.SUM_VERSION}:'))   # and the import gives it the new fingerprint
 
     def test_a_new_cover_goes_into_the_media_folder(self):
         own = Path(self.tmp.name, 'covers', 'own')
@@ -356,11 +412,18 @@ class PublishTests(BooklogCase):
         self.assertIn('cover: "/wp-content/uploads/2026/11/gilgamesh.jpg"' + chr(10), self.post('gilgamesh'))
 
     def test_a_cover_that_has_not_reached_the_server_waits(self):
+        # The read last (whose edition is the book's face) has a cover in the booklog.
+        post = self.repo / 'site' / 'content' / 'posts' / 'dune-herlezing.md'
+        post.write_text(self.post('dune-herlezing').replace('authors:', 'cover: "/wp-content/uploads/2024/05/x.jpg"\nauthors:'), encoding='utf-8', newline='')
+        git(self.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.org', 'commit', '--quiet', '-am', 'A cover')
+        self.import_booklog()
         self.change('dune', lambda data: data.update(cover='', thumb='data:image/jpeg;base64,xxxx'))
-        self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
-        self.assertTrue(publish.is_pending(self.book('dune').data))    # still to come
+        # Nothing is written; the read of that edition is in step with it (nothing to say yet).
+        self.assertEqual(self.publish()[0], {'published': 0, 'settled': 1, 'failed': 0, 'waiting': 0})
+        self.assertEqual(self.log()[0], 'A cover')
+        self.assertTrue(publish.is_pending(self.flat('dune')))    # still to come
         self.assertIn('1 waiting to be published', self.import_booklog())
-        self.assertEqual(self.book('dune').data['cover'], '')          # the import left the app's choice alone
+        self.assertFalse(self.flat('dune').get('cover'))               # the import left the app's choice alone
 
     def test_what_the_booklog_check_turns_down_leaves_no_trace(self):
         check = self.repo / 'scripts' / 'check_books.py'
@@ -396,7 +459,7 @@ class PublishTests(BooklogCase):
             data['title'] = 'Gilgamesj'
         self.change('gilgamesh', edit)
         self.assertIn('1 waiting to be published', self.import_booklog())
-        book = self.book('gilgamesh').data
+        book = self.flat('gilgamesh')
         self.assertEqual((list(book['lists']), book['title']), (['reading'], 'Gilgamesj'))
 
     def test_a_dry_run_says_what_it_would_do_and_does_nothing(self):
@@ -405,7 +468,7 @@ class PublishTests(BooklogCase):
         self.assertEqual(counts['published'], 1)
         self.assertEqual(said, ['Bewerkt: Dune', '    site/content/posts/dune.md'])
         self.assertEqual(self.log(), ['The booklog'])
-        self.assertTrue(publish.is_pending(self.book('dune').data))
+        self.assertTrue(publish.is_pending(self.flat('dune')))
 
     def test_sync_boeken_publishes_pushes_and_imports(self):
         # Someone else pushes to the booklog meanwhile (as boeggn does).
@@ -424,7 +487,7 @@ class PublishTests(BooklogCase):
         self.assertIn('pushed 1 commit(s)', out.getvalue())
         self.assertEqual(git(self.origin, 'log', '--format=%s', 'main').splitlines()[:2], ['Bewerkt: Dune', 'Bewerkt: Gilgamesh'])
         self.assertEqual(self.book('gilgamesh').data['reviews'][0]['text'], 'Because.')   # the other's change reached the app
-        self.assertEqual(self.book('dune').data['rating'], 10)   # the book's rating is still its latest read's
+        self.assertEqual(self.flat('dune')['rating'], 10)   # the book's rating is still its latest read's
 
     def test_a_quiet_run_says_nothing_and_does_not_import_again(self):
         from unittest import mock
@@ -456,7 +519,7 @@ class AddToBooklogTests(BooklogCase):
                 'publisher': 'Ace', 'date': '1987', 'pages': 408, 'isbn': '9780441104024',
                 'lists': {'library': {'at': '2026-11-01T10:00:00.000Z'}, 'to-read': {'at': '2026-11-01T10:00:00.000Z'}},
                 'language': 'en', 'categories': ['sf'], 'tags': ['desert', 'Space opera'], 'boekenWanted': True, **data}
-        return Book.objects.create(user=self.user, uid=uid, data=book, title=book['title'], modified=when, changed=when)
+        return Book.objects.create(user=self.user, uid=uid, data=works.upgrade(book), title=book['title'], modified=when, changed=when)
 
     def test_a_new_book_names_everyone_with_what_they_did(self):
         self.scan(people=[{'name': 'Frank Herbert', 'role': 'tekst'}, {'name': 'Ann Artist', 'role': 'beeld'}, {'name': 'Plain Co-writer', 'role': ''}])
@@ -500,9 +563,10 @@ class AddToBooklogTests(BooklogCase):
         self.assertEqual((book['boeken'], 'boekenWanted' in book), ('children-of-dune', False))
         self.assertRegex(book['url'], r'^https://boeken.tsuk.org/\d{4}/\d{2}/children-of-dune/$')
         self.import_booklog()
-        book = Book.objects.get(uid='s1').data
+        book = works.flat(Book.objects.get(uid='s1').data)
         self.assertEqual(set(book['lists']), {'library', 'to-read'})
         self.assertEqual(book['author'], 'Frank Herbert, Jane Q. Newcomer')
+        self.assertEqual(len(Book.objects.get(uid='s1').data['editions']), 1)   # the post is of the copy scanned
         self.assertEqual(Book.objects.filter(user=self.user, deleted=False).count(), 4)
         self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
 
@@ -553,65 +617,122 @@ class AddToBooklogTests(BooklogCase):
         self.assertNotIn('boeken', book)
         self.assertEqual(self.publish()[0]['failed'], 0)
 
-    def test_another_version_is_a_reread_in_the_booklog_and_a_book_of_its_own_on_the_shelf(self):
-        # You have Dune (in the booklog, read twice); now you are listening to its audiobook.
-        self.scan(title='Dune', isbn='', publisher='Macmillan Audio', pages=None, format='audiobook', duration='21u 2m',
-                  versionOf='boeken-dune', people=[{'name': 'Frank Herbert', 'role': ''}, {'name': 'Simon Vance', 'role': 'stem'}],
-                  lists={'reading': {'at': '2026-11-14T10:00:00.000Z'}})
+    def audiobook(self, lists, main=True):
+        """Dune (in the booklog, read twice) gets an audiobook edition, and goes on `lists`."""
+        def listen(data):
+            data['editions'].append({'id': 'audio', 'publisher': 'Macmillan Audio', 'format': 'audiobook', 'duration': '21u 2m',
+                                     'people': [{'name': 'Frank Herbert', 'role': ''}, {'name': 'Simon Vance', 'role': 'stem'}]})
+            data['lists'] = lists
+            if main:
+                data['main'] = 'audio'
+        self.change('dune', listen, flat=False)
+
+    def test_another_edition_to_read_is_a_reread_in_the_booklog_and_the_same_book_on_the_shelf(self):
+        # You read Dune (in the booklog, twice); now you are listening to its audiobook.
+        before = {slug: self.post(slug) for slug in ('dune', 'dune-herlezing')}
+        self.audiobook({'reading': {'at': '2026-11-14T10:00:00.000Z'}})
         counts, said = self.publish()
         self.assertEqual(counts['published'], 1, said)
+        self.assertEqual(self.log()[0], 'Herlezen: Dune')
         post = self.post('dune-herlezing-2')
         self.assertIn('slug: "dune-herlezing-2"\nrereadOf: "dune"\n', post)
-        self.assertIn('format: "audiobook"\nduration: "21u 2m"\ndurationLeft: "21u 1m"\n', post)
+        self.assertIn('publisher: "Macmillan Audio"\nformat: "audiobook"\nduration: "21u 2m"\ndurationLeft: "21u 1m"\n', post)
+        self.assertIn('roles:\n  simon-vance: "stem"\n'.replace('simon-vance', 'vance-simon'), post)
         self.assertIn('status: "reading"\n', post)
         self.assertNotIn('pagesRead', post)
-        version = Book.objects.get(uid='s1').data
-        self.assertEqual((version['boeken'], version['versionOf']), ('dune-herlezing-2', 'boeken-dune'))
-        # Back from the booklog: each keeps its own reads.
+        self.assertNotIn('pages:', post)
+        # The reads before keep their own edition, byte for byte.
+        self.assertEqual({slug: self.post(slug) for slug in before}, before)
+        # Back from the booklog: one book, its reads, and the audiobook as the edition being read.
         self.import_booklog()
-        self.assertEqual(sorted(r['boeken'] for r in self.book('dune').data['reviews']), ['dune', 'dune-herlezing'])
-        version = Book.objects.get(uid='s1').data
-        self.assertEqual((version['format'], version['duration'], set(version['lists'])), ('audiobook', '21u 2m', {'reading'}))
+        data = self.book('dune').data
+        self.assertEqual(sorted(r['boeken'] for r in data['reviews']), ['dune', 'dune-herlezing'])
+        self.assertEqual((data['main'], set(data['lists'])), ('audio', {'reading'}))
+        self.assertEqual(works.edition_of(data, 'audio')['duration'], '21u 2m')
+        self.assertEqual(Book.objects.filter(user=self.user, deleted=False, title='Dune').count(), 1)
         self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
         # Finished: its own post is finished, not the e-book's.
-        self.change('dune-herlezing-2', lambda d: (d['lists'].pop('reading'), d['lists'].update(read={'at': '2026-11-20T10:00:00.000Z'}),
-                                                   d.update(reviews=[{'id': 'r9', 'date': '2026-11-20', 'rating': 8, 'text': 'Vance!'}])))
+        def finish(data):
+            data['lists'] = {'read': {'at': '2026-11-20T10:00:00.000Z'}}
+            data['reviews'].append({'id': 'r9', 'date': '2026-11-20', 'rating': 8, 'text': 'Vance!', 'ed': 'audio'})
+        self.change('dune', finish, flat=False)
         self.publish()
         post = self.post('dune-herlezing-2')
         self.assertNotIn('status:', post)
         self.assertIn('rating: 8\n', post)
         self.assertIn('rating: 10\n', self.post('dune-herlezing'))
         self.import_booklog()
-        self.assertEqual(len(self.book('dune').data['reviews']), 2)
+        data = self.book('dune').data
+        self.assertEqual([r['ed'] for r in data['reviews']], ['ed-dune', 'ed-dune-herlezing', 'audio'])
+        self.assertEqual(self.publish()[0]['published'], 0)
 
-    def test_deleting_a_book_leaves_its_other_version_as_the_first_read(self):
-        self.scan(title='Dune', isbn='', format='audiobook', duration='21u 2m', versionOf='boeken-dune',
-                  lists={'reading': {'at': '2026-11-14T10:00:00.000Z'}})
+    def test_another_edition_to_read_later(self):
+        self.audiobook({'to-read': {'at': '2026-11-14T10:00:00.000Z'}})
+        before = self.post('dune-herlezing')
         self.publish()
-        client = self.client
-        client.force_login(self.user)
-        res = client.post('/api/sync', __import__('json').dumps({'since': None, 'changes': [
-            {'id': 'boeken-dune', 'modified': timezone.now().isoformat(), 'deleted': True, 'book': None, 'drop': True}]}), content_type='application/json')
-        self.assertEqual(res.status_code, 200, res.content)
-        Book.objects.filter(uid='boeken-dune').update(modified=timezone.now() - timedelta(hours=1))
+        self.assertEqual(self.log()[0], 'Herlezen: Dune')
+        post = self.post('dune-herlezing-2')
+        self.assertIn('status: "to-read"\n', post)
+        self.assertIn('format: "audiobook"\n', post)
+        self.assertEqual(self.post('dune-herlezing'), before)   # the audiobook's publisher is not written onto the paperback's read
+        self.import_booklog()
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_a_dated_read_of_a_new_edition_is_a_reread_in_it(self):
+        def listened(data):
+            data['editions'].append({'id': 'audio', 'publisher': 'Macmillan Audio', 'format': 'audiobook', 'duration': '21u 2m'})
+            data['reviews'].append({'id': 'r3', 'date': '2026-06-01', 'rating': 9, 'text': '', 'ed': 'audio'})
+        self.change('dune', listened, flat=False)
+        self.publish()
+        post = self.post('dune-herlezing-2')
+        self.assertIn('publisher: "Macmillan Audio"\nformat: "audiobook"\nduration: "21u 2m"\n', post)
+        self.import_booklog()
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_an_edition_read_twice_changes_on_both_its_posts(self):
+        def same(data):   # both reads were of the first read's edition
+            data['reviews'][1]['ed'] = data['reviews'][0]['ed']
+        self.change('dune', same, flat=False)
+        self.publish()
+        self.import_booklog()
+        self.assertEqual(self.publish()[0]['published'], 0)
+        def corrected(data):
+            data['editions'][0]['publisher'] = 'Chilton'
+        self.change('dune', corrected, flat=False)
+        self.publish()
+        self.assertIn('publisher: "Chilton"\n', self.post('dune'))
+        self.assertIn('publisher: "Chilton"\n', self.post('dune-herlezing'))
+
+    def test_an_edition_nobody_read_publishes_nothing(self):
+        self.audiobook({'read': {'at': '2024-05-02T08:00:00.000Z'}}, main=False)
+        self.change('dune', lambda data: works.edition_of(data, 'audio').update(publisher='Audible', lists={'library': {'at': 'x'}}), flat=False)
+        self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
+        self.assertEqual(self.log()[0], 'Categories')
+
+    def test_deleting_the_reads_of_one_edition_leaves_the_others_first(self):
+        self.audiobook({'reading': {'at': '2026-11-14T10:00:00.000Z'}})
+        self.publish()
+        self.import_booklog()
+        def forget_paper(data):
+            data['reviews'] = [r for r in data['reviews'] if r['boeken'] not in ('dune', 'dune-herlezing')]
+            data['dropReads'] = ['dune', 'dune-herlezing']
+            data['editions'] = [e for e in data['editions'] if e['id'] == 'audio']
+        self.change('dune', forget_paper, flat=False)
         counts, said = self.publish()
         self.assertEqual(counts['published'], 1, said)
         for slug in ('dune', 'dune-herlezing'):
             self.assertFalse((self.repo / f'site/content/posts/{slug}.md').exists())
         self.assertNotIn('rereadOf', self.post('dune-herlezing-2'))   # the audiobook is the first read now
         self.import_booklog()
-        version = Book.objects.get(uid='s1')
-        self.assertFalse(version.deleted)
-        self.assertEqual(version.data['boeken'], 'dune-herlezing-2')
         self.assertEqual(Book.objects.filter(user=self.user, deleted=False, title='Dune').count(), 1)
+        self.assertEqual(self.book('dune-herlezing-2').data['boeken'], 'dune-herlezing-2')
 
-    def test_a_book_in_another_format_is_taken_for_another_version(self):
-        Book.objects.filter(uid='boeken-dune').update(data={**self.book('dune').data, 'format': 'ebook'})
+    def test_a_book_in_another_format_on_the_shelf_twice_is_not_added_again(self):
+        # The audiobook was added as a book of its own: that is Dune twice. It is said once, to combine them in the app.
         self.scan(title='Dune', isbn='', format='audiobook', duration='21u 2m')
         counts, said = self.publish()
-        self.assertEqual((counts['published'], counts['failed']), (1, 0), said)
-        self.assertIn('rereadOf: "dune"\n', self.post('dune-herlezing-2'))
-        self.assertEqual(Book.objects.get(uid='s1').data['versionOf'], 'boeken-dune')
+        self.assertEqual((counts['published'], counts['failed']), (0, 1), said)
+        self.assertFalse((self.repo / 'site/content/posts/dune-herlezing-2.md').exists())
 
     def test_a_book_the_booklog_has_but_the_shelf_lost_is_tied_to_its_post(self):
         # Dune is in the booklog as read, but was deleted from the shelf; the scanned copy is being read again.
@@ -637,7 +758,7 @@ class DropAndFinishTests(BooklogCase):
         """Delete a book as the app does when it is dropped, long enough ago to be published."""
         self.client.force_login(self.user)
         row = self.book(key)
-        res = self.client.post('/api/sync', __import__('json').dumps({'since': None, 'changes': [
+        res = self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': [
             {'id': row.uid, 'modified': timezone.now().isoformat(), 'deleted': True, 'book': None, **change}]}), content_type='application/json')
         self.assertEqual(res.status_code, 200, res.content)
         Book.objects.filter(pk=row.pk).update(modified=timezone.now() - timedelta(hours=1))

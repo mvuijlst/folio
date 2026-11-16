@@ -3,7 +3,7 @@
 Book catalogues hand out cover addresses that are slow, sometimes vanish, and come in any
 size; the booklog's covers are full-size originals. So the server keeps a copy of its own
 of every cover, 320 pixels wide and in its original proportions, in covers/ (served as
-plain files). A book's `cover` then points at that copy ("covers/web/….webp"), `coverRatio`
+plain files). An edition's `cover` then points at that copy ("covers/web/….webp"), `coverRatio`
 says how wide it is for its height, and `coverSource` remembers where it came from.
 """
 import base64
@@ -186,51 +186,75 @@ def original(book):
         return None
 
 
+def places(data):
+    """Where a book keeps covers: each of its editions (a book in the old shape: the book itself)."""
+    editions = data.get('editions')
+    return [e for e in editions if isinstance(e, dict)] if isinstance(editions, list) and editions else [data]
+
+
 def adopt(user, limit=4):
-    """Give up to `limit` of this user's books a server-kept cover. Returns the books changed.
+    """Give up to `limit` of this user's editions a server-kept cover. Returns the books changed.
 
     Called after each sync, so a shelf's covers come over a few at a time without anyone
     waiting for them, and by the fetch_covers command for all of them at once.
     """
+    from django.db.models import TextField
+    from django.db.models.functions import Cast
+
     from .models import Book   # models import nothing from here, but keep this module importable without Django's app registry
 
-    changed = []
-    # A few at random each time, so covers that can't be fetched never hold up the rest.
-    pending = Book.objects.filter(user=user, deleted=False, data__cover__startswith='https://')
-    for book in (pending.order_by('?')[:limit * 3] if limit else pending):
-        url = book.data.get('cover')
-        if not wanted(url):
-            continue
-        if limit and len(changed) >= limit:
-            break
-        kept = keep(url)
-        if not kept:
-            continue
-        # The book may have been synced again while the image was on its way.
-        fresh = Book.objects.get(pk=book.pk)
-        if fresh.deleted or fresh.data.get('cover') != url:
-            continue
-        fresh.data = {**fresh.data, 'cover': kept[0], 'coverRatio': kept[1], 'coverSource': url}
+    changed = {}
+    # Narrowed in SQL to books whose text has such a cover somewhere; decided per edition here.
+    books = Book.objects.filter(user=user, deleted=False).annotate(text=Cast('data', TextField()))
+
+    def save(fresh):
         fresh.changed = timezone.now()   # `modified` stays: nobody edited the book
         fresh.save(update_fields=['data', 'changed'])
-        changed.append(fresh)
+        changed[fresh.pk] = fresh
+
+    # A few at random each time, so covers that can't be fetched never hold up the rest.
+    pending = books.filter(text__contains='"cover": "https://')
+    done = 0
+    for book in (pending.order_by('?')[:limit * 3] if limit else pending):
+        for i, place in enumerate(places(book.data)):
+            url = place.get('cover')
+            if not str(url or '').startswith('https://') or not wanted(url):
+                continue
+            if limit and done >= limit:
+                break
+            kept = keep(url)
+            if not kept:
+                continue
+            done += 1
+            # The book may have been synced again while the image was on its way.
+            fresh = Book.objects.get(pk=book.pk)
+            spots = places(fresh.data)
+            if fresh.deleted or i >= len(spots) or spots[i].get('cover') != url:
+                continue
+            spots[i].update(cover=kept[0], coverRatio=kept[1], coverSource=url)
+            save(fresh)
 
     # A cover set in the app while offline (or photographed in the scanner) travels inside the
-    # book as a small picture, `thumb`. Those get a file of their own as well.
-    from django.db.models import Q
-    inside = Book.objects.filter(Q(data__cover='') | Q(data__cover__isnull=True), user=user, deleted=False,
-                                 data__thumb__startswith='data:image/')
-    for book in inside[:max(0, limit - len(changed))] if limit else inside:
-        thumb = book.data['thumb']
-        try:
-            kept = keep_upload(base64.b64decode(thumb.split(',', 1)[1]))
-        except (ValueError, IndexError):
-            continue
-        fresh = Book.objects.get(pk=book.pk)
-        if fresh.deleted or fresh.data.get('cover') or fresh.data.get('thumb') != thumb:
-            continue
-        fresh.data = {**fresh.data, **kept}
-        fresh.changed = timezone.now()
-        fresh.save(update_fields=['data', 'changed'])
-        changed.append(fresh)
-    return changed
+    # edition as a small picture, `thumb`. Those get a file of their own as well.
+    inside = books.filter(text__contains='"thumb": "data:image/')
+    for book in inside:
+        if limit and done >= limit:
+            break
+        for i, place in enumerate(places(book.data)):
+            thumb = place.get('thumb')
+            if place.get('cover') or not str(thumb or '').startswith('data:image/'):
+                continue
+            if limit and done >= limit:
+                break
+            try:
+                kept = keep_upload(base64.b64decode(thumb.split(',', 1)[1]))
+            except (ValueError, IndexError):
+                continue
+            done += 1
+            fresh = changed.get(book.pk) or Book.objects.get(pk=book.pk)
+            spots = places(fresh.data)
+            if fresh.deleted or i >= len(spots) or spots[i].get('cover') or spots[i].get('thumb') != thumb:
+                continue
+            spots[i].update(kept)
+            save(fresh)
+    return list(changed.values())

@@ -254,7 +254,7 @@ def upgrade(book, status=None):
 def flat(data):
     """A new record in the old shape, for publishing: the main edition's facts at the top level,
     `lists` as the union of the book's and its editions', each review with the edition it was
-    of (`edition`). A record without editions is returned as it is."""
+    of (`edition`, next to `ed`). A record without editions is returned as it is."""
     if not isinstance(data.get('editions'), list) or not data['editions']:
         return data
     out = {k: v for k, v in data.items() if k not in ('editions', 'main', 'v')}
@@ -267,8 +267,8 @@ def flat(data):
                 lists[key] = entry
     out['lists'] = lists
     if isinstance(data.get('reviews'), list):
-        out['reviews'] = [{**{k: v for k, v in r.items() if k != 'ed'}, 'edition': facts_of(edition_of(data, r.get('ed')))}
-                          if isinstance(r, dict) else r for r in data['reviews']]
+        out['reviews'] = [{**r, 'edition': facts_of(edition_of(data, r.get('ed')))} if isinstance(r, dict) else r
+                          for r in data['reviews']]
     return out
 
 

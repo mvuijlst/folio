@@ -41,6 +41,9 @@ class Command(BaseCommand):
             account = get_user_model().objects.get(username=user)
         except get_user_model().DoesNotExist:
             raise CommandError(f'There is no user "{user}".')
+        from shelf.management.commands.import_boeken import has_old_books
+        if has_old_books(account):
+            raise CommandError('Some books are in the shape from before editions: run to_works first.')
 
         try:
             if not publish.is_clean(repo):

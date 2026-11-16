@@ -1,3 +1,4 @@
+import copy
 import io
 import json
 import tempfile
@@ -8,13 +9,14 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.test import TestCase
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
 from django.test import override_settings
 
-from shelf import boeken, covers, publish
+from shelf import boeken, covers, publish, works
 from shelf.models import Book, List
 
 POSTS = {
@@ -117,25 +119,31 @@ class ImportTests(TestCase):
         self.assertIn('1 cover thumbnails made', self.run_import('--dry-run'))
         self.assertFalse(Path(self.tmp.name, 'thumbs').exists())
         self.assertIn('1 cover thumbnails made', self.run_import())
-        cover = self.book('dune')['cover']
-        self.assertRegex(cover, r'^covers/boeken/[0-9a-f]{16}-320[.]webp$')
-        with Image.open(Path(self.tmp.name, 'thumbs', cover.rsplit('/', 1)[1])) as thumb:
+        first = self.book('dune')['reviews'][0]['edition']           # the edition of the first read: its post has the picture
+        self.assertRegex(first['cover'], r'^covers/boeken/[0-9a-f]{16}-320[.]webp$')
+        with Image.open(Path(self.tmp.name, 'thumbs', first['cover'].rsplit('/', 1)[1])) as thumb:
             self.assertEqual(thumb.size, (320, 480))
-        self.assertEqual(self.book('dune')['coverRatio'], 0.667)     # its own proportions, known before it loads
-        self.assertEqual(self.book('dune')['coverSource'], 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg')   # shown at full size
+        self.assertEqual(first['coverRatio'], 0.667)     # its own proportions, known before it loads
+        self.assertEqual(first['coverSource'], 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg')   # shown at full size
         self.assertIn('3 unchanged', self.run_import())
         self.assertIn('0 cover thumbnails made', self.run_import())
 
     def book(self, key):
-        return Book.objects.get(user=self.user, data__boeken=key).data
+        """The book in the flat view: its main edition's facts at the top, each review with its edition."""
+        return works.flat(Book.objects.get(user=self.user, data__boeken=key).data)
 
     def test_posts_become_books_on_the_right_lists(self):
         self.assertIn('3 added', self.run_import())
         dune = self.book('dune')
         self.assertEqual(dune['id'], 'boeken-dune')
         self.assertEqual(dune['author'], 'Frank Herbert')            # the translator is not an author
-        self.assertEqual(dune['cover'], 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg')
+        self.assertEqual(dune['reviews'][0]['edition']['cover'], 'https://boeken.tsuk.org/wp-content/uploads/2010/03/dune.jpg')
         self.assertEqual((dune['series'], dune['seriesNumber'], dune['date'], dune['pages']), ('Dune', 1, '1990', 535))
+        # One edition per edition read: the reread's post says less than the first read's, so it is another.
+        stored = Book.objects.get(uid='boeken-dune').data
+        self.assertEqual([e['id'] for e in stored['editions']], ['ed-dune', 'ed-dune-herlezing'])
+        self.assertEqual([r['ed'] for r in stored['reviews']], ['ed-dune', 'ed-dune-herlezing'])
+        self.assertEqual(Book.objects.get(uid='boeken-katabasis').data['main'], 'ed-katabasis')   # the read under way
         self.assertEqual(self.book('katabasis')['lists'], {'reading': {'at': '2026-10-11T14:37:13.000Z'}})
         self.assertEqual(list(self.book('gilgamesh')['lists']), ['to-read'])
         self.assertEqual(self.book('gilgamesh')['author'], 'unknown-slug')
@@ -143,8 +151,8 @@ class ImportTests(TestCase):
     def test_people_come_with_what_they_did(self):
         self.run_import()
         dune = self.book('dune')
-        # The book has the people of its latest read; each read's edition has its own.
-        self.assertEqual(dune['people'], [{'name': 'Frank Herbert', 'role': 'auteur'}])
+        # Each read's edition has its own people; the book names its writers.
+        self.assertEqual(dune['author'], 'Frank Herbert')
         self.assertEqual([r['edition']['people'] for r in dune['reviews']], [
             [{'name': 'Frank Herbert', 'role': 'auteur'}, {'name': 'Some Translator', 'role': 'vertaling'}],
             [{'name': 'Frank Herbert', 'role': ''}]])
@@ -154,15 +162,17 @@ class ImportTests(TestCase):
         self.run_import()
         row = Book.objects.get(uid='boeken-dune')
         # As the import left them before editions had people: no people, and the older fingerprint.
-        old = []
-        for review in row.data['reviews']:
-            review = {**review, 'edition': {k: v for k, v in review['edition'].items() if k != 'people'}}
-            old.append({**review, 'sum': boeken.review_sum(review, version=2)})
-        row.data = {**{k: v for k, v in row.data.items() if k != 'people'}, 'reviews': old,
-                    'boekenState': {k: v for k, v in row.data['boekenState'].items() if k != 'people'}}
+        data = copy.deepcopy(row.data)
+        for edition in data['editions']:
+            edition.pop('people')
+        for review, seen in zip(data['reviews'], works.flat(data)['reviews']):
+            review['sum'] = boeken.review_sum(seen, version=2)
+        data['boekenState'] = {k: v for k, v in data['boekenState'].items() if k != 'people'}
+        row.data = data
         row.save()
+        old = works.flat(data)['reviews']
         self.assertTrue(all(boeken.in_step(r) for r in old))
-        self.assertFalse(publish.is_pending(row.data))
+        self.assertFalse(publish.is_pending(works.flat(row.data)))
         # People said in the app on such a review are a change, though its fingerprint knows nothing of them.
         said = {**old[1], 'edition': {**old[1]['edition'], 'people': [{'name': 'Frank Herbert', 'role': ''}, {'name': 'A Voice', 'role': 'stem'}]}}
         self.assertFalse(boeken.in_step(said))
@@ -170,7 +180,7 @@ class ImportTests(TestCase):
         dune = self.book('dune')
         self.assertEqual(len(dune['reviews'][0]['edition']['people']), 2)
         self.assertTrue(all(r['sum'].startswith(f'{boeken.SUM_VERSION}:') for r in dune['reviews']))
-        self.assertEqual(dune['boekenState']['people'], [{'name': 'Frank Herbert', 'role': 'auteur'}])
+        self.assertEqual(dune['boekenState']['people'], [{'name': 'Frank Herbert', 'role': ''}])   # of the edition read last
 
     def test_what_a_read_was_read_as(self):
         audio = POSTS['dune-herlezing'].replace('pages: 535', 'duration: "21u 2m"')
@@ -194,10 +204,12 @@ class ImportTests(TestCase):
         self.run_import()
         row = Book.objects.get(uid='boeken-dune')
         # As it was left before lengths and formats were published: the state says nothing of them.
-        older = {k: v for k, v in row.data['boekenState'].items() if k not in ('format', 'duration', 'tracks')}
-        row.data = {**row.data, 'duration': '21u 2m', 'format': 'audiobook', 'boekenState': older}
+        data = copy.deepcopy(row.data)
+        data['boekenState'] = {k: v for k, v in data['boekenState'].items() if k not in ('format', 'duration', 'tracks')}
+        works.main_edition(data).update(duration='21u 2m', format='audiobook')
+        row.data = data
         row.save()
-        self.assertEqual(publish.changed_keys(row.data), set())
+        self.assertEqual(publish.changed_keys(works.flat(row.data)), set())
         self.assertIn('0 waiting to be published', self.run_import())
         self.assertEqual(self.book('dune')['boekenState']['tracks'], boeken.TRACKS)
         # From then on they are tracked.
@@ -212,7 +224,7 @@ class ImportTests(TestCase):
         self.assertEqual([(r['date'], r['rating'], r['url']) for r in dune['reviews']],
                          [('2010-03-31', 9, 'https://boeken.tsuk.org/2010/03/dune/'),
                           ('2024-05-02', 10, 'https://boeken.tsuk.org/2024/05/dune-herlezing/')])
-        self.assertTrue(dune['isbn'])                                   # the first read knew it; the reread did not
+        self.assertEqual([r['edition'].get('isbn') for r in dune['reviews']], ['9780441172719', None])   # the first read knew it; the reread did not
         self.assertEqual(dune['url'], 'https://boeken.tsuk.org/2024/05/dune-herlezing/')
 
     def test_month_in_the_address_is_the_one_written_in_the_file(self):
@@ -275,26 +287,34 @@ class ImportTests(TestCase):
 
     def test_a_scanned_book_is_joined_not_doubled(self):
         when = parse_datetime('2026-11-01T10:00:00Z')
-        scanned = {'id': 'abc', 'added': '2026-11-01T10:00:00.000Z', 'title': 'KATABASIS', 'author': 'Kuang', 'isbn': '9780063021471',
-                   'thumb': 'data:…', 'lists': {'library': {'at': '2026-11-01T10:00:00.000Z'},
-                                                 'lent': {'at': '2026-11-02T10:00:00.000Z', 'note': 'Jan'},
-                                                 'to-read': {'at': '2026-11-01T10:00:00.000Z'}}}
+        scanned = works.upgrade({'id': 'abc', 'added': '2026-11-01T10:00:00.000Z', 'title': 'KATABASIS', 'author': 'Kuang', 'isbn': '9780063021471',
+                                 'thumb': 'data:…', 'lists': {'library': {'at': '2026-11-01T10:00:00.000Z'},
+                                                               'lent': {'at': '2026-11-02T10:00:00.000Z', 'note': 'Jan'},
+                                                               'to-read': {'at': '2026-11-01T10:00:00.000Z'}}})
         Book.objects.create(user=self.user, uid='abc', data=scanned, title='KATABASIS', modified=when, changed=when)
         self.assertIn('1 joined with a scanned book', self.run_import())
         book = Book.objects.get(user=self.user, uid='abc')
         self.assertEqual(Book.objects.filter(user=self.user).count(), 3)
         self.assertEqual(book.data['title'], 'Katabasis')
-        self.assertEqual(book.data['thumb'], 'data:…')
-        self.assertEqual(set(book.data['lists']), {'library', 'lent', 'reading'})    # to-read gave way to reading
-        self.assertEqual(book.data['lists']['lent']['note'], 'Jan')
+        self.assertEqual(len(book.data['editions']), 1)                              # the copy scanned is the edition read
+        self.assertEqual(book.data['editions'][0]['thumb'], 'data:…')
+        self.assertEqual(book.data['editions'][0]['pages'], 559)
+        self.assertEqual(set(book.data['lists']), {'reading'})                       # to-read gave way to reading
+        self.assertEqual(book.data['editions'][0]['lists']['lent']['note'], 'Jan')
         self.assertGreater(book.changed, when)                                        # so every device hears of it
 
     def test_a_book_from_before_lists_keeps_its_place_in_the_library(self):
         when = timezone.now()
         Book.objects.create(user=self.user, uid='old', modified=when, changed=when, title='Katabasis',
-                            data={'id': 'old', 'added': '2026-01-01T00:00:00.000Z', 'title': 'Katabasis', 'isbn': '9780063021471'})
+                            data=works.upgrade({'id': 'old', 'added': '2026-01-01T00:00:00.000Z', 'title': 'Katabasis', 'isbn': '9780063021471'}))
         self.run_import()
-        self.assertEqual(set(Book.objects.get(uid='old').data['lists']), {'library', 'reading'})
+        self.assertEqual(set(works.flat(Book.objects.get(uid='old').data)['lists']), {'library', 'reading'})
+
+    def test_old_books_must_be_upgraded_first(self):
+        when = timezone.now()
+        Book.objects.create(user=self.user, uid='old', modified=when, changed=when, title='X', data={'id': 'old', 'title': 'X'})
+        with self.assertRaisesMessage(CommandError, 'run to_works first'):
+            self.run_import()
 
     def test_status_change_in_the_booklog_moves_the_book(self):
         self.run_import()
@@ -322,12 +342,12 @@ class ImportTests(TestCase):
     def test_remove_undoes_the_import(self):
         when = timezone.now()
         Book.objects.create(user=self.user, uid='abc', modified=when, changed=when, title='Katabasis',
-                            data={'id': 'abc', 'added': '2026-01-01T00:00:00.000Z', 'title': 'Katabasis', 'isbn': '9780063021471',
-                                  'lists': {'library': {'at': '2026-01-01T00:00:00.000Z'}}})
+                            data=works.upgrade({'id': 'abc', 'added': '2026-01-01T00:00:00.000Z', 'title': 'Katabasis', 'isbn': '9780063021471',
+                                                'lists': {'library': {'at': '2026-01-01T00:00:00.000Z'}}}))
         self.run_import()
         self.assertIn('2 deleted, 1 separated from a scanned book', self.run_import('--remove'))
         self.assertEqual(Book.objects.filter(deleted=False).count(), 1)
-        kept = Book.objects.get(uid='abc').data
+        kept = works.flat(Book.objects.get(uid='abc').data)
         self.assertEqual(list(kept['lists']), ['library'])
         self.assertNotIn('boeken', kept)
         self.assertNotIn('reviews', kept)
@@ -359,8 +379,9 @@ class CoverTests(TestCase):
         self.addCleanup(settings.disable)
 
     def sync(self, *books):
-        changes = [{'id': b['id'], 'modified': '2026-11-14T10:00:00Z', 'deleted': False, 'book': b} for b in books]
-        res = self.client.post('/api/sync', json.dumps({'since': None, 'changes': changes}), content_type='application/json')
+        """Books (given in the old shape, for short) as the app sends them."""
+        changes = [{'id': b['id'], 'modified': '2026-11-14T10:00:00Z', 'deleted': False, 'book': works.upgrade(b)} for b in books]
+        res = self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': changes}), content_type='application/json')
         self.assertEqual(res.status_code, 200, res.content)
         return res.json()
 
@@ -369,7 +390,7 @@ class CoverTests(TestCase):
         with mock.patch.object(covers, 'download', return_value=png(320, 400)) as download:
             answer = self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})
         self.assertEqual(download.call_args.args[0], 'https://covers.openlibrary.org/b/id/123-L.jpg?default=false')
-        book = answer['changes'][0]['book']
+        book = answer['changes'][0]['book']['editions'][0]
         self.assertRegex(book['cover'], r'^covers/web/[0-9a-f]{16}-320[.]webp$')
         self.assertEqual((book['coverRatio'], book['coverSource']), (0.8, url))
         self.assertTrue(Path(self.tmp.name, 'web', book['cover'].rsplit('/', 1)[1]).is_file())
@@ -389,7 +410,7 @@ class CoverTests(TestCase):
             self.assertEqual(self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})['changes'], [])
             self.sync({'id': 'b1', 'title': 'Dune', 'cover': url})
         self.assertEqual([c.args[0] for c in download.call_args_list], [url + '&fife=w1200', url])   # the larger one first, and only once
-        self.assertEqual(Book.objects.get(uid='b1').data['cover'], url)
+        self.assertEqual(Book.objects.get(uid='b1').data['editions'][0]['cover'], url)
 
     def test_a_catalogue_cover_that_was_picked_is_kept_large_and_small(self):
         url = 'https://covers.openlibrary.org/b/id/123-M.jpg'
@@ -415,8 +436,19 @@ class CoverTests(TestCase):
         out = StringIO()
         with mock.patch.object(covers, 'download', return_value=png(300, 450)):
             call_command('fetch_covers', stdout=out)
-        self.assertIn('reader: 7 covers kept, 0 could not be fetched', out.getvalue())
+        self.assertIn('reader: 7 books given covers, 0 could not be fetched', out.getvalue())
         self.assertTrue(all(b.data['cover'].startswith('covers/web/') for b in Book.objects.all()))
+
+    def test_every_edition_gets_its_cover(self):
+        url = 'https://covers.openlibrary.org/b/id/{}-M.jpg'
+        book = works.upgrade({'id': 'b1', 'title': 'Dune', 'cover': url.format(1)})
+        book['editions'].append({'id': 'e2', 'format': 'audiobook', 'cover': url.format(2)})
+        with mock.patch.object(covers, 'download', return_value=png(320, 400)):
+            self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': [
+                {'id': 'b1', 'modified': '2026-11-14T10:00:00Z', 'deleted': False, 'book': book}]}), content_type='application/json')
+        editions = Book.objects.get(uid='b1').data['editions']
+        self.assertEqual([e['coverSource'] for e in editions], [url.format(1), url.format(2)])
+        self.assertTrue(all(e['cover'].startswith('covers/web/') for e in editions))
 
     def test_a_cover_handed_in_is_kept_large_and_small(self):
         res = self.client.post('/api/cover', png(2400, 3600), content_type='image/png')
@@ -438,7 +470,7 @@ class CoverTests(TestCase):
         import base64
         thumb = 'data:image/png;base64,' + base64.b64encode(png(200, 300)).decode()
         answer = self.sync({'id': 'b1', 'title': 'Dune', 'cover': '', 'thumb': thumb})
-        book = answer['changes'][0]['book']
+        book = answer['changes'][0]['book']['editions'][0]
         self.assertRegex(book['cover'], r'^covers/own/[0-9a-f]{16}-320[.]webp$')
         self.assertEqual(book['thumb'], thumb)       # still there, for when the device is offline
-        self.assertEqual(self.sync()['changes'][0]['book']['cover'], book['cover'])
+        self.assertEqual(self.sync()['changes'][0]['book']['editions'][0]['cover'], book['cover'])
