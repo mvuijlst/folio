@@ -97,6 +97,7 @@ jobs:
             --exclude '.git*' --exclude '.claude' --exclude 'README.md' --exclude '/docs' --exclude '.nojekyll' \
             --exclude 'server/.env' --exclude 'server/venv' --exclude 'server/db.sqlite3*' \
             --exclude 'server/staticfiles' --exclude 'server/.dev-credentials' \
+            --exclude '/tests' \
             -e "ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes" \
             ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
 
