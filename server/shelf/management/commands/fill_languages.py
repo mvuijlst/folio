@@ -4,7 +4,9 @@
 
 For each edition of a book that is only on the shelf (not in the booklog, which says its own
 languages) with an ISBN and no language: Open Library's record of that edition is asked, and
-where it says none, Google Books. What either says becomes the edition's language. A changed
+where it says none, Google Books; where neither does, the ISBN's registration group (where the
+edition was published: 978-90 is Dutch, 978-0 English). What one of them says becomes the
+edition's language. A changed
 book keeps its `modified` (an edit made on a device since still wins) and gets a new `changed`,
 so every device fetches it. Repeatable: what has a language is not asked again, and what no
 catalogue knows is reported.
@@ -50,8 +52,27 @@ def from_google(isbn):
     return code if len(code) == 2 and code.isalpha() and code.islower() else ''
 
 
+# ISBN registration groups that publish in one language, after 978 (979-10 is French too).
+GROUPS = [('0', 'en'), ('1', 'en'), ('2', 'fr'), ('3', 'de'), ('90', 'nl'), ('94', 'nl'), ('84', 'es'), ('88', 'it'),
+          ('85', 'pt'), ('972', 'pt'), ('989', 'pt'), ('91', 'sv'), ('87', 'da'), ('82', 'no'), ('951', 'fi'), ('952', 'fi'),
+          ('83', 'pl'), ('5', 'ru')]
+
+
+def from_group(isbn):
+    if isbn.startswith('97910'):
+        return 'fr'
+    if not isbn.startswith('978'):
+        return ''
+    return next((code for prefix, code in sorted(GROUPS, key=lambda g: -len(g[0])) if isbn[3:].startswith(prefix)), '')
+
+
 def language_of(isbn):
-    return from_open_library(isbn) or from_google(isbn)
+    """→ (language, where it was found: 'catalogue' or 'isbn'), or ('', '')"""
+    code = from_open_library(isbn) or from_google(isbn)
+    if code:
+        return code, 'catalogue'
+    code = from_group(isbn)
+    return (code, 'isbn') if code else ('', '')
 
 
 class Command(BaseCommand):
@@ -67,7 +88,7 @@ class Command(BaseCommand):
             account = get_user_model().objects.get(username=user)
         except get_user_model().DoesNotExist:
             raise CommandError(f'There is no user "{user}".')
-        found, unknown, books = {}, [], 0
+        found, unknown, books, by_group = {}, [], 0, 0
         for row in Book.objects.filter(user=account, deleted=False).order_by('pk'):
             data = row.data
             if data.get('boeken') or not isinstance(data.get('editions'), list):
@@ -77,9 +98,10 @@ class Command(BaseCommand):
                 isbn = str(edition.get('isbn') or '')
                 if edition.get('language') or not isbn:
                     continue
-                code = language_of(isbn)
+                code, source = language_of(isbn)
                 if pause:
                     time.sleep(pause)
+                by_group += source == 'isbn'
                 if not code:
                     unknown.append(f'{row.title or isbn} ({isbn})')
                     continue
@@ -98,6 +120,7 @@ class Command(BaseCommand):
                     fresh.save(update_fields=['data', 'changed'])
         said = ', '.join(f'{n} {code}' for code, n in sorted(found.items(), key=lambda kv: -kv[1])) or 'none'
         self.stdout.write(('Would be: ' if dry_run else 'Done: ') + f'{books} books given a language ({said}); '
-                          f'{len(unknown)} editions no catalogue knows the language of')
+                          f"{by_group} of them only by the ISBN's registration group; "
+                          f'{len(unknown)} editions whose language is not known')
         for line in unknown:
             self.stdout.write(f'  not known: {line}')

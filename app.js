@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.1.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.1.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1030,6 +1030,15 @@ function fromGoogle(volume) {
 const MARC_LANGUAGES = { eng: 'en', dut: 'nl', fre: 'fr', ger: 'de', spa: 'es', ita: 'it', por: 'pt', swe: 'sv', dan: 'da',
   nor: 'no', fin: 'fi', pol: 'pl', rus: 'ru', lat: 'la', gre: 'el', jpn: 'ja', chi: 'zh', afr: 'af', fry: 'fy' };
 const marcLanguage = (edition) => MARC_LANGUAGES[String(edition?.languages?.[0]?.key || '').split('/').pop()] || '';
+/* Where no catalogue says, the ISBN's registration group does, near enough: where the edition
+   was published (978-90 is Dutch, 978-0 English). As fill_languages on the server. */
+const ISBN_GROUPS = [['972', 'pt'], ['989', 'pt'], ['951', 'fi'], ['952', 'fi'], ['90', 'nl'], ['94', 'nl'], ['84', 'es'], ['88', 'it'],
+  ['85', 'pt'], ['91', 'sv'], ['87', 'da'], ['82', 'no'], ['83', 'pl'], ['0', 'en'], ['1', 'en'], ['2', 'fr'], ['3', 'de'], ['5', 'ru']];
+function isbnLanguage(isbn) {
+  if (/^97910/.test(isbn)) return 'fr';
+  if (!/^978/.test(isbn)) return '';
+  return (ISBN_GROUPS.find(([prefix]) => isbn.slice(3).startsWith(prefix)) || [])[1] || '';
+}
 
 function fromOpenLibraryEdition(d) {
   return {
@@ -1113,6 +1122,7 @@ async function lookupIsbn(isbn) {
     }));
   });
   const book = merged();
+  if (book && !book.language) { const language = isbnLanguage(isbn); if (language) book.language = language; }
   if (book) return { status: 'found', book };
   return results.some((r) => r?.ok) ? { status: 'notfound' } : { status: 'unreachable' };
 }
