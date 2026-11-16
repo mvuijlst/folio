@@ -108,15 +108,6 @@ async function staleWhileRevalidate(event) {
   const hit = await cache.match(key);
   // The copy handed to the page gets consumed, so keep a clone to compare the fresh one against.
   const refresh = revalidate(cache, key, navigation ? './' : request.url, hit?.clone());
-  // The app's modules are one: the page is never told to reload until all of them are fresh, so it
-  // can't come back with a new app.js next to an old works.js.
-  if (!navigation && MODULES.includes(new URL(request.url).pathname.split('/').pop())) {
-    for (const other of MODULES) {
-      if (request.url.endsWith('/' + other) || partners.has(other)) continue;
-      partners.add(other);
-      event.waitUntil(revalidate(cache, other, other).catch(() => {}).finally(() => partners.delete(other)));
-    }
-  }
   if (hit) {
     event.waitUntil(refresh.catch((err) => console.warn('Folio: refresh failed', err)));
     return hit;
@@ -124,7 +115,6 @@ async function staleWhileRevalidate(event) {
   return refresh;
 }
 
-const partners = new Set();   // modules being refreshed because another one was asked for
 let pending = 0;
 let changed = false;
 
@@ -142,6 +132,10 @@ async function revalidate(cache, key, url, known) {
     // Announce once everything in flight has landed, so the reload sees a consistent set.
     if (--pending === 0 && changed) {
       changed = false;
+      // The app's modules import one another: all of them are fresh in the cache before the page
+      // reloads, so it can't come back with a new app.js next to an old works.js. (A page that is
+      // still loading keeps the set it started with: nothing is put in the cache under it before.)
+      await Promise.all(MODULES.map((url) => fetch(url, { cache: 'no-cache' }).then((r) => (r.ok ? cache.put(url, r) : null)).catch(() => {})));
       const windows = await self.clients.matchAll({ type: 'window' });
       windows.forEach((client) => client.postMessage({ type: 'bookscan-updated' }));
     }

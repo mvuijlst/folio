@@ -708,7 +708,18 @@ async function applyRemote(changes) {
       // A server that has not converted the shelf yet sends books in the old shape: made new here.
       const book = guarded(W.upgrade({ ...c.book, id: c.id, modified: c.modified }, statusIds()));
       if (local) {
-        // Keep the same object: an open edit form may hold it.
+        // Keep the same objects: an open form may hold the book, one of its editions or a review.
+        for (const key of ['editions', 'reviews']) {
+          const mine = new Map((local[key] || []).filter((x) => x && x.id).map((x) => [x.id, x]));
+          if (Array.isArray(book[key])) {
+            book[key] = book[key].map((x) => {
+              const kept = x && mine.get(x.id);
+              if (!kept) return x;
+              for (const k of Object.keys(kept)) delete kept[k];
+              return Object.assign(kept, x);
+            });
+          }
+        }
         for (const k of Object.keys(local)) delete local[k];
         Object.assign(local, book);
       } else {
@@ -2955,8 +2966,9 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     }
     let result = book, target = ed;
     if (isNew) {
-      result = await addFound({ ...book, ...work, ...copy, lists: listed }, { by: 'hand' });
-      target = W.mainEdition(result);
+      const done = await addFound({ ...book, ...work, ...copy, lists: listed });
+      result = done.book;
+      target = done.edition;
       rememberTarget(Object.keys(listed));
     } else {
       Object.assign(book, work, { pending: false, unresolved: false });
@@ -3260,9 +3272,10 @@ function byIsbn(isbn, target = []) {
  * → {book, edition, attached, keepSeparate(), undo()}: `attached` when it became an edition of a
  * book that was there; then `keepSeparate` makes it a book of its own, `undo` takes it back.
  */
-async function addFound(flat, { say = true } = {}) {
-  const into = adding.into && books.includes(adding.into) ? adding.into : null;
-  adding.into = null;
+async function addFound(flat, { say = true, match = false } = {}) {
+  // `match`: only by findWork (a book found in the background is not what "Add another edition" is adding).
+  const into = !match && adding.into && books.includes(adding.into) ? adding.into : null;
+  if (!match) adding.into = null;
   const same = into || W.findWork(flat, books);
   if (!same) {
     const book = await addBook(flat);
@@ -3276,8 +3289,7 @@ async function addFound(flat, { say = true } = {}) {
   if (status.length && W.OPEN.some((id) => same.lists[id])) same.main = edition.id;
   for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel']) if (!same[key] && flat[key]) same[key] = flat[key];
   await saveBook(same);
-  const undo = () => putBack(same, before);
-  const keepSeparate = async () => { await putBack(same, before); return addBook(flat); };
+  const { undo, keepSeparate } = detachable(same, edition, before, flat);
   const done = adding.last = { book: same, edition, attached: true, undo, keepSeparate };
   if (say) {
     toast(t('Added to “{title}” as another edition', { title: displayTitle(same) }), {
@@ -3287,6 +3299,45 @@ async function addFound(flat, { say = true } = {}) {
     });
   }
   return done;
+}
+
+/**
+ * Taking back an edition just added to `book` (`before`: the book as it was then; `flat`: what
+ * was found). Whatever was done to the book since stays: only that edition goes, with any read
+ * of it, and the reading status the adding gave the book is put back. → {undo, keepSeparate}:
+ * keepSeparate makes the edition, as it is now, a book of its own.
+ */
+function detachable(book, edition, before, flat) {
+  const take = async () => {
+    if (!books.includes(book) || !W.editionOf(book, edition.id)) return null;
+    const { piece } = W.split(book, edition.id, { id: newId(), added: new Date().toISOString(), status: statusIds() });
+    // The reading status as it was before the adding (the read planned of this edition went with it).
+    if (!W.OPEN.some((id) => before.lists?.[id]) || before.main !== book.main) {
+      book.lists = structuredClone(before.lists || {});
+      if (before.main && W.editionOf(book, before.main)) book.main = before.main; else delete book.main;
+    }
+    settleRating(book);
+    await saveBook(book);
+    return piece;
+  };
+  return {
+    undo: async () => { await take(); },
+    keepSeparate: async () => {
+      const piece = await take();
+      if (!piece) return addBook(flat);
+      // A book of its own: what was found says what book it is.
+      for (const key of ['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'olid', 'categories', 'tags']) {
+        if (flat[key] != null && flat[key] !== '') piece[key] = structuredClone(flat[key]); else delete piece[key];
+      }
+      if (flat.lists) for (const [id, entry] of Object.entries(flat.lists)) if (isStatus(id)) place(piece.lists, id, entry.at);
+      settle(piece);
+      books.unshift(guarded(piece));
+      touch(piece.id, piece);
+      renderLibrary();
+      await DB.put(piece).catch(storageFailed);
+      return piece;
+    },
+  };
 }
 
 /**
@@ -3342,9 +3393,10 @@ async function splitOff(book, edition, back) {
     return;
   }
   const before = structuredClone(book);
-  const { piece } = W.split(book, edition.id, { id: newId(), added: new Date().toISOString() });
+  const { piece } = W.split(book, edition.id, { id: newId(), added: new Date().toISOString(), status: statusIds() });
   settleRating(book);
   await saveBook(book);
+  settle(piece);
   books.unshift(guarded(piece));
   touch(piece.id, piece);
   await DB.put(piece).catch(storageFailed);
@@ -4120,7 +4172,8 @@ function openReviewForm(book, review, back, { finish = false, draft = null } = {
   let chosen = W.editionOf(book, draft?.ed ?? review?.ed) || W.mainEdition(book);
   const again = (ed, open = true) => openReviewForm(book, review, back, { finish, draft: { text: text.value, date: date.value, rating: rating.value, ed: (ed || chosen).id, open } });
   const box = h('details', { class: 'edition-box', open: !!draft?.open });
-  const drawBox = () => fill(box,
+  const current = () => (chosen = W.editionOf(book, chosen?.id) || W.mainEdition(book));
+  const drawBox = () => current() && fill(box,
     h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(chosen, several(book) ? book : undefined) || t('Not said') })),
     h('div', { class: 'edition-choice' },
       editionsOf(book).map((e) => h('button', {
@@ -4137,7 +4190,7 @@ function openReviewForm(book, review, back, { finish = false, draft = null } = {
   async function submit(e) {
     e.preventDefault();
     const stars = rating.value.trim() === '' ? null : Math.round(Number(rating.value));
-    const data = { date: date.value || '', rating: stars, text: text.value.replace(/\r\n?/g, '\n').trim(), ed: chosen.id };
+    const data = { date: date.value || '', rating: stars, text: text.value.replace(/\r\n?/g, '\n').trim(), ed: current().id };
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
     if (stars != null && !(stars >= 0 && stars <= 10)) return fail(t('A rating goes from 0 to 10.'), rating);
     const blank = !data.text && !data.date && stars == null;
@@ -4908,7 +4961,7 @@ async function addCopy(book, edition, on) {
   const own = { ...Object.fromEntries(['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'categories', 'tags', 'olid'].filter((key) => book[key] != null).map((key) => [key, structuredClone(book[key])])),
     ...W.factsOf(edition), lists: on };
   delete own.coverFull;
-  return { book, edition: copy, attached: true, copy: true, undo: () => putBack(book, before), keepSeparate: async () => { await putBack(book, before); return addBook(own); } };
+  return { book, edition: copy, attached: true, copy: true, ...detachable(book, copy, before, own) };
 }
 
 function pulse() {
@@ -5356,7 +5409,7 @@ async function retryPending() {
       for (const key of ['id', 'modified', 'pending', 'unresolved', 'v', 'main']) delete flat[key];
       if (W.findWork(flat, books.filter((b) => b !== book && !b.pending))) {
         await removeBook(book);
-        await addFound(flat);
+        await addFound(flat, { match: true });
       } else await saveBook(book);
     }
   } finally {

@@ -400,7 +400,7 @@ export function combine(survivor, absorbed) {
  * Edition `edId` of `work`, with its reads, as a book of its own (`id`, `added`). → {work, piece}
  * (work changed in place). A read of it that was planned or running goes along with it.
  */
-export function split(work, edId, { id, added }) {
+export function split(work, edId, { id, added, status } = {}) {
   const edition = editionOf(work, edId);
   const reading = isOpen(work.lists) && mainEdition(work) === edition;
   const piece = { id, added };
@@ -431,8 +431,8 @@ export function split(work, edId, { id, added }) {
   const rest = byDate(work.reviews || []).filter((r) => r.rating != null).pop();
   if (rest) work.rating = rest.rating; else delete work.rating;
   piece.v = 2;
-  settle(work);
-  settle(piece);
+  settle(work, status);
+  settle(piece, status);
   return { work, piece };
 }
 

@@ -1,10 +1,14 @@
 # Books and their editions: design and build plan
 
-Written 2026-11-16 for Michel, to be built by a later session (Opus 5.5). Nothing in this
-document is built yet. It was written against app version 1.28.0 (commit `fa2ecfa`, the one
-that added bulk edit); the branch had reached 1.29.0 by the time it was pushed. It names
-functions, never line numbers, because the files keep moving. "As today" means: as in the
-build the work starts from.
+Written 2026-11-16 for Michel, to be built by a later session (Opus 5.5). It was written
+against app version 1.28.0 (commit `fa2ecfa`, the one that added bulk edit); the branch had
+reached 1.29.0 by the time it was pushed. It names functions, never line numbers, because the
+files keep moving. "As today" means: as in the build the work starts from.
+
+**Status (2026-11-16, later that day).** Stages 0 to 4 are built on the branch
+`works-and-editions` as 2.0.0, not merged; section 10 says how the build departs from this
+plan and what was not done. Michel's answers to section 9 are recorded there. Stage 5 and the
+cut-over (section 8) are not done.
 
 **How to use it.** Read sections 1 to 6 before touching code: they are the design. Section 7
 is the build, in stages; each stage ends with a "done when" list that must hold before the
@@ -716,3 +720,58 @@ Each has a default this plan builds unless he says otherwise.
 7. **Stage 5** changes a rule of the booklog (D-048) so a translation can be a read of the
    same book there. Until then a translation is one book in Folio, and its reads appear in
    the booklog under the work's title.
+
+## 10. As built (2026-11-16)
+
+**Michel's answers to section 9.** Points 1 to 5: the defaults. Point 6: in Dutch an edition
+is a *kopie*, not an *editie*: *Nog een kopie toevoegen*, *Apart boek van maken*; the rest as
+proposed (*Apart houden*, *Samenvoegen met een ander boek*). A second copy of one edition stays
+*Nog een exemplaar*. Point 7: "if I reread a book in a translation, it should be a second page
+on the booklog but not a second book": stage 5's direction. Until stage 5 such a read is a
+reread post under the work's title.
+
+**Where the build departs from the plan, and why.**
+
+- *Upgrade, step 3–5 (6.4).* The lists of where a copy is, and a review without an edition, go
+  to the edition the book's own facts became, not always to the main edition. For a book only
+  in the app that was read in another edition than the one on the shelf (a library paperback,
+  read as a borrowed e-book), the library list belongs to the paperback; the main edition is
+  the e-book. Fixture `folio-read-another-edition`.
+- *`settle` (4.2)* also removes `main` when the book is on neither *To read* nor *Reading* (4.3
+  says when it is removed; doing it in one place on both sides keeps them equal). It looks at
+  the work's own fields only, so `?guard=1` can watch the rest.
+- *Twins (5.6) and the migration's list* match a title with the same title, or with the other
+  title without its subtitle; never subtitle-less with subtitle-less (all *B.P.R.D.: …* volumes
+  would be one book).
+- *Describe it (5.5).* A proposal without an ISBN that is the same work as a book with an
+  edition of the same format (or either says none) is *Already on your shelf*, as before; only
+  a proposal in another format, or with an ISBN the shelf lacks, is another edition. Without an
+  ISBN nothing tells it apart from the copy you have.
+- *A book read before and on To read* offers *Not after all* (back to *Read*) instead of *Drop*,
+  which would delete the book and all its reads.
+- *Another edition… in a read (5.4)* starts from the chosen edition's facts but not its cover
+  or the people of that edition alone (an e-book does not have the audiobook's voice).
+- *Import (6.3).* For a scanned book joined by ISBN, a post with that ISBN is of the scanned
+  edition (else the copy you scanned would be a second edition of itself). New editions made by
+  the import are `ed-<slug>`, also for a book new to the shelf.
+- *`in_step`* no longer lets a fingerprint from before editions (`sum` version 1) be upset by
+  the edition every read now has in the flat view.
+- *Publishing.* A new post's cover: another read's picture in the booklog is named again
+  instead of uploaded twice; one picture is filed once per plan.
+- *Goodreads export:* one row per read, plus a row for where the book stands when it is on *To
+  read* or *Reading* (otherwise a planned reread would not be in the file).
+- *Open Library's work id* comes from `/isbn/<isbn>.json`, asked beside the lookup and waited
+  for at most 1.5 s more.
+
+**Measured.** On the local database (older than production, then brought up to date with the
+booklog): 1,466 books, 1,485 editions, 18 books with more than one; one same-ISBN merge (two
+scanned *The Lord of the Rings*); *The Blacktongue Thief* not merged (both in the booklog); 7
+pairs listed as possibly the same book. Rehearsal against a clone of the booklog without a
+remote: `sync_boeken --dry-run` lists the same three books before and after `to_works`, with the
+same files; `import_boeken` after it: 1,458 unchanged, twice. The rehearsal on production's
+database is still to do (stage 1's last point): it needs a copy from Michel.
+
+**Not checked in the browser:** two browser profiles converging after edits on both (sync is
+per record, newest wins, as before); an old build talking to the new server (covered by a
+server test: 409 and nothing stored); photographing a cover and *Describe it* (no camera and no
+assistant locally).
