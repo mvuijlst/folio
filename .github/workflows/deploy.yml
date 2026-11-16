@@ -20,7 +20,7 @@ name: Deploy
 
 on:
   push:
-    branches: [ccr-b1603c1e-whqmno, main]
+    branches: [main]
   workflow_dispatch:
 
 concurrency:

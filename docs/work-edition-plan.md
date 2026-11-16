@@ -459,7 +459,7 @@ reviews point at editions by id.
 
 ### Working rules for whoever builds this
 
-- **Never push to `ccr-b1603c1e-whqmno` or `main` while building.** A push there deploys the
+- **Never push to `main` while building.** A push there deploys the
   app and restarts the server (`.github/workflows/deploy.yml`). Work on a branch
   `works-and-editions`; the cut-over in section 8 is the only moment it reaches the deploy
   branch, and Michel starts it.
