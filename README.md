@@ -2,7 +2,9 @@
 
 A personal book catalogue and reading log, as an installable web app (PWA). It keeps your
 books on lists, follows what you are reading and how far along you are, holds a review and an
-edition for every time you read a book, and can publish all of that to a booklog website.
+edition for every time you read a book. What you have read can go to a free reading site
+(StoryGraph, BookWyrm, Hardcover, LibraryThing, Goodreads); on the author's own server it is
+also published to their booklog website.
 
 It runs at [folio.yusupov.cloud](https://folio.yusupov.cloud).
 
@@ -31,10 +33,16 @@ releases, and the app has no automated tests (the server has).
 - **Finding and changing.** Filters, orders, three views (list, covers, cards), and editing
   many books at once.
 - **Covers.** Taken from the catalogues, photographed and straightened, pasted or shared in.
-- **Offline** once installed, in English or Dutch, with an export of the whole shelf as JSON.
+- **Offline** once installed, in English or Dutch.
+- **Your reading, public.** An export in the CSV layout of Goodreads, which StoryGraph,
+  BookWyrm, Hardcover, LibraryThing and Goodreads import, all of them free: a public page of
+  what you read, with ratings and reviews, without running anything yourself. There is a JSON
+  export of the whole shelf too.
 - **With the server (optional):** accounts and sync between devices, covers kept on the
-  server, the assistant, and two-way sync with the booklog: its books are imported, and what
-  changes in the app is published back to it as commits.
+  server, the assistant, and two-way sync with a Hugo booklog: its books are imported, and what
+  changes in the app is published back to it as commits. This is built for the author's own
+  [boeken.tsuk.org](https://boeken.tsuk.org) and is not yet usable with another site; the CSV
+  export above is the way to put your reading online.
 
 ## Trying it
 

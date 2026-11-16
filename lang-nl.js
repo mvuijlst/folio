@@ -295,6 +295,12 @@ export default {
   'Saved {name}': '{name} opgeslagen',
   'Sharing didn’t work — try saving the file': 'Delen lukte niet — probeer het bestand op te slaan',
   'JSON copied to clipboard': 'JSON gekopieerd naar het klembord',
+  'CSV copied to clipboard': 'CSV gekopieerd naar het klembord',
+  '{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per book, with its latest read; ratings become 1 to 5 stars.':
+    '{n} als CSV-bestand zoals Goodreads het exporteert, dat StoryGraph, BookWyrm, Hardcover, LibraryThing en Goodreads kunnen importeren. Eén rij per boek, met de laatste keer gelezen; scores worden 1 tot 5 sterren.',
+  'Export for Goodreads, StoryGraph…': 'Exporteren voor Goodreads, StoryGraph…',
+  'StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.':
+    'StoryGraph, BookWyrm, Hardcover, LibraryThing en Goodreads, allemaal gratis, kunnen de CSV importeren: een openbare pagina van wat je leest, met je scores en recensies.',
   'Couldn’t reach the clipboard': 'Het klembord is niet bereikbaar',
 
   // Settings and account

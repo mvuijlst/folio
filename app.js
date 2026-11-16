@@ -10,7 +10,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.28.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.29.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3860,15 +3860,80 @@ function exportJson() {
   return JSON.stringify(rows, null, 2);
 }
 
-function openExport() {
+/* The CSV layout of a Goodreads export, which other reading sites import too: StoryGraph,
+   BookWyrm, Hardcover, LibraryThing and Goodreads itself. One row per book, so a book read
+   more than once comes with its latest read; ratings go from 0–10 to 1–5 stars, and the series
+   goes in the title, "A Wizard of Earthsea (Earthsea, #1)", as Goodreads has it. Books with
+   no reading status are put on to-read, as Goodreads does with every book it is given. */
+const GOODREADS_COLUMNS = ['Book Id', 'Title', 'Author', 'Author l-f', 'Additional Authors', 'ISBN', 'ISBN13',
+  'My Rating', 'Average Rating', 'Publisher', 'Binding', 'Number of Pages', 'Year Published',
+  'Original Publication Year', 'Date Read', 'Date Added', 'Bookshelves', 'Bookshelves with positions',
+  'Exclusive Shelf', 'My Review', 'Spoiler', 'Private Notes', 'Read Count', 'Owned Copies'];
+const GOODREADS_SHELF = { 'to-read': 'to-read', reading: 'currently-reading', read: 'read', abandoned: 'did-not-finish' };
+
+/** "Ursula K. Le Guin" → "Le Guin, Ursula K.", the surname taking its particles along. */
+function lastFirst(name) {
+  const words = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (words.length < 2) return words.join(' ');
+  let cut = words.length - 1;
+  while (cut > 1 && PARTICLES.has(words[cut - 1].toLowerCase())) cut--;
+  return `${words.slice(cut).join(' ')}, ${words.slice(0, cut).join(' ')}`;
+}
+
+/** A 13-digit ISBN as ISBN-10, where there is one ('' for 979-…). */
+function toIsbn10(isbn13) {
+  if (!/^978\d{10}$/.test(isbn13 || '')) return '';
+  const core = isbn13.slice(3, 12);
+  let sum = 0;
+  for (let i = 0; i < 9; i++) sum += Number(core[i]) * (10 - i);
+  const check = (11 - (sum % 11)) % 11;
+  return core + (check === 10 ? 'X' : String(check));
+}
+
+function exportGoodreads() {
+  const cell = (v) => { const text = String(v ?? ''); return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+  const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso || '') ? iso.slice(0, 10).replace(/-/g, '/') : '');
+  const quoted = (isbn) => (isbn ? `="${isbn}"` : '');   // as Goodreads writes them, so a spreadsheet keeps the zeros
+  const slug = (text) => fold(text).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const rows = [...books].reverse().map((b) => {
+    const people = peopleOf(b);
+    const writers = writersIn(people);
+    const others = [...writers.slice(1), ...people.map((person) => person.name).filter((name) => !writers.includes(name))];
+    const on = listsOf(b);
+    const status = on.find(({ list }) => FIXED.has(list.id))?.list.id;
+    const shelf = GOODREADS_SHELF[status] || 'to-read';
+    const reads = (b.reviews || []).filter((r) => r.date).length;
+    const isbn13 = toIsbn13(b.isbn) || '';
+    const format = formatOf(b);
+    return [
+      '', b.series ? `${b.title} (${b.series}${seriesNo(b) ? `, #${seriesNo(b)}` : ''})` : b.title, writers[0] || '', lastFirst(writers[0]), others.join(', '), quoted(toIsbn10(isbn13)), quoted(isbn13),
+      b.rating != null ? Math.max(1, Math.round(b.rating / 2)) : 0, '', b.publisher || '',
+      { ebook: 'ebook', audiobook: 'Audiobook' }[format] || '', b.pages || '', yearOf(b.date), '',
+      day(lastRead(b)), day(b.added),
+      on.filter(({ list }) => !FIXED.has(list.id)).map(({ list }) => slug(listName(list))).filter(Boolean).join(', '), '',
+      shelf, sortedReviews(b).find((r) => r.text?.trim())?.text.trim() || '', '',
+      on.filter(({ note }) => note).map(({ list, note }) => `${listName(list)}: ${note}`).join('; '),
+      shelf === 'read' ? Math.max(reads, 1) : reads, shelves(b).library ? 1 : 0,
+    ];
+  });
+  return [GOODREADS_COLUMNS, ...rows].map((row) => row.map(cell).join(',')).join('\n') + '\n';
+}
+
+const EXPORTS = {
+  json: { make: exportJson, type: 'application/json', ext: 'json', about: (n) => t('{n} as JSON, oldest first.', { n }), copied: () => t('JSON copied to clipboard') },
+  goodreads: { make: exportGoodreads, type: 'text/csv', ext: 'csv', about: (n) => t('{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per book, with its latest read; ratings become 1 to 5 stars.', { n }), copied: () => t('CSV copied to clipboard') },
+};
+
+function openExport(kind = 'json') {
   if (!books.length) { toast(t('Nothing to export yet')); return; }
-  const json = exportJson();
-  const name = `folio-${new Date().toISOString().slice(0, 10)}.json`;
-  const file = typeof File === 'function' ? new File([json], name, { type: 'application/json' }) : null;
+  const how = EXPORTS[kind];
+  const text = how.make();
+  const name = `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`;
+  const file = typeof File === 'function' ? new File([text], name, { type: how.type }) : null;
   const canShareFile = !!file && !!navigator.canShare?.({ files: [file] });
 
   const save = () => {
-    const url = URL.createObjectURL(new Blob([json], { type: 'application/json' }));
+    const url = URL.createObjectURL(new Blob([text], { type: how.type }));
     const a = h('a', { href: url, download: name });
     document.body.append(a);
     a.click();
@@ -3879,19 +3944,19 @@ function openExport() {
   };
   const share = async () => {
     try {
-      await navigator.share(canShareFile ? { files: [file], title: name } : { title: name, text: json });
+      await navigator.share(canShareFile ? { files: [file], title: name } : { title: name, text });
       sheet.close();
     } catch (err) {
       if (err?.name !== 'AbortError') toast(t('Sharing didn’t work — try saving the file'));
     }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(json); sheet.close(); toast(t('JSON copied to clipboard')); }
+    try { await navigator.clipboard.writeText(text); sheet.close(); toast(how.copied()); }
     catch { toast(t('Couldn’t reach the clipboard')); }
   };
 
   sheet.open(h('div', null,
-    sheetHead(t('Export'), t('{n} as JSON, oldest first.', { n: plural(books.length, 'book') })),
+    sheetHead(t('Export'), how.about(plural(books.length, 'book'))),
     h('div', { class: 'stack' },
       h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: save }, icon('download'), t('Save file')),
       navigator.share && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: share }, icon('share'), t('Share…')),
@@ -3951,7 +4016,10 @@ function openSettings() {
         t('Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.'))),
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('Your shelf, as a file') }),
-      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: openExport }, icon('download'), t('Export as JSON'))),
+      h('div', { class: 'stack' },
+        h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('json') }, icon('download'), t('Export as JSON')),
+        h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('goodreads') }, icon('download'), t('Export for Goodreads, StoryGraph…'))),
+      h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') })),
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('About · version {version}', { version: APP_VERSION }) }),
       h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }))));

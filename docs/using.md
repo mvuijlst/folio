@@ -250,7 +250,26 @@ day, before it shows up in the share menu.
 
 ## Export
 
-**Export as JSON**, in the settings, saves, shares or copies the whole shelf as JSON:
+Settings → *Your shelf, as a file* has two exports. Each can be saved, shared or copied.
+
+**Export for Goodreads, StoryGraph…** writes a CSV file laid out like a Goodreads export,
+which other reading sites import: [StoryGraph](https://app.thestorygraph.com),
+[BookWyrm](https://joinbookwyrm.com) (open source; pick any instance),
+[Hardcover](https://hardcover.app), [LibraryThing](https://www.librarything.com) and Goodreads
+itself, all free. It is the way to give your reading a public page without running a server.
+
+- One row per book. A book read more than once comes with its latest read: the date read, the
+  number of reads, and the latest review that has text.
+- *To read*, *Reading*, *Read* and *Did not finish* become the shelves `to-read`,
+  `currently-reading`, `read` and `did-not-finish`. A book on none of them goes on `to-read`,
+  as every book on Goodreads is on one of its shelves. The other lists become shelves of their
+  own (`library`, `lent-out`), and their notes private notes.
+- Ratings go from 0–10 to 1–5 stars (half up: 7 is four stars). The series goes in the title,
+  *A Wizard of Earthsea (Earthsea, #1)*, as Goodreads writes it. Translators, voices and
+  others go under *Additional Authors*, without their role.
+- Reviews go as they were written, in Markdown.
+
+**Export as JSON** saves the whole shelf as JSON:
 
 ```json
 [
