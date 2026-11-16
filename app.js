@@ -3593,6 +3593,8 @@ function initTurning() {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowLeft') turnTo(-1);
     else if (e.key === 'ArrowRight') turnTo(1);
+    // Escape closes what is on top: the cover, large, if that is open over the page, else the page.
+    else if (e.key === 'Escape') { e.preventDefault(); closeLayer(); }
   });
 }
 
