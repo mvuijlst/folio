@@ -9,15 +9,14 @@ What the app does and how, screen by screen. For running it yourself see
    Google Books and added to your shelf with title, author, publication date, publisher, language and
    page count. Keep scanning — each hit is added straight away, with *Undo* and *Edit* on the card.
 2. **No match?** Photograph the front cover. Where the server has an assistant (see [The assistant](#the-assistant)) it
-   looks at the photograph and names the book, for you to confirm. Without one, or when it
-   cannot tell, the text on the cover is read on the phone and searched for in the same
-   catalogues; tap the right result to add it.
-3. **Still nothing?** The title and author read from the cover are put in a form for you to
-   correct. Every line of text found on the cover is a chip you can tap to fill a field.
+   looks at the photograph and names the book, for you to confirm.
+3. **Still nothing?** Without an assistant (no account, or offline), or when it cannot tell,
+   the photograph becomes the cover of a book you fill in by hand.
 
 Older paperbacks (mostly American) carry a shop barcode (UPC) instead of an ISBN one, with the
-ISBN only printed above or below it. The scanner notices this and reads the printed number instead.
-Photographing a back cover or copyright page that shows an ISBN works the same way.
+ISBN only printed above or below it. The scanner notices this and reads the printed number
+instead, on the phone (the only text recognition the app does; about 7 MB, fetched the first
+time it is needed).
 
 You can also type an ISBN or enter a book entirely by hand. Books scanned without a connection
 are saved by ISBN and completed automatically once you are back online.
@@ -374,10 +373,16 @@ rename them.
   sent it; a book's editions, and the lists it and its editions are on, travel inside the book.
   A copy of the app from before editions (before 2.0) can no longer sync: it says it is out of
   date under Settings, and updates itself the next time it is opened.
-  Export now and then to keep a copy of your own.
+  Export now and then to keep a copy of your own. Once there is a shelf, Folio asks the browser
+  to keep it when space runs low (Chrome and Safari decide by themselves, Firefox asks you);
+  settings → *About* says whether it agreed. Without that, a browser may clear it, and Safari
+  does after a few weeks unused unless Folio is installed on the home screen.
 - Google Books' keyless quota is shared and often exhausted. Open Library still answers, but
   for the best hit rate add a free Google Books API key under the settings icon.
-- Cover reading supports English, Dutch, French and German; pick the ones you need in settings.
-  The reader (about 10 MB) is downloaded the first time it is used and cached after that.
+- Nothing about you is collected: no analytics, no advertising, no cookies but those that
+  keep you signed in. Lookups go from your device to Open Library and Google Books, which see
+  what is looked up. With an account, what you describe or photograph for the assistant goes
+  through the server to OpenAI, and the server keeps the usual log of visits (address, time,
+  page).
 - Barcode scanning uses the browser's built-in detector on Android and falls back to a
   bundled WebAssembly one elsewhere.

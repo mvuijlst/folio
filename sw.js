@@ -11,6 +11,7 @@ const BYPASS = /\/(api|admin|django-static|covers)\//;   // never cached here; s
 const SHELL_FILES = [
   './',
   'styles.css',
+  'theme.js',
   'app.js',
   'works.js',
   'lang-nl.js',
@@ -40,6 +41,10 @@ self.addEventListener('activate', (event) => {
     const shell = await caches.open(SHELL);
     const strays = (await shell.keys()).filter((r) => { const u = new URL(r.url); return u.search || BYPASS.test(u.pathname); });
     await Promise.all(strays.map((r) => shell.delete(r)));
+    // Text recognition reads only printed ISBNs now, in English: the other languages can go.
+    const vendor = await caches.open(VENDOR);
+    const unread = (await vendor.keys()).filter((r) => /\/vendor\/tesseract\/lang\/(?!eng\.)/.test(new URL(r.url).pathname));
+    await Promise.all(unread.map((r) => vendor.delete(r)));
     await self.clients.claim();
   })());
 });

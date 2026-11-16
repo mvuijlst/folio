@@ -687,10 +687,6 @@ div.list-name { cursor: default; }
   color: var(--accent); border: 1px solid currentColor; border-radius: 4px; padding: 1px 7px;
 }
 
-/* Cover-text chips */
-.ocr { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; margin-bottom: 18px; }
-.ocr-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
-.ocr-head > span { font-size: .84rem; color: var(--muted); }
 .seg { display: inline-flex; background: var(--surface-2); border-radius: var(--radius-sm); padding: 3px; }
 .seg button { padding: 5px 14px; border-radius: 4px; font-size: .84rem; font-weight: 600; color: var(--muted); transition: background .15s ease, color .15s ease; }
 .seg button[aria-pressed="true"] { background: var(--surface); color: var(--accent); box-shadow: 0 0 0 1px var(--border); }
@@ -703,8 +699,6 @@ div.list-name { cursor: default; }
 }
 .chip:active { border-color: var(--accent); }
 .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
-.swap { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .86rem; font-weight: 600; margin: -4px 0 12px; padding: 6px 0; }
-.swap .icon { width: 15px; height: 15px; }
 
 /* ───────────── Scanner ───────────── */
 .scanner {

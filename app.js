@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.1.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -95,12 +95,9 @@ function localize() {
   }
 }
 
-const OCR_LANGS = { eng: 'English', nld: 'Nederlands', fra: 'Français', deu: 'Deutsch' };
 const settings = {
-  langs: store.get('langs', ['eng', 'nld', 'fra']).filter((l) => l in OCR_LANGS),
   googleKey: store.get('googleKey', ''),
 };
-if (!settings.langs.length) settings.langs = ['eng'];
 
 function initTheme() {
   const apply = (t) => {
@@ -191,6 +188,21 @@ async function saveBook(book) {
   touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
+  keepShelf();
+}
+
+/**
+ * Asks the browser to keep the shelf when space runs low, once there is a shelf to keep. Chrome
+ * and Safari decide by themselves (an installed app, a site used often); Firefox asks the user.
+ * → whether the browser keeps it (false where it can't say).
+ */
+let keeping = null;
+function keepShelf() {
+  if (!books.length || !navigator.storage?.persist) return Promise.resolve(false);
+  keeping ??= navigator.storage.persisted()
+    .then((kept) => kept || navigator.storage.persist())
+    .catch(() => false);
+  return keeping;
 }
 
 /** Puts a book back exactly as it was (`copy`, a structuredClone of it), and saves it. */
@@ -1125,57 +1137,6 @@ async function lookupIsbn(isbn) {
   if (book && !book.language) { const language = isbnLanguage(isbn); if (language) book.language = language; }
   if (book) return { status: 'found', book };
   return results.some((r) => r?.ok) ? { status: 'notfound' } : { status: 'unreachable' };
-}
-
-/* Free-text search, used for the text read off a cover photo. */
-
-const tokens = (s) => fold(s).match(/[a-z0-9]{2,}/g) || [];
-
-function near(a, b) {
-  if (a === b) return true;
-  if (a.length < 5 || Math.abs(a.length - b.length) > 1) return false;
-  // one edit apart?
-  let i = 0, j = 0, edits = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i++; j++; continue; }
-    if (++edits > 1) return false;
-    if (a.length > b.length) i++; else if (b.length > a.length) j++; else { i++; j++; }
-  }
-  return true;
-}
-
-async function searchByText(guess, lines) {
-  const queries = [...new Set([
-    [guess.title, guess.author].filter(Boolean).join(' '),
-    guess.title,
-  ].map((q) => q.trim()).filter((q) => q.length >= 3))];
-  if (!queries.length || navigator.onLine === false) return [];
-
-  const jobs = queries.flatMap((q) => [
-    getJSON(googleUrl(q, 6), 6000).then((d) => (d.items || []).map(fromGoogle)).catch(() => []),
-    getJSON(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&limit=6&fields=key,title,subtitle,author_name,first_publish_year,publisher,number_of_pages_median,cover_i,isbn`, 6000)
-      .then((d) => (d.docs || []).map(fromOpenLibrarySearch)).catch(() => []),
-  ]);
-  const found = (await Promise.all(jobs)).flat().filter((b) => b.title);
-
-  const seen = [...new Set(lines.flatMap((l) => tokens(l.text)))];
-  const hit = (w) => seen.some((s) => near(s, w));
-  const share = (words) => (words.length ? words.filter(hit).length / words.length : 0);
-  const scored = found.map((b) => {
-    const t = share(tokens(b.title.split(':')[0])), a = share(tokens(b.author));
-    const filled = FIELDS.filter((k) => b[k]).length;
-    return { book: b, score: t * 0.65 + a * 0.35 + filled * 0.005 };
-  }).filter((c) => c.score >= 0.34).sort((x, y) => y.score - x.score);
-
-  const out = [], keys = new Set();
-  for (const c of scored) {
-    const key = tokens(c.book.title.split(':')[0]).join(' ') + '|' + tokens(c.book.author).pop() + '|' + yearOf(c.book.date);
-    if (keys.has(key)) continue;
-    keys.add(key);
-    out.push(c);
-    if (out.length === 6) break;
-  }
-  return out;
 }
 
 /* ───────────────────────── Layers, sheet, toast ───────────────────────── */
@@ -2288,15 +2249,6 @@ function openBulkEdit(chosen) {
 
 /* ───────────────────────── Book form ───────────────────────── */
 
-const SMALL_WORDS = /^(a|an|the|of|and|in|on|to|for|at|by|de|het|een|van|en|der|den|te|ten|ter|op|le|la|les|du|des|et|un|une|und|das|die|von|zu)$/;
-
-/** ALL-CAPS cover text → Title Case; anything already mixed-case is left alone. */
-function tidyCase(s) {
-  s = String(s || '').replace(/\s+/g, ' ').trim();
-  if (!s || s !== s.toUpperCase() || !/\p{L}{2}/u.test(s)) return s;
-  return s.toLowerCase().split(' ').map((w, i) => (i > 0 && SMALL_WORDS.test(w) ? w : w.replace(/(^|[-'’.])(\p{L})/gu, (m, p, c) => p + c.toUpperCase()))).join(' ');
-}
-
 /**
  * Chips for choosing lists, editing the {listId: {at, note}} map `on` in place. Either-or
  * groups behave like radio buttons that can also be switched off.
@@ -2843,13 +2795,12 @@ function setFacts(ed, data) {
 /**
  * Add or edit a book.
  *  book      existing record, or a draft when `isNew` (as a lookup has it: title, author, isbn, lists…)
- *  ocrLines  text read from the cover, offered as tap-to-fill chips
  * A book with one edition, or a new one, is edited field for field: what is the book's goes to the
  * book, the rest to its edition, and nobody can tell there are two levels. With more than one
  * edition the form holds what is the book's (title, writers, series, categories, tags, reading
  * status); the rest is on each edition's own sheet.
  */
-function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading, onSaved, onClose, back }) {
+function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClose, back }) {
   // `back` is where Cancel and Save go instead of closing the sheet (the book's page).
   const leave = () => (back ? back() : sheet.close());
   let saved = false;
@@ -2865,7 +2816,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   };
   const seriesNames = h('datalist', { id: 'seriesNames' }, [...seriesMap().keys()].sort().map((value) => h('option', { value })));
   f.title.value = book.title || '';
-  // Who made it: a row each. `f.author` is the first name, which the cover's text and Swap fill.
+  // Who made it: a row each. `f.author` is the first name.
   // With several editions: the writers and whoever is on every edition (a comic's artist); a
   // voice or a translator of one edition is on that edition's sheet.
   const split = !whole && peopleSplit(book);
@@ -2884,44 +2835,13 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   const listed = isNew ? Object.entries(book.lists || {}).map(([id, entry]) => ({ list: { id }, ...entry })) : listsOf(book, whole ? ed : {});
   for (const { list, at, note } of listed) on[list.id] = note ? { at, note } : { at };
 
-  // Tap-to-fill chips for text read off the cover.
-  let ocrBox = null;
-  if (ocrLines.length) {
-    let target = 'title', run = null;
-    const seg = { title: h('button', { type: 'button', text: t('Title') }), author: h('button', { type: 'button', text: t('Author') }) };
-    const setTarget = (t) => { target = t; run = null; for (const k in seg) seg[k].setAttribute('aria-pressed', String(k === t)); };
-    for (const k in seg) {
-      seg[k].addEventListener('click', () => setTarget(k));
-      f[k].addEventListener('focus', () => setTarget(k));
-      f[k].addEventListener('input', () => { run = null; });
-    }
-    setTarget('title');
-    const chips = ocrLines.slice(0, 12).map((line) => h('button', {
-      class: 'chip', type: 'button', text: line,
-      onpointerdown: (e) => e.preventDefault(), // keep the keyboard where it is
-      onclick: () => {
-        // First tap replaces the field; further taps in a row append.
-        f[target].value = run === target && f[target].value ? `${f[target].value} ${line}` : line;
-        run = target;
-      },
-    }));
-    ocrBox = h('div', { class: 'ocr' },
-      h('div', { class: 'ocr-head' }, h('span', { text: t('Tap text from the cover to fill') }), h('div', { class: 'seg' }, seg.title, seg.author)),
-      h('div', { class: 'chips' }, chips));
-  }
-
-  const swap = isNew && ocrLines.length > 0 && h('button', {
-    class: 'swap', type: 'button',
-    onclick: () => { [f.title.value, f.author.value] = [f.author.value, f.title.value]; },
-  }, icon('swap'), t('Swap title and author'));
-
   // A book that came from the booklog: where to read about it, and who has the last word.
   const source = sourceNote(book, true);
 
   // The cover: tap it to choose a picture; or paste or drop one while no text field has the cursor.
   // With several editions each has its own, changed on its sheet.
   const cover = whole && coverControl(() => src, () => form, () => ({ isbn: f.isbn.value.replace(/[^0-9Xx]/g, '') || src.isbn, title: f.title.value.trim() || book.title, author: writersIn(who.value()).join(', ') || book.author }));
-  const again = () => openBookForm({ book, isNew, ocrLines, heading, subheading, onSaved, onClose, back });
+  const again = () => openBookForm({ book, isNew, heading, subheading, onSaved, onClose, back });
 
   const form = h('form', {
     novalidate: true, onsubmit: submit,
@@ -2931,11 +2851,9 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || (!whole && t('Each edition has its own details, under Editions.')) || null,
       cover ? cover.button : h('div', { class: 'cover-pick' }, coverEl(src, true))),
     source,
-    ocrBox,
     field(t('Title'), f.title),
     h('div', { class: 'field' }, h('span', { text: whole ? t('Authors and others') : t('Authors') }), who.el),
     h('p', { class: 'sheet-note people-hint', text: whole ? t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') : t('No role for an author. Someone on only one edition (a voice, a translator) is on that edition.') }),
-    swap,
     whole && facts.publisherRow,
     whole && facts.formatRow,
     whole && facts.extentRow,
@@ -3260,7 +3178,7 @@ function openAdd(inScanner = false, { into = null, back = null } = {}) {
     h('div', { class: 'ways' },
       !inScanner && way('barcode', t('Scan the barcode'), t('On the back cover. The quickest way.'),
         go(() => closeLayersThen(() => openScanner()))),
-      way('camera', t('Photograph the cover'), t('Its front cover is read and looked up.'),
+      way('camera', t('Photograph the cover'), assistant ? t('Its front cover is read and looked up.') : t('The photo is its cover; you type the details.'),
         inScanner ? () => { sheet.close(); setMode('cover'); } : go(() => closeLayersThen(() => openScanner('cover')))),
       assistant && way('sparkles', t('Describe it'), t('A title, an author, a series, in your own words: the assistant finds the book.'),
         go(() => closeLayersThen(() => openDescribe()))),
@@ -4520,18 +4438,6 @@ window.addEventListener('beforeinstallprompt', (e) => {
 });
 
 function openSettings() {
-  const chips = Object.entries(OCR_LANGS).map(([code, label]) => {
-    const chip = h('button', { class: 'chip', type: 'button', text: label, 'aria-pressed': String(settings.langs.includes(code)) });
-    chip.addEventListener('click', () => {
-      const on = !settings.langs.includes(code);
-      if (!on && settings.langs.length === 1) { toast(t('Keep at least one language')); return; }
-      settings.langs = Object.keys(OCR_LANGS).filter((l) => (l === code ? on : settings.langs.includes(l)));
-      store.set('langs', settings.langs);
-      chip.setAttribute('aria-pressed', String(on));
-    });
-    return chip;
-  });
-
   const key = h('input', { type: 'text', value: settings.googleKey, placeholder: t('Optional'), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
   key.addEventListener('change', () => { settings.googleKey = key.value.trim(); store.set('googleKey', settings.googleKey); });
 
@@ -4541,6 +4447,7 @@ function openSettings() {
   });
 
   sync.box = h('div', { class: 'sheet-section account' });
+  const kept = h('p', { class: 'sheet-note' });
   sheet.open(h('div', null,
     sheetHead(t('Settings')),
     installPrompt && h('button', {
@@ -4551,10 +4458,6 @@ function openSettings() {
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('Language') }),
       h('div', { class: 'chips' }, langChip('auto', t('Same as this device')), Object.entries(LANGS).map(([code, label]) => langChip(code, label)))),
-    h('div', { class: 'sheet-section' },
-      h('h3', { text: t('Languages on your covers') }),
-      h('div', { class: 'chips' }, chips),
-      h('p', { class: 'sheet-note', text: t('Used when reading a photographed cover. Fewer languages read faster.') })),
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('Google Books API key') }),
       h('label', { class: 'field' }, key),
@@ -4568,7 +4471,13 @@ function openSettings() {
       h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') })),
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('About · version {version}', { version: APP_VERSION }) }),
-      h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }))));
+      h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }),
+      kept,
+      h('p', { class: 'sheet-note', text: t('Nothing about you is collected: no analytics, no advertising, no cookies but those that keep you signed in. Lookups go from this device to Open Library and Google Books, which see what is looked up. With an account, what you describe or photograph for the assistant goes through the server to OpenAI, and the server keeps the usual log of visits.') }),
+      h('p', { class: 'sheet-note', text: t('Folio is free and comes as is, without guarantees (MIT licence).') }))));
+  keepShelf().then((yes) => {
+    if (books.length) kept.textContent = yes ? t('This browser keeps your shelf even when space runs low.') : t('This browser may clear your shelf when space runs low, or after weeks unused (Safari, unless Folio is installed).');
+  });
   renderAccount();
   if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
 }
@@ -4886,7 +4795,6 @@ function setMode(mode, isbn = '') {
   scannerEl.dataset.mode = mode;
   showCard(null);
   setHint();
-  if (mode === 'cover' && !coverByAssistant()) warmOcr();   // the text recogniser is only the fallback then
 }
 
 function updateScanCount() {
@@ -5055,7 +4963,6 @@ async function onIsbn(isbn) {
     showCard(addedCard(done));
   } else if (result.status === 'notfound') {
     if (!alive(session)) { toast(t('No match found for ISBN {isbn}', { isbn })); return; }
-    warmOcr();
     // Scanning stays paused until one of these is chosen.
     showCard(card({
       status: t('No match'), tone: 'warn', title: t('This ISBN isn’t in the catalogues'), sub: t('{isbn} · Try a photo of the front cover.', { isbn }),
@@ -5106,9 +5013,11 @@ function openIsbnSheet() {
   input.focus();
 }
 
-/* ───────────────────────── Cover photo → OCR → search ───────────────────────── */
+/* ───────────────────────── Reading a printed ISBN ───────────────────────── */
 
-const ocr = { promise: null, langs: '', onProgress: null };
+// Text recognition (tesseract.js) is used for one thing: the digits of the ISBN printed beside a
+// shop barcode (readPrintedIsbn). A photographed cover goes to the assistant instead.
+let ocrWorker = null;
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -5119,92 +5028,26 @@ function loadScript(src) {
   });
 }
 
-/** Starts (or reuses) the text-recognition worker. Roughly 10 MB on first use, cached afterwards. */
+/** Starts (or reuses) the text-recognition worker. About 7 MB on first use, cached afterwards. */
 function getOcrWorker() {
-  const langs = settings.langs.join('+');
-  if (ocr.promise && ocr.langs === langs) return ocr.promise;
-  ocr.promise?.then((w) => w.terminate()).catch(() => {});
-  ocr.langs = langs;
-  const mine = ocr.promise = (async () => {
+  if (ocrWorker) return ocrWorker;
+  const mine = ocrWorker = (async () => {
     if (!window.Tesseract) await loadScript('vendor/tesseract/tesseract.min.js');
-    const worker = await window.Tesseract.createWorker(settings.langs, 1, {
+    const worker = await window.Tesseract.createWorker('eng', 1, {
       workerPath: abs('vendor/tesseract/worker.min.js'),
       corePath: abs('vendor/tesseract/core'),
       langPath: abs('vendor/tesseract/lang'),
       workerBlobURL: false,
       cacheMethod: 'none', // the service worker already keeps these files
-      logger: (m) => ocr.onProgress?.(m),
     });
     await worker.setParameters({ user_defined_dpi: '200' });
     return worker;
   })();
-  mine.catch(() => { if (ocr.promise === mine) ocr.promise = null; });
+  mine.catch(() => { if (ocrWorker === mine) ocrWorker = null; });
   return mine;
 }
 
-function warmOcr() { getOcrWorker().catch((err) => console.warn('OCR unavailable', err)); }
-
-/** Turns Tesseract's block tree into clean lines, top to bottom. */
-function extractLines(data) {
-  const lines = [];
-  for (const block of data.blocks || []) for (const para of block.paragraphs || []) for (const line of para.lines || []) {
-    const words = (line.words || [])
-      .filter((w) => w.confidence >= 60)
-      .map((w) => ({ text: w.text.replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}.!?]+$/gu, ''), box: w.bbox }))
-      .filter((w) => /[\p{L}\p{N}]/u.test(w.text));
-    if (!words.some((w) => /\p{L}{2}/u.test(w.text))) continue;
-    lines.push({
-      text: words.map((w) => w.text).join(' '),
-      height: Math.max(...words.map((w) => w.box.y1 - w.box.y0)),
-      top: Math.min(...words.map((w) => w.box.y0)),
-      bottom: Math.max(...words.map((w) => w.box.y1)),
-      left: Math.min(...words.map((w) => w.box.x0)),
-    });
-  }
-  // Reading order: top to bottom, and left to right for pieces on the same row.
-  return lines.sort((a, b) => (Math.abs(a.top - b.top) < Math.min(a.height, b.height) * 0.5 ? a.left - b.left : a.top - b.top));
-}
-
-const BLURB = /bestsell|author of|auteur van|winner|winnaar|prize|prijs|\broman\b|novel|edition|editie|foreword|voorwoord|introduc|vertaald|translated|\btimes\b|review|million|miljoen/i;
-const NAME_PART = /^(\p{Lu}[\p{L}.'’-]*|van|de|der|den|von|le|la|du|di|da|ten|ter|and|en|et|&)$/u;
-
-/**
- * The biggest text is usually the title, and the most prominent name-shaped line
- * the author — unless the biggest text is itself a name sitting above a title.
- */
-function guessTitleAuthor(lines) {
-  if (!lines.length) return { title: '', author: '' };
-  const text = (group) => group.map((l) => l.text).join(' ');
-  const tallestOf = (pool) => pool.reduce((a, b) => (b.height > a.height ? b : a));
-  const nameLike = (str) => {
-    const parts = str.split(/\s+/);
-    return parts.length >= 2 && parts.length <= 5 && parts.every((p) => NAME_PART.test(p)) && !BLURB.test(str);
-  };
-  // Lines of one title are about the same size and sit close together.
-  const joins = (a, b) => a && b
-    && Math.min(a.height, b.height) >= Math.max(a.height, b.height) * 0.72
-    && b.top - a.bottom < Math.max(a.height, b.height) * 1.1;
-  const groupAround = (seed, pool) => {
-    let from = pool.indexOf(seed), to = from;
-    while (to - from < 2 && joins(pool[from - 1], pool[from])) from--;
-    while (to - from < 2 && joins(pool[to], pool[to + 1])) to++;
-    return pool.slice(from, to + 1);
-  };
-
-  let title = groupAround(tallestOf(lines), lines);
-  let rest = lines.filter((l) => !title.includes(l));
-  let author = '';
-  if (rest.length && nameLike(text(title))) {
-    const second = groupAround(tallestOf(rest), rest);
-    if (!nameLike(text(second)) && !BLURB.test(text(second)) && second[0].height >= title[0].height * 0.4) {
-      author = text(title);
-      title = second;
-      rest = rest.filter((l) => !second.includes(l));
-    }
-  }
-  if (!author) author = rest.filter((l) => nameLike(l.text)).sort((a, b) => b.height - a.height)[0]?.text || '';
-  return { title: tidyCase(text(title)), author: tidyCase(author) };
-}
+/* ───────────────────────── Cover photo ───────────────────────── */
 
 /** Crops the part of the camera frame that sits inside the viewfinder. */
 function grabFinderFrame() {
@@ -5268,8 +5111,6 @@ async function processCover({ canvas, thumb }) {
   const isbn = scanner.pendingIsbn;
   scanner.capturing = true;
   $('shutterBtn').disabled = true;
-  const progress = busyCard(coverByAssistant() ? t('Looking at the cover…') : t('Reading the cover…'), true);
-  showCard(progress);
   setHint('');
 
   const finish = (saved) => {
@@ -5281,89 +5122,36 @@ async function processCover({ canvas, thumb }) {
     else setHint();
   };
 
-  // The assistant looks at the photograph itself, which reads a cover far better than
-  // character recognition does. Where there is none, or it can't tell, the text is read here.
-  if (coverByAssistant()) {
-    let seen = [], waited = 0;
+  // The assistant looks at the photograph and names the book. Without one (no account, or
+  // offline), or when it can't tell, the photograph is the cover of a book filled in by hand.
+  const asked = coverByAssistant();
+  let seen = [];
+  if (asked) {
+    const progress = busyCard(t('Looking at the cover…'), true);
+    showCard(progress);
+    let waited = 0;
     const creep = setInterval(() => progress.setProgress(1 - 0.9 ** ++waited), 400);   // it takes a few seconds
     try { seen = await booksOnCover(canvas); }
     catch (err) { console.warn('Folio: the assistant could not look at the cover', err); }
     clearInterval(creep);
     if (!alive(session)) return;
-    if (seen.length) {
-      showCard(null);
-      openDescribe(null, {
-        books: seen, thumb, canvas, isbn, onClose: finish,
-        byHand: () => openBookForm({
-          book: { title: seen[0].title, author: seen[0].author, isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
-          heading: t('Check the details'),
-        }),
-      });
-      return;
-    }
-    progress.setProgress(0);
-    progress.setText(t('Reading the cover…'));
-  }
-
-  let lines = [], printedIsbn = null;
-  try {
-    ocr.onProgress = (m) => { if (m.status === 'recognizing text') progress.setProgress(0.15 + m.progress * 0.85); else progress.setProgress(0.1); };
-    const worker = await getOcrWorker();
-    const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('OCR timed out')), 30000));
-    await worker.setParameters({ tessedit_pageseg_mode: '11' }); // sparse text: covers are not paragraphs
-    const { data } = await Promise.race([worker.recognize(canvas, {}, { text: true, blocks: true }), timeout]);
-    lines = extractLines(data);
-    printedIsbn = findPrintedIsbn(data.text);
-  } catch (err) {
-    console.warn(err);
-  } finally {
-    ocr.onProgress = null;
-  }
-  if (!alive(session)) return;
-
-  // A photographed back cover or copyright page: the ISBN on it beats guessing from the text.
-  if (printedIsbn && printedIsbn !== isbn) {
-    scanner.capturing = false;
-    $('shutterBtn').disabled = false;
-    video.play().catch(() => {});
-    setMode('barcode');
-    onIsbn(printedIsbn);
-    return;
-  }
-
-  const guess = guessTitleAuthor(lines);
-  let candidates = [];
-  if (guess.title) {
-    progress.setProgress(1);
-    progress.setText(t('Searching the catalogues…'));
-    candidates = await searchByText(guess, lines);
-    if (!alive(session)) return;
   }
   showCard(null);
-
-  const draft = { title: guess.title, author: guess.author, isbn, thumb, lists: targetLists() };
-  const chipLines = lines.map((l) => tidyCase(l.text)).filter((t) => t.length > 1);
-  const editByHand = () => openBookForm({
-    book: draft, isNew: true, ocrLines: chipLines, onClose: finish,
-    heading: lines.length ? t('Check the details') : t('Couldn’t read the cover'),
-    subheading: lines.length ? t('This is what the cover seems to say — fix anything that’s off.') : t('No text could be made out. Type the details, or cancel and try another photo.'),
+  if (seen.length) {
+    openDescribe(null, {
+      books: seen, thumb, canvas, isbn, onClose: finish,
+      byHand: () => openBookForm({
+        book: { title: seen[0].title, author: seen[0].author, isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
+        heading: t('Check the details'),
+      }),
+    });
+    return;
+  }
+  openBookForm({
+    book: { isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
+    heading: asked ? t('Couldn’t tell which book this is') : t('New book'),
+    subheading: t('The photo is its cover. Type the details.'),
   });
-
-  if (!candidates.length) { editByHand(); return; }
-
-  let picked = false;
-  const rows = candidates.map((c, i) => bookRow(c.book, async (b) => {
-    if (picked) return;
-    picked = true;
-    await addFound({ ...b, isbn: isbn || b.isbn, thumb, format: 'paper', lists: targetLists() });
-    sheet.close();
-  }, i === 0 && c.score >= 0.75 ? h('span', { class: 'badge', text: t('Best match') }) : null));
-  rows.forEach((r) => r.classList.add('cand'));
-  sheet.open(h('div', null,
-    sheetHead(t('Is it one of these?'), t('Tap the right book to add it.')),
-    h('div', { class: 'cand-list' }, rows),
-    h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: editByHand }, icon('pencil'), t('None of these — enter it myself'))),
-  () => finish(picked));
 }
 
 /* ───────────────────────── Wiring ───────────────────────── */
@@ -5505,7 +5293,7 @@ async function init() {
   }
   readRoute();
   renderLibrary();
-  navigator.storage?.persist?.().catch(() => {});
+  keepShelf();
   initUpdates();
   window.addEventListener('online', () => { retryPending(); runSync(); });
   // Pick up changes from other devices whenever the app comes back to the foreground.

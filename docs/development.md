@@ -4,7 +4,7 @@
 
 | Path | What |
 | --- | --- |
-| `index.html`, `styles.css`, `app.js` | the whole app |
+| `index.html`, `styles.css`, `app.js` | the whole app; `theme.js` sets the theme before first paint |
 | `works.js` | a book and its editions: the pure functions for them (upgrading an old record, which edition a row shows, finding the book a find is another edition of, combining, splitting), shared in spirit with `server/shelf/works.py` |
 | `tests/` | the app's tests (`node --test "tests/*.test.mjs"`, Node 22), and `tests/fixtures/works/`: old records and what each must become, which the server is tested against too |
 | `lang-nl.js` | the app's text in Dutch |
@@ -12,7 +12,7 @@
 | `server/` | optional Django sync server (accounts, a copy of each shelf and its lists), and the booklog import |
 | `covers/` | cover images kept by the server: `boeken/` from the import, `web/` from the catalogues (not in the repository) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
-| `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and language data (Apache-2.0) |
+| `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and its English data, for printed ISBNs (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |
 
 Icons in the interface are from [Lucide](https://lucide.dev) (ISC).
@@ -25,6 +25,11 @@ reload the page. The server's tests run with `venv/bin/python manage.py test` in
 become (`node tests/fixtures/works/make-after.mjs` fills in a new one's, to be read before it is
 trusted). Opening the app with `?guard=1` makes reading a field that moved into the editions
 off a book itself say so in the console, with where.
+
+`index.html` carries a Content-Security-Policy: scripts only from the app's own address (no
+inline ones, which is why the theme is set by `theme.js`), WebAssembly allowed for the barcode
+and ISBN readers, pictures and lookups from any https address. A script, worker or font from
+anywhere else needs a line there first.
 
 ## Old names
 

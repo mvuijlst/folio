@@ -68,14 +68,23 @@ HTTPS. The sync server is a small Django app in [`server/`](server).
 
 ## Credits
 
-Fonts: Fraunces and Instrument Sans (SIL Open Font License). Cover reading:
+Fonts: Fraunces and Instrument Sans (SIL Open Font License). Reading printed ISBNs:
 [tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0). Barcode fallback:
 [barcode-detector](https://github.com/Sec-ant/barcode-detector) / zxing-wasm (MIT). Interface
 icons: [Lucide](https://lucide.dev) (ISC).
 
 Folio began as *Bookscan*, which is why a few internal names still say so.
 
+## Privacy
+
+Folio collects nothing about you: no analytics, no advertising, no cookies but those that
+keep you signed in. Without an account your shelf never leaves your device; book lookups go
+from your device to Open Library and Google Books, which see what is looked up. With an account
+on the author's server, your shelf is kept there too, what you describe or photograph for the
+assistant goes through it to OpenAI, and it keeps the usual log of visits.
+
 ## License
 
-[MIT](LICENSE). The fonts and libraries in `fonts/` and `vendor/` keep their own licenses,
+[MIT](LICENSE). Folio is free and comes as is, without guarantees: keep an export of your shelf.
+The fonts and libraries in `fonts/` and `vendor/` keep their own licenses,
 listed above.
