@@ -112,6 +112,7 @@ export default {
   'Looking at the cover…': 'De cover bekijken…',
   'Is this the book?': 'Is dit het boek?',
   'This is what the assistant makes of the cover.': 'Dit maakt de assistent van de cover.',
+  'The assistant doesn’t know this book, so it says nothing about what it is about.': 'De assistent kent dit boek niet, en zegt dus niets over waar het over gaat.',
   'Not the right book? Say it in words': 'Niet het juiste boek? Zeg het in woorden',
   'Other ways to add this book.': 'Andere manieren om dit boek toe te voegen.',
   'Scan the barcode': 'Streepjescode scannen',

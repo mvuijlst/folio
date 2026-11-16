@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3403,6 +3403,8 @@ function openDescribe(shared, found) {
           h('div', { class: 'book-meta', text: there ? t('Already on your shelf') : metaLine(p) }),
           other && h('div', { class: 'book-meta', text: t('Another edition of “{title}” on your shelf', { title: displayTitle(other) }) }),
           p.note && h('p', { class: 'card-excerpt', text: p.note }),
+          // The assistant only read its title and author: it says nothing of what the book is about.
+          p.unknown && h('p', { class: 'card-excerpt unknown', text: t('The assistant doesn’t know this book, so it says nothing about what it is about.') }),
           h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text })))));
     };
     const booklog = host && h('label', { class: 'check-line' },
@@ -3451,7 +3453,7 @@ function openDescribe(shared, found) {
   async function add() {
     const picked = proposals.filter((p) => p.picked && !onShelfAlready(p));
     let attached = false;
-    for (const { picked: _, note, ...p } of picked) {
+    for (const { picked: _, unknown: __, note, ...p } of picked) {
       const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
       // From a photograph of one book: that photograph is its cover until a better one is found,
       // and a barcode that was scanned first but found nowhere is its ISBN.

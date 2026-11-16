@@ -82,6 +82,28 @@ class IntakeTests(TestCase):
         self.assertNotIn('isbn', book)
         self.assertNotIn('cover', book)
 
+    def test_a_book_the_model_does_not_know_gets_no_made_up_sentence(self):
+        # It read "Tot heil van mens en dier" off a cover and knows nothing more: a sentence about it
+        # would be guessed from the title (and would become the book's review).
+        unread = {**PIRANESI, 'title': 'Tot heil van mens en dier', 'authors': [{'name': 'Robert Ruys', 'role': None}],
+                  'known': False, 'categories': ['sf'], 'tags': ['geschiedenis'],
+                  'note': 'Een boek over de geschiedenis van mens en dier.'}
+        with override_settings(BOEKEN_REPO=self.tmp.name), \
+                mock.patch.object(intake, 'post_json', return_value=model_says(unread)) as asked, \
+                mock.patch.object(intake, 'get_json', return_value={'docs': []}):
+            book = self.ask('Tot heil van mens en dier, Robert Ruys').json()['books'][0]
+        self.assertEqual((book['title'], book['author'], book['unknown']), ('Tot heil van mens en dier', 'Robert Ruys', True))
+        self.assertNotIn('note', book)
+        self.assertNotIn('tags', book)
+        self.assertIn('known', asked.call_args.args[1]['response_format']['json_schema']['schema']['properties']['books']['items']['required'])
+        self.assertIn('Leid het onderwerp nooit af uit de woorden van de titel', asked.call_args.args[1]['messages'][0]['content'])
+        # A book it does know says nothing of the kind.
+        with mock.patch.object(intake, 'post_json', return_value=model_says({**PIRANESI, 'known': True})), \
+                mock.patch.object(intake, 'get_json', return_value={'docs': []}):
+            book = self.ask().json()['books'][0]
+        self.assertNotIn('unknown', book)
+        self.assertEqual(book['note'], 'Derde deel van de Dune-reeks.')
+
     def test_a_proposal_survives_open_library_being_down(self):
         with mock.patch.object(intake, 'post_json', return_value=model_says(PIRANESI)), \
                 mock.patch.object(intake, 'get_json', side_effect=OSError('down')):
@@ -236,6 +258,14 @@ class SharedTests(TestCase):
         self.assertEqual((book['categories'], book['tags'], book['note']), (['fantasy'], ['targaryen'], 'Kroniek van het huis Targaryen.'))
         # What the catalogue said stays: its title, length and language, not the model's.
         self.assertEqual((book['title'], book['duration'], book['language']), ('Fire & Blood', '26u 24m', 'en'))
+
+    @override_settings(OPENAI_API_KEY='test-key', OPENAI_MODEL='test-model')
+    def test_a_found_book_the_assistant_does_not_know_gets_no_sentence(self):
+        says = {**PIRANESI, 'known': False, 'categories': [], 'tags': ['dragons'], 'note': 'Een boek over draken.'}
+        with mock.patch.object(intake, 'get_json', return_value=self.AUDIBLE), \
+                mock.patch.object(intake, 'post_json', return_value=model_says(says)):
+            book = self.ask(url='https://www.audible.com/pd/B07CL3F5H2').json()['books'][0]
+        self.assertEqual((book['title'], book.get('tags'), book.get('note'), book['unknown']), ('Fire & Blood', None, None, True))
 
     @override_settings(OPENAI_API_KEY='test-key', OPENAI_MODEL='test-model')
     def test_a_found_book_still_comes_when_the_assistant_fails(self):

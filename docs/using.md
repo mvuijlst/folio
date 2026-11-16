@@ -263,7 +263,9 @@ Where the server has an assistant (see [Running Folio](server.md#accounts-and-sy
 books from a description: a title, an author, a series, in your own words (*the new Kuang*,
 *Commonwealth Saga*, *Piranesi van Susanna Clarke*). The assistant answers with proposals:
 title, authors, series and number, publisher, year, pages, the language, categories from the
-booklog's own list, a few tags and one dry sentence about the book. For each, Open Library is
+booklog's own list, a few tags and one dry sentence about the book. A book it doesn't know,
+only the title and author of (read off a cover, or in your words), gets no sentence and no tags,
+rather than ones guessed from the title; the proposal says so. For each, Open Library is
 asked for the ISBN and cover, and only believed when title and author really match; series,
 tags and authors are matched with what the booklog already has. You tick the ones you want,
 choose the lists they go on, and they are added like any scanned book; with a reading status

@@ -9,8 +9,10 @@ answer format; then, for each book it names:
   * the series, the tags and the authors are matched with what the booklog already has,
     so "Peter F. Hamilton" is the author it knows and "SF" the tag it uses.
 
-The model is told the booklog's categories and may only choose from those. What comes back
-is a proposal: nothing is added until the user says so in the app.
+The model is told the booklog's categories and may only choose from those. It also says
+whether it knows the book at all: a title it can read (on a cover, in a few words) is not a book
+it knows, and then it gives no sentence and no tags, rather than ones made up from the title.
+What comes back is a proposal: nothing is added until the user says so in the app.
 
 What is shared to the app from another app (a page of a bookshop, a line of text) comes
 here too. An ISBN in the text, or on the shared page, settles which book it is without
@@ -61,7 +63,7 @@ SCHEMA = {
             'items': {
                 'type': 'object',
                 'additionalProperties': False,
-                'required': ['title', 'authors', 'publisher', 'year', 'pages', 'duration', 'series',
+                'required': ['title', 'authors', 'known', 'publisher', 'year', 'pages', 'duration', 'series',
                              'series_number', 'language', 'categories', 'tags', 'note'],
                 'properties': {
                     'title': {'type': 'string', 'description': 'kale titel, zonder reeksprefix'},
@@ -78,6 +80,8 @@ SCHEMA = {
                             },
                         },
                     },
+                    'known': {'type': 'boolean',
+                              'description': 'kent je dit boek zelf (waar het over gaat), of heb je alleen titel en auteur gelezen?'},
                     'publisher': {'type': ['string', 'null']},
                     'year': {'type': ['integer', 'null'], 'description': 'jaar van de editie, anders eerste publicatie'},
                     'pages': {'type': ['integer', 'null'], 'description': 'alleen voor papier/ebook'},
@@ -112,21 +116,29 @@ def system_prompt(categories):
         "zijn (bv. 'Ringworld') en zegt de tekst niet duidelijk dat het om de reeks "
         'gaat, geef dan alleen dat ene boek. Een reeks die je niet kent verzin je '
         'niet: geef dan één entry met de tekst als titel en de rest null.\n'
+        'Known: true alleen als je dit boek zelf kent en weet waar het over gaat. Heb je alleen '
+        'een titel en een auteur (uit de tekst of van de cover) en ken je het boek niet, zet known '
+        'dan op false en verzin niets: geen note (lege string), geen tags, en publisher, year, pages '
+        'en series alleen als ze in de tekst of op de cover staan. Leid het onderwerp nooit af uit '
+        'de woorden van de titel: die zeggen vaak iets anders dan je denkt.\n'
         f'Categorieën komen UITSLUITEND uit deze lijst: {", ".join(sorted(categories))}. Kies er minstens één '
-        '(meestal is dat genoeg). Zegt de tekst dat het om een audioboek gaat, geef dan '
-        'duration in plaats van pages.\n'
+        '(meestal is dat genoeg) als je het boek kent; ken je het niet, kies er dan alleen een waar '
+        'de tekst of de cover zelf onmiskenbaar naar wijst, en anders geen.\n'
+        'Zegt de tekst dat het om een audioboek gaat, geef dan duration in plaats van pages.\n'
         "Tags: hooguit een paar, kleine-letter-slugs (bv. 'space-opera', "
         "'alternate-history'), alleen als ze echt iets toevoegen.\n"
         "Series: weergavenaam (bv. 'Malazan Book of the Fallen') plus volgnummer.\n"
         'Language: de taal van de editie zoals de titel gegeven is, als ISO 639-1-code.\n'
-        'De note is één droge, feitelijke Nederlandse zin (geen reclametaal).'
+        'De note is één droge, feitelijke Nederlandse zin (geen reclametaal) over wat je van het '
+        'boek weet, of leeg als je het niet kent.'
     )
 
 
 PHOTO_PROMPT = (
     'Op de foto staat de voorkant van een boek, zoals iemand het in de hand of op tafel '
     'fotografeerde (soms meerdere boeken). Lees titel, auteur en eventuele reeks van de cover '
-    'af en geef per boek één entry; vul de rest aan uit je boekenkennis. De taal is die van '
+    'af en geef per boek één entry; vul de rest aan uit je boekenkennis, maar alleen als je het boek '
+    'echt kent (anders known false, en alleen wat op de cover staat of te zien is). De taal is die van '
     'de editie op de foto. Kun je op de foto geen boek herkennen, of titel noch auteur lezen, '
     'geef dan een lege lijst: verzin niets.'
 )
@@ -511,6 +523,11 @@ def classify(proposal, categories):
     if not answer:
         return proposal
     first = answer[0]
+    if first.get('known') is False:
+        # The catalogue knows which book it is, but the model doesn't know what it is about: a
+        # sentence or tags would be made up from the title.
+        return {**proposal, 'known': False, 'categories': first.get('categories') or [],
+                'language': proposal.get('language') or first.get('language')}
     return {**proposal, 'categories': first.get('categories') or [], 'tags': first.get('tags') or [],
             'note': first.get('note') or '', 'language': proposal.get('language') or first.get('language')}
 
@@ -531,6 +548,11 @@ def propose(text, booklog=None, categories=(), url='', image=None):
             enrich(proposal)
     out = []
     for proposal in proposals:
+        # A book the model only read the title and author of: what it would say about it is made
+        # up (and the sentence becomes the book's review), so it says nothing, and the app says so.
+        unknown = proposal.get('known') is False
+        if unknown:
+            proposal = {**proposal, 'note': '', 'tags': []}
         writers = [a.get('name', '') for a in proposal.get('authors') or [] if a.get('name') and not a.get('role')]
         writers = writers or [a.get('name', '') for a in proposal.get('authors') or [] if a.get('name')]
         series = str(proposal.get('series') or '').strip()
@@ -560,6 +582,7 @@ def propose(text, booklog=None, categories=(), url='', image=None):
             'isbn': str(proposal.get('isbn') or ''),
             'olid': str(proposal.get('olid') or ''),
             'cover': str(proposal.get('cover') or ''),
+            'unknown': unknown or None,
         }
         if book['title']:
             out.append({k: v for k, v in book.items() if v not in ('', None, [])})

@@ -558,6 +558,7 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 .proposal input, .check-line input { width: 20px; height: 20px; margin-top: 4px; accent-color: var(--accent); }
 .proposal .book-meta { white-space: normal; }
 .proposal .card-excerpt { margin-top: 6px; }
+.proposal .card-excerpt.unknown { font-style: italic; }
 .proposal.is-there { opacity: .55; cursor: default; }
 .check-line { display: flex; align-items: center; gap: 10px; padding: 14px 0 6px; border-top: 1px solid var(--border); font-size: .95rem; }
 .check-line input { margin: 0; }
