@@ -1,0 +1,277 @@
+{
+  "about": "Read three times: twice the same paperback, then the audiobook. Two editions, the paperback read twice.",
+  "before": {
+    "id": "boeken-equal-rites",
+    "added": "1995-05-01T10:00:00.000Z",
+    "thumb": "",
+    "lists": {
+      "read": {
+        "at": "2018-04-02T18:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-equal-rites",
+        "date": "1995-05-01",
+        "rating": 7,
+        "text": "Eerste keer.",
+        "edition": {
+          "publisher": "Corgi",
+          "date": "1987",
+          "pages": 224,
+          "isbn": "9780552131056",
+          "language": "en",
+          "cover": "covers/boeken/c0c0-320.webp",
+          "coverSource": "https://boeken.tsuk.org/wp-content/uploads/1995/05/equal-rites.jpg",
+          "coverRatio": 0.64,
+          "people": [
+            {
+              "name": "Terry Pratchett",
+              "role": ""
+            }
+          ],
+          "format": "paper"
+        },
+        "boeken": "equal-rites",
+        "url": "https://boeken.tsuk.org/1995/05/equal-rites/",
+        "sum": "4:aaaaaaaaaaaa"
+      },
+      {
+        "id": "boeken-equal-rites-herlezing",
+        "date": "2005-08-10",
+        "rating": 8,
+        "text": "Beter.",
+        "edition": {
+          "publisher": "Corgi",
+          "date": "1987",
+          "pages": 224,
+          "isbn": "9780552131056",
+          "language": "en",
+          "cover": "covers/boeken/c0c0-320.webp",
+          "coverSource": "https://boeken.tsuk.org/wp-content/uploads/1995/05/equal-rites.jpg",
+          "coverRatio": 0.64,
+          "people": [
+            {
+              "name": "Terry Pratchett",
+              "role": ""
+            }
+          ],
+          "format": "paper"
+        },
+        "boeken": "equal-rites-herlezing",
+        "url": "https://boeken.tsuk.org/2005/08/equal-rites-herlezing/",
+        "sum": "4:bbbbbbbbbbbb"
+      },
+      {
+        "id": "boeken-equal-rites-herlezing-2",
+        "date": "2018-04-02",
+        "rating": 8,
+        "text": "",
+        "edition": {
+          "publisher": "Isis",
+          "date": "2014",
+          "duration": "7u 51m",
+          "language": "en",
+          "cover": "covers/boeken/a0a0-320.webp",
+          "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2018/04/equal-rites-audio.jpg",
+          "coverRatio": 1,
+          "people": [
+            {
+              "name": "Terry Pratchett",
+              "role": ""
+            },
+            {
+              "name": "Celia Imrie",
+              "role": "stem"
+            }
+          ],
+          "format": "audiobook"
+        },
+        "boeken": "equal-rites-herlezing-2",
+        "url": "https://boeken.tsuk.org/2018/04/equal-rites-herlezing-2/",
+        "sum": "4:cccccccccccc"
+      }
+    ],
+    "boekenState": {
+      "title": "Equal Rites",
+      "publisher": "Isis",
+      "date": "2014",
+      "pages": 224,
+      "isbn": "9780552131056",
+      "cover": "covers/boeken/a0a0-320.webp",
+      "people": [
+        {
+          "name": "Terry Pratchett",
+          "role": ""
+        },
+        {
+          "name": "Celia Imrie",
+          "role": "stem"
+        }
+      ],
+      "format": "audiobook",
+      "duration": "7u 51m",
+      "language": "en",
+      "series": "Discworld",
+      "seriesNumber": 3,
+      "categories": [
+        "fantasy"
+      ],
+      "tracks": 3,
+      "list": "read"
+    },
+    "title": "Equal Rites",
+    "author": "Terry Pratchett",
+    "people": [
+      {
+        "name": "Terry Pratchett",
+        "role": ""
+      },
+      {
+        "name": "Celia Imrie",
+        "role": "stem"
+      }
+    ],
+    "format": "audiobook",
+    "publisher": "Isis",
+    "date": "2014",
+    "pages": 224,
+    "isbn": "9780552131056",
+    "cover": "covers/boeken/a0a0-320.webp",
+    "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2018/04/equal-rites-audio.jpg",
+    "coverRatio": 1,
+    "duration": "7u 51m",
+    "rating": 8,
+    "language": "en",
+    "series": "Discworld",
+    "seriesNumber": 3,
+    "categories": [
+      "fantasy"
+    ],
+    "boeken": "equal-rites",
+    "url": "https://boeken.tsuk.org/2018/04/equal-rites-herlezing-2/"
+  },
+  "after": {
+    "id": "boeken-equal-rites",
+    "added": "1995-05-01T10:00:00.000Z",
+    "lists": {
+      "read": {
+        "at": "2018-04-02T18:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-equal-rites",
+        "date": "1995-05-01",
+        "rating": 7,
+        "text": "Eerste keer.",
+        "boeken": "equal-rites",
+        "url": "https://boeken.tsuk.org/1995/05/equal-rites/",
+        "sum": "4:aaaaaaaaaaaa",
+        "ed": "e1"
+      },
+      {
+        "id": "boeken-equal-rites-herlezing",
+        "date": "2005-08-10",
+        "rating": 8,
+        "text": "Beter.",
+        "boeken": "equal-rites-herlezing",
+        "url": "https://boeken.tsuk.org/2005/08/equal-rites-herlezing/",
+        "sum": "4:bbbbbbbbbbbb",
+        "ed": "e1"
+      },
+      {
+        "id": "boeken-equal-rites-herlezing-2",
+        "date": "2018-04-02",
+        "rating": 8,
+        "text": "",
+        "boeken": "equal-rites-herlezing-2",
+        "url": "https://boeken.tsuk.org/2018/04/equal-rites-herlezing-2/",
+        "sum": "4:cccccccccccc",
+        "ed": "e2"
+      }
+    ],
+    "boekenState": {
+      "title": "Equal Rites",
+      "publisher": "Isis",
+      "date": "2014",
+      "pages": 224,
+      "isbn": "9780552131056",
+      "cover": "covers/boeken/a0a0-320.webp",
+      "people": [
+        {
+          "name": "Terry Pratchett",
+          "role": ""
+        },
+        {
+          "name": "Celia Imrie",
+          "role": "stem"
+        }
+      ],
+      "format": "audiobook",
+      "duration": "7u 51m",
+      "language": "en",
+      "series": "Discworld",
+      "seriesNumber": 3,
+      "categories": [
+        "fantasy"
+      ],
+      "tracks": 3,
+      "list": "read"
+    },
+    "title": "Equal Rites",
+    "author": "Terry Pratchett",
+    "rating": 8,
+    "series": "Discworld",
+    "seriesNumber": 3,
+    "categories": [
+      "fantasy"
+    ],
+    "boeken": "equal-rites",
+    "url": "https://boeken.tsuk.org/2018/04/equal-rites-herlezing-2/",
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "language": "en",
+        "publisher": "Corgi",
+        "date": "1987",
+        "pages": 224,
+        "isbn": "9780552131056",
+        "cover": "covers/boeken/c0c0-320.webp",
+        "coverRatio": 0.64,
+        "coverSource": "https://boeken.tsuk.org/wp-content/uploads/1995/05/equal-rites.jpg",
+        "people": [
+          {
+            "name": "Terry Pratchett",
+            "role": ""
+          }
+        ],
+        "added": "1995-05-01T10:00:00.000Z"
+      },
+      {
+        "id": "e2",
+        "format": "audiobook",
+        "language": "en",
+        "publisher": "Isis",
+        "date": "2014",
+        "duration": "7u 51m",
+        "cover": "covers/boeken/a0a0-320.webp",
+        "coverRatio": 1,
+        "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2018/04/equal-rites-audio.jpg",
+        "people": [
+          {
+            "name": "Terry Pratchett",
+            "role": ""
+          },
+          {
+            "name": "Celia Imrie",
+            "role": "stem"
+          }
+        ],
+        "added": "1995-05-01T10:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "about": "Only in the app, lent to Jan, read (a review from before reviews had editions): the lists of where it is go to its one edition, the review points at it.",
+  "before": {
+    "id": "f-wolf-hall",
+    "added": "2025-05-05T10:00:00.000Z",
+    "title": "Wolf Hall",
+    "author": "Hilary Mantel",
+    "publisher": "Fourth Estate",
+    "date": "2009",
+    "pages": 653,
+    "isbn": "9780007230181",
+    "format": "paper",
+    "cover": "covers/own/abc-320.webp",
+    "coverFull": "covers/own/abc-1600.jpg",
+    "coverRatio": 0.66,
+    "thumb": "",
+    "lists": {
+      "library": {
+        "at": "2025-05-05T10:00:00.000Z"
+      },
+      "lent": {
+        "at": "2026-02-01T10:00:00.000Z",
+        "note": "Jan"
+      },
+      "read": {
+        "at": "2025-08-01T10:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "r-wh",
+        "date": "2025-08-01",
+        "rating": 9,
+        "text": "Cromwell."
+      }
+    ],
+    "rating": 9
+  },
+  "after": {
+    "id": "f-wolf-hall",
+    "added": "2025-05-05T10:00:00.000Z",
+    "title": "Wolf Hall",
+    "author": "Hilary Mantel",
+    "lists": {
+      "read": {
+        "at": "2025-08-01T10:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "r-wh",
+        "date": "2025-08-01",
+        "rating": 9,
+        "text": "Cromwell.",
+        "ed": "e1"
+      }
+    ],
+    "rating": 9,
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "publisher": "Fourth Estate",
+        "date": "2009",
+        "pages": 653,
+        "isbn": "9780007230181",
+        "cover": "covers/own/abc-320.webp",
+        "coverRatio": 0.66,
+        "coverFull": "covers/own/abc-1600.jpg",
+        "lists": {
+          "library": {
+            "at": "2025-05-05T10:00:00.000Z"
+          },
+          "lent": {
+            "at": "2026-02-01T10:00:00.000Z",
+            "note": "Jan"
+          }
+        },
+        "added": "2025-05-05T10:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

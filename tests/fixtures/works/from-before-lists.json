@@ -1,0 +1,38 @@
+{
+  "about": "A book from before lists existed: its edition is in the library.",
+  "before": {
+    "id": "legacy-9780441172719",
+    "added": "2026-11-12T09:00:00.000Z",
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "publisher": "Ace",
+    "date": "1990",
+    "pages": 535,
+    "isbn": "9780441172719",
+    "cover": "",
+    "thumb": ""
+  },
+  "after": {
+    "id": "legacy-9780441172719",
+    "added": "2026-11-12T09:00:00.000Z",
+    "title": "Dune",
+    "author": "Frank Herbert",
+    "lists": {},
+    "editions": [
+      {
+        "id": "e1",
+        "publisher": "Ace",
+        "date": "1990",
+        "pages": 535,
+        "isbn": "9780441172719",
+        "lists": {
+          "library": {
+            "at": "2026-11-12T09:00:00.000Z"
+          }
+        },
+        "added": "2026-11-12T09:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

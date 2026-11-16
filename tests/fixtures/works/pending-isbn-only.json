@@ -1,0 +1,52 @@
+{
+  "about": "Scanned offline: an ISBN to be looked up, a book of its own.",
+  "before": {
+    "id": "p-1",
+    "added": "2026-11-15T21:00:00.000Z",
+    "title": "",
+    "author": "",
+    "publisher": "",
+    "date": "",
+    "pages": null,
+    "isbn": "9780141439600",
+    "cover": "",
+    "thumb": "",
+    "format": "paper",
+    "pending": true,
+    "lists": {
+      "library": {
+        "at": "2026-11-15T21:00:00.000Z"
+      },
+      "to-read": {
+        "at": "2026-11-15T21:00:00.000Z"
+      }
+    }
+  },
+  "after": {
+    "id": "p-1",
+    "added": "2026-11-15T21:00:00.000Z",
+    "title": "",
+    "author": "",
+    "pending": true,
+    "lists": {
+      "to-read": {
+        "at": "2026-11-15T21:00:00.000Z"
+      }
+    },
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "isbn": "9780141439600",
+        "lists": {
+          "library": {
+            "at": "2026-11-15T21:00:00.000Z"
+          }
+        },
+        "added": "2026-11-15T21:00:00.000Z"
+      }
+    ],
+    "main": "e1",
+    "v": 2
+  }
+}

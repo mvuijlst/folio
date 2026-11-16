@@ -1,0 +1,185 @@
+{
+  "about": "A booklog book on Reading that was read before: read as a paperback in 2012, now being read as an e-book (the open post). The e-book is a new edition and main.",
+  "before": {
+    "id": "boeken-the-hobbit",
+    "added": "2012-01-05T10:00:00.000Z",
+    "thumb": "",
+    "lists": {
+      "reading": {
+        "at": "2026-10-01T08:00:00.000Z"
+      }
+    },
+    "progressUnit": "percent",
+    "percentRead": 40,
+    "pagesRead": 120,
+    "reviews": [
+      {
+        "id": "boeken-the-hobbit",
+        "date": "2012-01-20",
+        "rating": 9,
+        "text": "Weer thuis.",
+        "edition": {
+          "publisher": "Unwin",
+          "date": "1979",
+          "pages": 310,
+          "isbn": "9780048231888",
+          "language": "en",
+          "cover": "covers/boeken/b1b1-320.webp",
+          "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2012/01/the-hobbit.jpg",
+          "coverRatio": 0.62,
+          "people": [
+            {
+              "name": "J.R.R. Tolkien",
+              "role": ""
+            }
+          ],
+          "format": "paper"
+        },
+        "boeken": "the-hobbit",
+        "url": "https://boeken.tsuk.org/2012/01/the-hobbit/",
+        "sum": "4:dddddddddddd"
+      }
+    ],
+    "boekenState": {
+      "title": "The Hobbit",
+      "publisher": "HarperCollins",
+      "date": "2012",
+      "pages": 300,
+      "isbn": "9780007487288",
+      "cover": "covers/boeken/e1e1-320.webp",
+      "people": [
+        {
+          "name": "J.R.R. Tolkien",
+          "role": ""
+        }
+      ],
+      "format": "ebook",
+      "pagesRead": 120,
+      "language": "en",
+      "categories": [
+        "fantasy"
+      ],
+      "tracks": 3,
+      "list": "reading"
+    },
+    "title": "The Hobbit",
+    "author": "J.R.R. Tolkien",
+    "people": [
+      {
+        "name": "J.R.R. Tolkien",
+        "role": ""
+      }
+    ],
+    "format": "ebook",
+    "publisher": "HarperCollins",
+    "date": "2012",
+    "pages": 300,
+    "isbn": "9780007487288",
+    "cover": "covers/boeken/e1e1-320.webp",
+    "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2026/10/the-hobbit-herlezing.jpg",
+    "coverRatio": 0.66,
+    "rating": 9,
+    "language": "en",
+    "categories": [
+      "fantasy"
+    ],
+    "boeken": "the-hobbit",
+    "url": "https://boeken.tsuk.org/2026/10/the-hobbit-herlezing/"
+  },
+  "after": {
+    "id": "boeken-the-hobbit",
+    "added": "2012-01-05T10:00:00.000Z",
+    "lists": {
+      "reading": {
+        "at": "2026-10-01T08:00:00.000Z"
+      }
+    },
+    "progressUnit": "percent",
+    "percentRead": 40,
+    "pagesRead": 120,
+    "reviews": [
+      {
+        "id": "boeken-the-hobbit",
+        "date": "2012-01-20",
+        "rating": 9,
+        "text": "Weer thuis.",
+        "boeken": "the-hobbit",
+        "url": "https://boeken.tsuk.org/2012/01/the-hobbit/",
+        "sum": "4:dddddddddddd",
+        "ed": "e1"
+      }
+    ],
+    "boekenState": {
+      "title": "The Hobbit",
+      "publisher": "HarperCollins",
+      "date": "2012",
+      "pages": 300,
+      "isbn": "9780007487288",
+      "cover": "covers/boeken/e1e1-320.webp",
+      "people": [
+        {
+          "name": "J.R.R. Tolkien",
+          "role": ""
+        }
+      ],
+      "format": "ebook",
+      "pagesRead": 120,
+      "language": "en",
+      "categories": [
+        "fantasy"
+      ],
+      "tracks": 3,
+      "list": "reading"
+    },
+    "title": "The Hobbit",
+    "author": "J.R.R. Tolkien",
+    "rating": 9,
+    "categories": [
+      "fantasy"
+    ],
+    "boeken": "the-hobbit",
+    "url": "https://boeken.tsuk.org/2026/10/the-hobbit-herlezing/",
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "language": "en",
+        "publisher": "Unwin",
+        "date": "1979",
+        "pages": 310,
+        "isbn": "9780048231888",
+        "cover": "covers/boeken/b1b1-320.webp",
+        "coverRatio": 0.62,
+        "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2012/01/the-hobbit.jpg",
+        "people": [
+          {
+            "name": "J.R.R. Tolkien",
+            "role": ""
+          }
+        ],
+        "added": "2012-01-05T10:00:00.000Z"
+      },
+      {
+        "id": "e2",
+        "format": "ebook",
+        "language": "en",
+        "publisher": "HarperCollins",
+        "date": "2012",
+        "pages": 300,
+        "isbn": "9780007487288",
+        "cover": "covers/boeken/e1e1-320.webp",
+        "coverRatio": 0.66,
+        "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2026/10/the-hobbit-herlezing.jpg",
+        "people": [
+          {
+            "name": "J.R.R. Tolkien",
+            "role": ""
+          }
+        ],
+        "added": "2012-01-05T10:00:00.000Z"
+      }
+    ],
+    "main": "e2",
+    "v": 2
+  }
+}

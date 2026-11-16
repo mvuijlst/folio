@@ -1,0 +1,199 @@
+{
+  "about": "A comic from the booklog: writer and artists with roles.",
+  "before": {
+    "id": "boeken-aliens-omnibus-vol-1",
+    "added": "2009-08-14T15:12:52.000Z",
+    "thumb": "",
+    "lists": {
+      "read": {
+        "at": "2009-08-14T15:12:52.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-aliens-omnibus-vol-1",
+        "date": "2009-08-14",
+        "rating": 8,
+        "text": "Verzamelt *Outbreak*.",
+        "edition": {
+          "publisher": "Dark Horse",
+          "date": "2007",
+          "pages": 384,
+          "isbn": "9781302928155",
+          "language": "en",
+          "cover": "covers/boeken/fca2aad49b19eb66-320.webp",
+          "people": [
+            {
+              "name": "Mark Verheiden",
+              "role": "tekst"
+            },
+            {
+              "name": "Mark Nelson",
+              "role": "beeld"
+            },
+            {
+              "name": "Den Beauvais",
+              "role": "beeld"
+            }
+          ],
+          "coverRatio": 0.667
+        },
+        "boeken": "aliens-omnibus-vol-1",
+        "url": "https://boeken.tsuk.org/2009/08/aliens-omnibus-vol-1/",
+        "sum": "4:0fd53cfef2d8"
+      }
+    ],
+    "boekenState": {
+      "title": "Aliens Omnibus Vol. 1",
+      "publisher": "Dark Horse",
+      "date": "2007",
+      "pages": 384,
+      "isbn": "9781302928155",
+      "series": "Aliens Omnibus",
+      "seriesNumber": 1,
+      "cover": "covers/boeken/fca2aad49b19eb66-320.webp",
+      "people": [
+        {
+          "name": "Mark Verheiden",
+          "role": "tekst"
+        },
+        {
+          "name": "Mark Nelson",
+          "role": "beeld"
+        },
+        {
+          "name": "Den Beauvais",
+          "role": "beeld"
+        }
+      ],
+      "tracks": 2,
+      "list": "read"
+    },
+    "title": "Aliens Omnibus Vol. 1",
+    "author": "Mark Verheiden",
+    "people": [
+      {
+        "name": "Mark Verheiden",
+        "role": "tekst"
+      },
+      {
+        "name": "Mark Nelson",
+        "role": "beeld"
+      },
+      {
+        "name": "Den Beauvais",
+        "role": "beeld"
+      }
+    ],
+    "publisher": "Dark Horse",
+    "date": "2007",
+    "pages": 384,
+    "isbn": "9781302928155",
+    "cover": "covers/boeken/fca2aad49b19eb66-320.webp",
+    "rating": 8,
+    "series": "Aliens Omnibus",
+    "seriesNumber": 1,
+    "language": "en",
+    "olid": "OL25763929W",
+    "categories": [
+      "fictie",
+      "comic"
+    ],
+    "tags": [
+      "aliens"
+    ],
+    "boeken": "aliens-omnibus-vol-1",
+    "url": "https://boeken.tsuk.org/2009/08/aliens-omnibus-vol-1/",
+    "coverRatio": 0.667
+  },
+  "after": {
+    "id": "boeken-aliens-omnibus-vol-1",
+    "added": "2009-08-14T15:12:52.000Z",
+    "lists": {
+      "read": {
+        "at": "2009-08-14T15:12:52.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-aliens-omnibus-vol-1",
+        "date": "2009-08-14",
+        "rating": 8,
+        "text": "Verzamelt *Outbreak*.",
+        "boeken": "aliens-omnibus-vol-1",
+        "url": "https://boeken.tsuk.org/2009/08/aliens-omnibus-vol-1/",
+        "sum": "4:0fd53cfef2d8",
+        "ed": "e1"
+      }
+    ],
+    "boekenState": {
+      "title": "Aliens Omnibus Vol. 1",
+      "publisher": "Dark Horse",
+      "date": "2007",
+      "pages": 384,
+      "isbn": "9781302928155",
+      "series": "Aliens Omnibus",
+      "seriesNumber": 1,
+      "cover": "covers/boeken/fca2aad49b19eb66-320.webp",
+      "people": [
+        {
+          "name": "Mark Verheiden",
+          "role": "tekst"
+        },
+        {
+          "name": "Mark Nelson",
+          "role": "beeld"
+        },
+        {
+          "name": "Den Beauvais",
+          "role": "beeld"
+        }
+      ],
+      "tracks": 2,
+      "list": "read"
+    },
+    "title": "Aliens Omnibus Vol. 1",
+    "author": "Mark Verheiden",
+    "rating": 8,
+    "series": "Aliens Omnibus",
+    "seriesNumber": 1,
+    "olid": "OL25763929W",
+    "categories": [
+      "fictie",
+      "comic"
+    ],
+    "tags": [
+      "aliens"
+    ],
+    "boeken": "aliens-omnibus-vol-1",
+    "url": "https://boeken.tsuk.org/2009/08/aliens-omnibus-vol-1/",
+    "editions": [
+      {
+        "id": "e1",
+        "language": "en",
+        "publisher": "Dark Horse",
+        "date": "2007",
+        "pages": 384,
+        "isbn": "9781302928155",
+        "cover": "covers/boeken/fca2aad49b19eb66-320.webp",
+        "coverRatio": 0.667,
+        "people": [
+          {
+            "name": "Mark Verheiden",
+            "role": "tekst"
+          },
+          {
+            "name": "Mark Nelson",
+            "role": "beeld"
+          },
+          {
+            "name": "Den Beauvais",
+            "role": "beeld"
+          }
+        ],
+        "added": "2009-08-14T15:12:52.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

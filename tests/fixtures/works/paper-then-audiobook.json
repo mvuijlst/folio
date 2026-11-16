@@ -1,0 +1,224 @@
+{
+  "about": "Read as a paperback, then as an audiobook with a voice; the book carries the paperback's pages (the import filled the gap). Two editions; the audiobook loses the pages.",
+  "before": {
+    "id": "boeken-cryptonomicon",
+    "added": "2003-09-11T11:00:00.000Z",
+    "thumb": "",
+    "lists": {
+      "read": {
+        "at": "2019-07-06T18:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-cryptonomicon",
+        "date": "2003-09-11",
+        "rating": 8,
+        "text": "Op het strand.",
+        "edition": {
+          "publisher": "Avon",
+          "date": "1999",
+          "pages": 1152,
+          "isbn": "9780380788620",
+          "language": "en",
+          "cover": "covers/boeken/5c83e6e7902cb327-320.webp",
+          "people": [
+            {
+              "name": "Neal Stephenson",
+              "role": ""
+            }
+          ],
+          "coverRatio": 0.658
+        },
+        "boeken": "cryptonomicon",
+        "url": "https://boeken.tsuk.org/2003/09/cryptonomicon/",
+        "sum": "4:0c1b5e0fbae7"
+      },
+      {
+        "id": "boeken-cryptonomicon-herlezing",
+        "date": "2019-07-06",
+        "rating": 8,
+        "text": "",
+        "edition": {
+          "publisher": "Macmillan Audio",
+          "date": "1999",
+          "duration": "42u 45m",
+          "isbn": "9780380788620",
+          "language": "en",
+          "cover": "covers/boeken/639b026365b16d60-320.webp",
+          "people": [
+            {
+              "name": "Neal Stephenson",
+              "role": ""
+            },
+            {
+              "name": "William Dufris",
+              "role": "stem"
+            }
+          ],
+          "format": "audiobook",
+          "coverRatio": 1
+        },
+        "boeken": "cryptonomicon-herlezing",
+        "url": "https://boeken.tsuk.org/2019/07/cryptonomicon-herlezing/",
+        "sum": "4:a8153a5a2289"
+      }
+    ],
+    "boekenState": {
+      "title": "Cryptonomicon",
+      "publisher": "Macmillan Audio",
+      "date": "1999",
+      "pages": 1152,
+      "isbn": "9780380788620",
+      "cover": "covers/boeken/639b026365b16d60-320.webp",
+      "format": "audiobook",
+      "duration": "42u 45m",
+      "people": [
+        {
+          "name": "Neal Stephenson",
+          "role": ""
+        },
+        {
+          "name": "William Dufris",
+          "role": "stem"
+        }
+      ],
+      "tracks": 2,
+      "list": "read"
+    },
+    "title": "Cryptonomicon",
+    "author": "Neal Stephenson",
+    "people": [
+      {
+        "name": "Neal Stephenson",
+        "role": ""
+      },
+      {
+        "name": "William Dufris",
+        "role": "stem"
+      }
+    ],
+    "format": "audiobook",
+    "publisher": "Macmillan Audio",
+    "date": "1999",
+    "pages": 1152,
+    "isbn": "9780380788620",
+    "cover": "covers/boeken/639b026365b16d60-320.webp",
+    "rating": 8,
+    "language": "en",
+    "olid": "OL38494W",
+    "duration": "42u 45m",
+    "categories": [
+      "fantasy",
+      "science-fiction"
+    ],
+    "boeken": "cryptonomicon",
+    "url": "https://boeken.tsuk.org/2019/07/cryptonomicon-herlezing/",
+    "coverRatio": 1
+  },
+  "after": {
+    "id": "boeken-cryptonomicon",
+    "added": "2003-09-11T11:00:00.000Z",
+    "lists": {
+      "read": {
+        "at": "2019-07-06T18:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-cryptonomicon",
+        "date": "2003-09-11",
+        "rating": 8,
+        "text": "Op het strand.",
+        "boeken": "cryptonomicon",
+        "url": "https://boeken.tsuk.org/2003/09/cryptonomicon/",
+        "sum": "4:0c1b5e0fbae7",
+        "ed": "e1"
+      },
+      {
+        "id": "boeken-cryptonomicon-herlezing",
+        "date": "2019-07-06",
+        "rating": 8,
+        "text": "",
+        "boeken": "cryptonomicon-herlezing",
+        "url": "https://boeken.tsuk.org/2019/07/cryptonomicon-herlezing/",
+        "sum": "4:a8153a5a2289",
+        "ed": "e2"
+      }
+    ],
+    "boekenState": {
+      "title": "Cryptonomicon",
+      "publisher": "Macmillan Audio",
+      "date": "1999",
+      "pages": 1152,
+      "isbn": "9780380788620",
+      "cover": "covers/boeken/639b026365b16d60-320.webp",
+      "format": "audiobook",
+      "duration": "42u 45m",
+      "people": [
+        {
+          "name": "Neal Stephenson",
+          "role": ""
+        },
+        {
+          "name": "William Dufris",
+          "role": "stem"
+        }
+      ],
+      "tracks": 2,
+      "list": "read"
+    },
+    "title": "Cryptonomicon",
+    "author": "Neal Stephenson",
+    "rating": 8,
+    "olid": "OL38494W",
+    "categories": [
+      "fantasy",
+      "science-fiction"
+    ],
+    "boeken": "cryptonomicon",
+    "url": "https://boeken.tsuk.org/2019/07/cryptonomicon-herlezing/",
+    "editions": [
+      {
+        "id": "e1",
+        "language": "en",
+        "publisher": "Avon",
+        "date": "1999",
+        "pages": 1152,
+        "isbn": "9780380788620",
+        "cover": "covers/boeken/5c83e6e7902cb327-320.webp",
+        "coverRatio": 0.658,
+        "people": [
+          {
+            "name": "Neal Stephenson",
+            "role": ""
+          }
+        ],
+        "added": "2003-09-11T11:00:00.000Z"
+      },
+      {
+        "id": "e2",
+        "format": "audiobook",
+        "language": "en",
+        "publisher": "Macmillan Audio",
+        "date": "1999",
+        "duration": "42u 45m",
+        "isbn": "9780380788620",
+        "cover": "covers/boeken/639b026365b16d60-320.webp",
+        "coverRatio": 1,
+        "people": [
+          {
+            "name": "Neal Stephenson",
+            "role": ""
+          },
+          {
+            "name": "William Dufris",
+            "role": "stem"
+          }
+        ],
+        "added": "2003-09-11T11:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

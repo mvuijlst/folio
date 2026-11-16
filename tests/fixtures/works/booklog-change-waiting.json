@@ -1,0 +1,165 @@
+{
+  "about": "A booklog book whose publisher was changed in the app and not published yet: the change goes to the edition of its read; the rest of the book's facts came from the booklog.",
+  "before": {
+    "id": "boeken-solaris",
+    "added": "2015-02-01T19:00:00.000Z",
+    "thumb": "",
+    "lists": {
+      "read": {
+        "at": "2015-02-01T19:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-solaris",
+        "date": "2015-02-01",
+        "rating": 8,
+        "text": "De oceaan.",
+        "edition": {
+          "publisher": "Faber",
+          "date": "2003",
+          "pages": 204,
+          "isbn": "9780571219780",
+          "language": "en",
+          "cover": "covers/boeken/f0f0-320.webp",
+          "coverRatio": 0.65,
+          "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2015/02/solaris.jpg",
+          "people": [
+            {
+              "name": "Stanisław Lem",
+              "role": ""
+            },
+            {
+              "name": "Joanna Kilmartin",
+              "role": "vertaling"
+            }
+          ],
+          "format": "paper"
+        },
+        "boeken": "solaris",
+        "url": "https://boeken.tsuk.org/2015/02/solaris/",
+        "sum": "4:eeeeeeeeeeee"
+      }
+    ],
+    "boekenState": {
+      "title": "Solaris",
+      "publisher": "Faber",
+      "date": "2003",
+      "pages": 204,
+      "isbn": "9780571219780",
+      "cover": "covers/boeken/f0f0-320.webp",
+      "people": [
+        {
+          "name": "Stanisław Lem",
+          "role": ""
+        },
+        {
+          "name": "Joanna Kilmartin",
+          "role": "vertaling"
+        }
+      ],
+      "format": "paper",
+      "language": "en",
+      "tracks": 3,
+      "list": "read"
+    },
+    "title": "Solaris",
+    "author": "Stanisław Lem",
+    "people": [
+      {
+        "name": "Stanisław Lem",
+        "role": ""
+      },
+      {
+        "name": "Joanna Kilmartin",
+        "role": "vertaling"
+      }
+    ],
+    "format": "paper",
+    "publisher": "Faber and Faber",
+    "date": "2003",
+    "pages": 204,
+    "isbn": "9780571219780",
+    "cover": "covers/boeken/f0f0-320.webp",
+    "coverRatio": 0.65,
+    "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2015/02/solaris.jpg",
+    "rating": 8,
+    "language": "en",
+    "boeken": "solaris",
+    "url": "https://boeken.tsuk.org/2015/02/solaris/"
+  },
+  "after": {
+    "id": "boeken-solaris",
+    "added": "2015-02-01T19:00:00.000Z",
+    "lists": {
+      "read": {
+        "at": "2015-02-01T19:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-solaris",
+        "date": "2015-02-01",
+        "rating": 8,
+        "text": "De oceaan.",
+        "boeken": "solaris",
+        "url": "https://boeken.tsuk.org/2015/02/solaris/",
+        "sum": "4:eeeeeeeeeeee",
+        "ed": "e1"
+      }
+    ],
+    "boekenState": {
+      "title": "Solaris",
+      "publisher": "Faber",
+      "date": "2003",
+      "pages": 204,
+      "isbn": "9780571219780",
+      "cover": "covers/boeken/f0f0-320.webp",
+      "people": [
+        {
+          "name": "Stanisław Lem",
+          "role": ""
+        },
+        {
+          "name": "Joanna Kilmartin",
+          "role": "vertaling"
+        }
+      ],
+      "format": "paper",
+      "language": "en",
+      "tracks": 3,
+      "list": "read"
+    },
+    "title": "Solaris",
+    "author": "Stanisław Lem",
+    "rating": 8,
+    "boeken": "solaris",
+    "url": "https://boeken.tsuk.org/2015/02/solaris/",
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "language": "en",
+        "publisher": "Faber and Faber",
+        "date": "2003",
+        "pages": 204,
+        "isbn": "9780571219780",
+        "cover": "covers/boeken/f0f0-320.webp",
+        "coverRatio": 0.65,
+        "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2015/02/solaris.jpg",
+        "people": [
+          {
+            "name": "Stanisław Lem",
+            "role": ""
+          },
+          {
+            "name": "Joanna Kilmartin",
+            "role": "vertaling"
+          }
+        ],
+        "added": "2015-02-01T19:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

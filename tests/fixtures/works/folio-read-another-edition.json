@@ -1,0 +1,88 @@
+{
+  "about": "Only in the app: a paperback in the library, read as an e-book borrowed elsewhere. Two editions; the library stays with the paperback.",
+  "before": {
+    "id": "f-anathem",
+    "added": "2026-01-02T10:00:00.000Z",
+    "title": "Anathem",
+    "author": "Neal Stephenson",
+    "publisher": "Atlantic",
+    "date": "2008",
+    "pages": 937,
+    "isbn": "9781843549154",
+    "format": "paper",
+    "cover": "",
+    "thumb": "data:image/jpeg;base64,AAAA",
+    "coverRatio": 0.65,
+    "lists": {
+      "library": {
+        "at": "2026-01-02T10:00:00.000Z"
+      },
+      "read": {
+        "at": "2026-03-01T10:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "r1",
+        "date": "2026-03-01",
+        "rating": 9,
+        "text": "Mathic.",
+        "edition": {
+          "format": "ebook",
+          "publisher": "HarperCollins",
+          "isbn": "9780061474101",
+          "pages": 960
+        }
+      }
+    ],
+    "rating": 9
+  },
+  "after": {
+    "id": "f-anathem",
+    "added": "2026-01-02T10:00:00.000Z",
+    "title": "Anathem",
+    "author": "Neal Stephenson",
+    "lists": {
+      "read": {
+        "at": "2026-03-01T10:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "r1",
+        "date": "2026-03-01",
+        "rating": 9,
+        "text": "Mathic.",
+        "ed": "e1"
+      }
+    ],
+    "rating": 9,
+    "editions": [
+      {
+        "id": "e1",
+        "format": "ebook",
+        "publisher": "HarperCollins",
+        "pages": 960,
+        "isbn": "9780061474101",
+        "added": "2026-01-02T10:00:00.000Z"
+      },
+      {
+        "id": "e2",
+        "format": "paper",
+        "publisher": "Atlantic",
+        "date": "2008",
+        "pages": 937,
+        "isbn": "9781843549154",
+        "coverRatio": 0.65,
+        "thumb": "data:image/jpeg;base64,AAAA",
+        "lists": {
+          "library": {
+            "at": "2026-01-02T10:00:00.000Z"
+          }
+        },
+        "added": "2026-01-02T10:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

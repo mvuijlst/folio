@@ -1,0 +1,102 @@
+{
+  "about": "Only in the app: a read whose edition is a stale copy of the book's (no format, no ISBN, a page count since corrected). One edition, with the book's facts.",
+  "before": {
+    "id": "5b7aad0f-2162-46a1-bc02-c4b9b737a25e",
+    "added": "2026-11-14T20:29:47.102Z",
+    "title": "Judas Unchained",
+    "author": "Peter F. Hamilton",
+    "publisher": "",
+    "date": "2005",
+    "pages": 949,
+    "isbn": "",
+    "cover": "",
+    "thumb": "",
+    "lists": {
+      "library": {
+        "at": "2026-11-14T20:29:47.102Z"
+      }
+    },
+    "series": "Commonwealth Saga",
+    "seriesNumber": 2,
+    "language": "en",
+    "categories": [
+      "science-fiction"
+    ],
+    "tags": [
+      "space-opera"
+    ],
+    "reviews": [
+      {
+        "id": "66e3d52d",
+        "date": "",
+        "rating": null,
+        "text": "Tweede deel."
+      },
+      {
+        "id": "ba3a209f",
+        "date": "2026-11-14",
+        "rating": 7,
+        "text": "",
+        "edition": {
+          "date": "2005",
+          "pages": 948,
+          "language": "en"
+        }
+      }
+    ],
+    "rating": 7,
+    "seriesLabel": "",
+    "pending": false,
+    "unresolved": false
+  },
+  "after": {
+    "id": "5b7aad0f-2162-46a1-bc02-c4b9b737a25e",
+    "added": "2026-11-14T20:29:47.102Z",
+    "title": "Judas Unchained",
+    "author": "Peter F. Hamilton",
+    "lists": {},
+    "series": "Commonwealth Saga",
+    "seriesNumber": 2,
+    "categories": [
+      "science-fiction"
+    ],
+    "tags": [
+      "space-opera"
+    ],
+    "reviews": [
+      {
+        "id": "66e3d52d",
+        "date": "",
+        "rating": null,
+        "text": "Tweede deel.",
+        "ed": "e1"
+      },
+      {
+        "id": "ba3a209f",
+        "date": "2026-11-14",
+        "rating": 7,
+        "text": "",
+        "ed": "e1"
+      }
+    ],
+    "rating": 7,
+    "seriesLabel": "",
+    "pending": false,
+    "unresolved": false,
+    "editions": [
+      {
+        "id": "e1",
+        "language": "en",
+        "date": "2005",
+        "pages": 949,
+        "lists": {
+          "library": {
+            "at": "2026-11-14T20:29:47.102Z"
+          }
+        },
+        "added": "2026-11-14T20:29:47.102Z"
+      }
+    ],
+    "v": 2
+  }
+}

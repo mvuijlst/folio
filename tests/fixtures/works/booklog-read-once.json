@@ -1,0 +1,159 @@
+{
+  "about": "A booklog book read once; its facts equal its read's edition.",
+  "before": {
+    "id": "boeken-piranesi",
+    "added": "2021-03-02T19:00:00.000Z",
+    "thumb": "",
+    "lists": {
+      "read": {
+        "at": "2021-03-02T19:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-piranesi",
+        "date": "2021-03-02",
+        "rating": 9,
+        "text": "Een huis vol zalen.",
+        "edition": {
+          "publisher": "Bloomsbury",
+          "date": "2020",
+          "pages": 272,
+          "isbn": "9781526622426",
+          "language": "en",
+          "cover": "covers/boeken/aaaa-320.webp",
+          "people": [
+            {
+              "name": "Susanna Clarke",
+              "role": ""
+            }
+          ],
+          "format": "paper",
+          "coverRatio": 0.65,
+          "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2021/03/piranesi.jpg"
+        },
+        "boeken": "piranesi",
+        "url": "https://boeken.tsuk.org/2021/03/piranesi/",
+        "sum": "4:111111111111"
+      }
+    ],
+    "boekenState": {
+      "title": "Piranesi",
+      "publisher": "Bloomsbury",
+      "date": "2020",
+      "pages": 272,
+      "isbn": "9781526622426",
+      "cover": "covers/boeken/aaaa-320.webp",
+      "people": [
+        {
+          "name": "Susanna Clarke",
+          "role": ""
+        }
+      ],
+      "format": "paper",
+      "language": "en",
+      "categories": [
+        "fantasy"
+      ],
+      "tracks": 3,
+      "list": "read"
+    },
+    "title": "Piranesi",
+    "author": "Susanna Clarke",
+    "people": [
+      {
+        "name": "Susanna Clarke",
+        "role": ""
+      }
+    ],
+    "format": "paper",
+    "publisher": "Bloomsbury",
+    "date": "2020",
+    "pages": 272,
+    "isbn": "9781526622426",
+    "cover": "covers/boeken/aaaa-320.webp",
+    "coverRatio": 0.65,
+    "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2021/03/piranesi.jpg",
+    "rating": 9,
+    "language": "en",
+    "olid": "OL20893680W",
+    "categories": [
+      "fantasy"
+    ],
+    "boeken": "piranesi",
+    "url": "https://boeken.tsuk.org/2021/03/piranesi/"
+  },
+  "after": {
+    "id": "boeken-piranesi",
+    "added": "2021-03-02T19:00:00.000Z",
+    "lists": {
+      "read": {
+        "at": "2021-03-02T19:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-piranesi",
+        "date": "2021-03-02",
+        "rating": 9,
+        "text": "Een huis vol zalen.",
+        "boeken": "piranesi",
+        "url": "https://boeken.tsuk.org/2021/03/piranesi/",
+        "sum": "4:111111111111",
+        "ed": "e1"
+      }
+    ],
+    "boekenState": {
+      "title": "Piranesi",
+      "publisher": "Bloomsbury",
+      "date": "2020",
+      "pages": 272,
+      "isbn": "9781526622426",
+      "cover": "covers/boeken/aaaa-320.webp",
+      "people": [
+        {
+          "name": "Susanna Clarke",
+          "role": ""
+        }
+      ],
+      "format": "paper",
+      "language": "en",
+      "categories": [
+        "fantasy"
+      ],
+      "tracks": 3,
+      "list": "read"
+    },
+    "title": "Piranesi",
+    "author": "Susanna Clarke",
+    "rating": 9,
+    "olid": "OL20893680W",
+    "categories": [
+      "fantasy"
+    ],
+    "boeken": "piranesi",
+    "url": "https://boeken.tsuk.org/2021/03/piranesi/",
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "language": "en",
+        "publisher": "Bloomsbury",
+        "date": "2020",
+        "pages": 272,
+        "isbn": "9781526622426",
+        "cover": "covers/boeken/aaaa-320.webp",
+        "coverRatio": 0.65,
+        "coverSource": "https://boeken.tsuk.org/wp-content/uploads/2021/03/piranesi.jpg",
+        "people": [
+          {
+            "name": "Susanna Clarke",
+            "role": ""
+          }
+        ],
+        "added": "2021-03-02T19:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

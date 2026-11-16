@@ -1,0 +1,128 @@
+{
+  "about": "A booklog book on To read with a note (an undated review with its edition): one edition, main while it waits.",
+  "before": {
+    "id": "boeken-the-raven-tower",
+    "added": "2026-04-01T10:00:00.000Z",
+    "thumb": "",
+    "lists": {
+      "to-read": {
+        "at": "2026-04-01T10:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-the-raven-tower",
+        "date": "",
+        "rating": null,
+        "text": "Een god die vertelt.",
+        "edition": {
+          "publisher": "Orbit",
+          "date": "2019",
+          "pages": 432,
+          "language": "en",
+          "people": [
+            {
+              "name": "Ann Leckie",
+              "role": ""
+            }
+          ],
+          "format": "paper"
+        },
+        "boeken": "the-raven-tower",
+        "url": "https://boeken.tsuk.org/2026/04/the-raven-tower/",
+        "sum": "4:ffffffffffff"
+      }
+    ],
+    "boekenState": {
+      "title": "The Raven Tower",
+      "publisher": "Orbit",
+      "date": "2019",
+      "pages": 432,
+      "people": [
+        {
+          "name": "Ann Leckie",
+          "role": ""
+        }
+      ],
+      "format": "paper",
+      "language": "en",
+      "tracks": 3,
+      "list": "to-read"
+    },
+    "title": "The Raven Tower",
+    "author": "Ann Leckie",
+    "people": [
+      {
+        "name": "Ann Leckie",
+        "role": ""
+      }
+    ],
+    "format": "paper",
+    "publisher": "Orbit",
+    "date": "2019",
+    "pages": 432,
+    "language": "en",
+    "boeken": "the-raven-tower",
+    "url": "https://boeken.tsuk.org/2026/04/the-raven-tower/"
+  },
+  "after": {
+    "id": "boeken-the-raven-tower",
+    "added": "2026-04-01T10:00:00.000Z",
+    "lists": {
+      "to-read": {
+        "at": "2026-04-01T10:00:00.000Z"
+      }
+    },
+    "reviews": [
+      {
+        "id": "boeken-the-raven-tower",
+        "date": "",
+        "rating": null,
+        "text": "Een god die vertelt.",
+        "boeken": "the-raven-tower",
+        "url": "https://boeken.tsuk.org/2026/04/the-raven-tower/",
+        "sum": "4:ffffffffffff",
+        "ed": "e1"
+      }
+    ],
+    "boekenState": {
+      "title": "The Raven Tower",
+      "publisher": "Orbit",
+      "date": "2019",
+      "pages": 432,
+      "people": [
+        {
+          "name": "Ann Leckie",
+          "role": ""
+        }
+      ],
+      "format": "paper",
+      "language": "en",
+      "tracks": 3,
+      "list": "to-read"
+    },
+    "title": "The Raven Tower",
+    "author": "Ann Leckie",
+    "boeken": "the-raven-tower",
+    "url": "https://boeken.tsuk.org/2026/04/the-raven-tower/",
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "language": "en",
+        "publisher": "Orbit",
+        "date": "2019",
+        "pages": 432,
+        "people": [
+          {
+            "name": "Ann Leckie",
+            "role": ""
+          }
+        ],
+        "added": "2026-04-01T10:00:00.000Z"
+      }
+    ],
+    "main": "e1",
+    "v": 2
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "about": "A user's own list in the reading-status set (a second abandoned list) stays with the book; a wishlist in another set goes to the edition.",
+  "status": [
+    "a05a735d-cb17-421a-a69a-fcc8c36da1ab"
+  ],
+  "before": {
+    "id": "f-x",
+    "added": "2026-06-01T10:00:00.000Z",
+    "title": "Gormenghast",
+    "author": "Mervyn Peake",
+    "publisher": "",
+    "date": "",
+    "pages": null,
+    "isbn": "",
+    "cover": "",
+    "thumb": "",
+    "lists": {
+      "a05a735d-cb17-421a-a69a-fcc8c36da1ab": {
+        "at": "2026-06-02T10:00:00.000Z"
+      },
+      "4bd34fbf-ca8e-4b96-b9d4-7f6703b221c6": {
+        "at": "2026-06-01T10:00:00.000Z"
+      }
+    }
+  },
+  "after": {
+    "id": "f-x",
+    "added": "2026-06-01T10:00:00.000Z",
+    "title": "Gormenghast",
+    "author": "Mervyn Peake",
+    "lists": {
+      "a05a735d-cb17-421a-a69a-fcc8c36da1ab": {
+        "at": "2026-06-02T10:00:00.000Z"
+      }
+    },
+    "editions": [
+      {
+        "id": "e1",
+        "lists": {
+          "4bd34fbf-ca8e-4b96-b9d4-7f6703b221c6": {
+            "at": "2026-06-01T10:00:00.000Z"
+          }
+        },
+        "added": "2026-06-01T10:00:00.000Z"
+      }
+    ],
+    "v": 2
+  }
+}

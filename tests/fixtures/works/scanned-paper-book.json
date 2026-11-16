@@ -1,0 +1,58 @@
+{
+  "about": "A paper book scanned in the app: only author, on Library and To read.",
+  "before": {
+    "id": "scan-1",
+    "added": "2026-11-14T17:19:05.611Z",
+    "title": "The Lord of the Rings",
+    "author": "J.R.R. Tolkien",
+    "publisher": "HarperCollins",
+    "date": "2004",
+    "pages": 1031,
+    "isbn": "9780261103252",
+    "cover": "covers/web/881d799dfe1a1543-320.webp",
+    "thumb": "",
+    "format": "paper",
+    "lists": {
+      "library": {
+        "at": "2026-11-14T17:19:05.611Z"
+      },
+      "to-read": {
+        "at": "2026-11-14T17:19:05.611Z"
+      }
+    },
+    "coverRatio": 0.672,
+    "coverSource": "https://covers.openlibrary.org/b/id/12013118-M.jpg"
+  },
+  "after": {
+    "id": "scan-1",
+    "added": "2026-11-14T17:19:05.611Z",
+    "title": "The Lord of the Rings",
+    "author": "J.R.R. Tolkien",
+    "lists": {
+      "to-read": {
+        "at": "2026-11-14T17:19:05.611Z"
+      }
+    },
+    "editions": [
+      {
+        "id": "e1",
+        "format": "paper",
+        "publisher": "HarperCollins",
+        "date": "2004",
+        "pages": 1031,
+        "isbn": "9780261103252",
+        "cover": "covers/web/881d799dfe1a1543-320.webp",
+        "coverRatio": 0.672,
+        "coverSource": "https://covers.openlibrary.org/b/id/12013118-M.jpg",
+        "lists": {
+          "library": {
+            "at": "2026-11-14T17:19:05.611Z"
+          }
+        },
+        "added": "2026-11-14T17:19:05.611Z"
+      }
+    ],
+    "main": "e1",
+    "v": 2
+  }
+}
