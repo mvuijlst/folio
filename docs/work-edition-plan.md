@@ -768,8 +768,25 @@ booklog): 1,466 books, 1,485 editions, 18 books with more than one; one same-ISB
 scanned *The Lord of the Rings*); *The Blacktongue Thief* not merged (both in the booklog); 7
 pairs listed as possibly the same book. Rehearsal against a clone of the booklog without a
 remote: `sync_boeken --dry-run` lists the same three books before and after `to_works`, with the
-same files; `import_boeken` after it: 1,458 unchanged, twice. The rehearsal on production's
-database is still to do (stage 1's last point): it needs a copy from Michel.
+same files; `import_boeken` after it: 1,458 unchanged, twice.
+
+**Rehearsal on production's database** (a `.backup` copy taken over SSH on 2026-11-16, against
+a remote-less clone of the booklog at production's commit `a4fa13d8`; both builds on their own
+copy, with the same cover files):
+
+- `to_works`: 2,102 books, 2,120 editions, 17 books with more than one; 1 merge (*Fire & Blood*:
+  its audiobook "version" became its second edition, with its read); 0 books left waiting; 17
+  pairs listed as possibly the same book (mostly paper copies scanned of books in the booklog:
+  four *Harry Potter*, *Knife of Dreams*, *I Am Pilgrim*, …, and the two *Blacktongue Thief*,
+  not merged since both are in the booklog). A second run writes nothing.
+- `sync_boeken --dry-run`: nothing to publish, before (1.29.0) and after.
+- `import_boeken` after `to_works`: 2 books updated, each explained. *Grim Leaper*: a cover
+  thumbnail made from the local cover files; the old build does the same. *Fire & Blood*: with
+  the version merged, its group now includes the audiobook's post, so the book follows its
+  latest read: read on 2026-04-06, its link that post, its writers that post's (George R.R.
+  Martin; Doug Wheatley stays on the edition he illustrated). A second import: 0 updated, and
+  nothing to publish. (A dry-run import where thumbnails are missing reports a few "updated":
+  it estimates a cover's proportions from the original; the old build shows the same.)
 
 **Not checked in the browser:** two browser profiles converging after edits on both (sync is
 per record, newest wins, as before); an old build talking to the new server (covered by a
