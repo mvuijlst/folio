@@ -228,6 +228,14 @@ def kept_from_publishing(old, new):
     knew it: still waiting to go to the booklog, without its post. Taken as it comes, that
     would forget the post, and the book would be published a second time. What publishing
     added stays, so the device's change becomes a change of that post."""
+    if old.get('regrouped') and new.get('regroup') and new.get('regrouped') != old.get('regrouped'):
+        # Regrouped meanwhile (a book combined or split, publish.py): the device's copy, from
+        # before that, still says to. What publishing settled stays.
+        new = {k: v for k, v in new.items() if k not in ('regroup', 'joined')}
+        for key in PUBLISHED_KEYS:
+            if key in old:
+                new[key] = old[key]
+        return new
     if not old.get('boeken') or new.get('boeken') or not new.get('boekenWanted'):
         return new
     new = {k: v for k, v in new.items() if k != 'boekenWanted'}

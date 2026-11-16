@@ -153,11 +153,13 @@ def state_of(book):
 
 
 # A read is of an edition: the paperback the first time, the audiobook the next. Each review
-# carries the edition that was read in `edition`, with these facts (and `coverRatio`).
-EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people', 'format')
+# carries the edition that was read in `edition` (in the flat view, shelf/works.py), with these
+# facts (and `coverRatio`). `title` only for an edition titled otherwise than the book (a
+# translation): its posts carry that title.
+EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people', 'format', 'title')
 # What a review's fingerprint covered, by its version: editions came to say more over time.
-EDITION_AT = {2: EDITION[:7], 3: EDITION[:8], 4: EDITION}
-SUM_VERSION = 4
+EDITION_AT = {2: EDITION[:7], 3: EDITION[:8], 4: EDITION[:9], 5: EDITION}
+SUM_VERSION = 4   # 5 for a read of an edition with a title of its own: other fingerprints stay as they were
 
 
 def edition_of(post, names=None):
@@ -180,12 +182,14 @@ def edition_of(post, names=None):
     return {key: value for key, value in edition.items() if value not in ('', None, [])}
 
 
-def review_sum(review, version=SUM_VERSION):
+def review_sum(review, version=None):
     """Fingerprint of a review as the import (or the last publish) left it. A review that no
     longer matches its `sum` was edited in the app: the import leaves it alone, and it is
     published. Covers the reading date, the rating, the text and the edition read, as far as
     editions went at that version (EDITION_AT)."""
     edition = dict(review.get('edition') or {})
+    if version is None:
+        version = 5 if edition.get('title') else SUM_VERSION
     if 'people' in edition:
         edition['people'] = tidy_people(edition['people'])
     keys = EDITION_AT[version]
@@ -199,7 +203,7 @@ def in_step(review):
     """Is the review as its `sum` says it was left? (Older sums cover less: before reviews had
     editions the date, rating and text only; then the edition without its people.)"""
     left = str(review.get('sum') or '')
-    version = int(left[0]) if left[:2] in ('2:', '3:', '4:') else 1
+    version = int(left[0]) if left[:2] in ('2:', '3:', '4:', '5:') else 1
     edition = review.get('edition') or {}
     # (A fingerprint from before editions can't tell: every read has an edition now, the book's own.)
     if version > 1 and any(key in edition for key in EDITION if key not in EDITION_AT.get(version, EDITION_AT[2])):
@@ -324,6 +328,7 @@ def books(repo):
             picture = Path(repo, 'media', own.lstrip('/')) if own.startswith('/') else None
             posts.append({
                 'slug': str(post['slug']),
+                'title': str(post['title']),
                 'edition': edition_of(post, names),   # what was read that time: its own publisher, length, cover, people
                 'cover_file': picture if picture and picture.is_file() else None,
                 'review': review if was_read or review['text'] else None,

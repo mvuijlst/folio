@@ -244,12 +244,15 @@ With more than one edition:
   publisher changes it for every read of that edition.
 - **Combine with another book…** at the bottom of a book's details moves another book's
   editions and reads into this one, and that book goes (*Undo* in the message). The one in the
-  booklog stays, if only one of them is.
-- **Not possible yet:** combining two books that are both in the booklog, and making an
-  edition whose reads are in the booklog a book of its own. The app says so and does nothing.
-  (In the booklog a book is one group of posts, one per read: a book's reads in other editions
-  are rereads of its first post, each with its own edition's facts. Splitting and joining those
-  groups there is for later.)
+  booklog stays, if only one of them is; otherwise the one whose page was open.
+- **In the booklog** a book is one group of posts, one per read: a book's reads in other
+  editions are rereads of its first post, each with its own edition's facts. Combining two
+  books, or making an edition with reads there a book of its own, regroups those posts with the
+  next publish (*Samengevoegd: …*, *Gesplitst: …*): the earliest post is the first read. Two
+  books that were both waiting to be read keep one post waiting.
+- **A translation** is an edition with a title of its own (*Title of this edition* on its
+  sheet). A read of it is a reread of the book in the booklog, a second page there and not a
+  second book, under that title; the book itself keeps its own.
 
 ## The assistant
 

@@ -72,6 +72,7 @@ def booklog_facts(edition):
     """What a post says of an edition, for telling editions apart: its facts and its cover picture."""
     people = boeken.tidy_people(edition.get('people'))
     facts = {key: edition[key] for key in boeken.EDITION if key not in ('cover', 'people') and edition.get(key) not in (None, '', [])}
+    facts.pop('title', None)   # the same edition whoever names it: a title is not what tells editions apart
     return facts, people, edition.get('coverSource') or edition.get('cover') or ''
 
 
@@ -169,9 +170,17 @@ class Command(BaseCommand):
                   'waiting to be published': 0,
                   'reviews': sum(1 for b in incoming for p in b['posts'] if p['review']), 'reviews kept as edited in the app': 0}
 
+        # A book combined or split in the app waits for its posts to be regrouped (publish.py):
+        # until then the booklog's groups are not its own, so it is left as the app has it, and
+        # so are the groups of the books combined into it.
+        waiting_regroup = {str(k) for r in rows if not r.deleted and r.data.get('regroup')
+                           for k in [r.data.get('boeken'), *(r.data.get('joined') or [])] if k}
         for book in incoming:
             row = by_key.get(book['key'])
             joined = False
+            if book['key'] in waiting_regroup or (row is not None and row.data.get('regroup')):
+                counts['waiting to be published'] += 1
+                continue
             if row is None:
                 uid = boeken.uid_for(book['key'])
                 if uid in by_uid and by_uid[uid].deleted:
@@ -224,6 +233,10 @@ class Command(BaseCommand):
         edited = {r.get('ed') for r in previous.values() if r.get('sum') and not boeken.in_step(r)}
         claims, posts = {}, {}
         for post in book['posts']:
+            # A post titled otherwise than the book (a translation read) is of an edition with that title.
+            post['edition'].pop('title', None)
+            if post['title'] != data['title']:
+                post['edition']['title'] = post['title']
             said = booklog_facts(post['edition'])
             known = previous.get(post['slug'])
             ed = known.get('ed') if known and works.edition_of(data, known.get('ed')) else None

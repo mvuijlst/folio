@@ -19,6 +19,7 @@ venv/bin/python manage.py import_boeken --user NAME --remove                    
   text (Hugo shortcodes for images and videos become plain Markdown), and which **edition** of
   the book it was of. A book that is not read yet gets its note as a review without a date. A
   read given up (`status: "abandoned"`) is marked so (`dnf`).
+- **A post titled otherwise than the book** (a translation) is of an edition with that title.
 - **Each post is of an edition** of the book (see [Books and their
   editions](using.md#books-and-their-editions)), with the publisher, year, pages or length,
   ISBN, language, format, people and cover that post states, nothing filled in from other
@@ -61,7 +62,9 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | a book being read is marked *Did not finish* | the post's status becomes `abandoned` |
 | a book that was only marked as read gets its review later | that same post gets the text and rating: no reread is made of it |
 | a book to read is dropped | its post is deleted, with its cover and the author, tag and series pages nothing else uses. Never a book that was read: that is refused |
-| title or series change | the front matter of every read of the book |
+| title or series change | the front matter of every read of the book (a read of an edition with a title of its own, a translation, keeps that title) |
+| an edition has a title of its own | the posts of its reads carry it; the linter allows another title in another language (D-054) |
+| a book is combined with another, or an edition with reads is made a book of its own | the posts are regrouped (*Samengevoegd: …*, *Gesplitst: …*): the earliest post the first read, the others rereads of it; a group that loses its first post gets the earliest left as its first. Of two posts waiting to be read, the book's own stays |
 | the main edition changes (*I'm reading this one*) | the post of the read not done yet gets that edition's facts |
 | categories or tags change | `categories` and `tags` on every read's post that has any, and the latest's; a new tag gets its page, and a category the booklog doesn't have is refused |
 | the cover is replaced | the picture goes into `media/` and the post points at it |
@@ -98,6 +101,8 @@ post of its own, and from then on it is a booklog book like the others.
   added a second time: the app says which book on your shelf it is, to combine them there.
 - A book with several editions goes in as its main edition; its other reads follow as
   rereads, each with the edition it was of.
+- While a book waits to be regrouped (combined or split in the app), the import leaves it,
+  and the groups of the books combined into it, as the app has them.
 
 ## Books with editions, and what a "version" was
 

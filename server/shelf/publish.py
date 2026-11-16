@@ -212,6 +212,7 @@ def changed_keys(data):
 def is_pending(data):
     reviews = [r for r in data.get('reviews') or [] if isinstance(r, dict)]
     return bool(changed_keys(data)
+                or data.get('regroup')
                 or data.get('dropReads')
                 or any(not r.get('boeken') and r.get('date') for r in reviews)
                 or any(r.get('boeken') and r.get('sum') and not boeken.in_step(r) for r in reviews))
@@ -265,6 +266,14 @@ def plan_book(repo, data, group, taken, now):
     state, changed = boeken.state_of(data), changed_keys(data)
     today = now.astimezone(BRUSSELS).date().isoformat()
     title = str(data.get('title') or latest['title'])
+    # A post is titled as the edition it is of, when that has a title of its own (a translation), else as the book.
+    by_post = {str(r['boeken']): r for r in reviews if r.get('boeken')}
+
+    def title_of(post):
+        review = by_post.get(post['slug'])
+        if review is not None:
+            return str((review.get('edition') or {}).get('title') or title)
+        return str(data.get('editionTitle') or title) if post is latest else title
 
     def edit(post):
         return edits.setdefault(post['slug'], {'post': post, 'front': {}, 'body': None})
@@ -385,6 +394,9 @@ def plan_book(repo, data, group, taken, now):
         cover = edition_picture(review['edition'], post['slug'], post['_day']) or booklog_cover(review['edition'])
         if cover and cover != post.get('cover'):
             edit(post)['front']['cover'] = cover
+        want = str(review['edition'].get('title') or title)
+        if want != str(post.get('title') or ''):
+            edit(post)['front']['title'] = want
 
     def move_date(post, day):
         """A read was on another day than the post says. The post's address has its month in it,
@@ -413,6 +425,8 @@ def plan_book(repo, data, group, taken, now):
         fields.update(slug=slug, rereadOf=root)
         text = ''
         edition = review.get('edition') if review else {k: data[k] for k in works.MOVED if k in data}
+        own_title = (review.get('edition') or {}).get('title') if review else data.get('editionTitle')
+        fields['title'] = str(own_title or title)
         if isinstance(edition, dict) and edition:
             # Read in this edition: its own publisher, length, format, people and cover.
             own = edition_fields(edition)
@@ -527,9 +541,12 @@ def plan_book(repo, data, group, taken, now):
 
     # 4. The book's own facts. Title and series are the book's, so every read says the same;
     #    publisher, year, pages and ISBN are the edition's, and go on the latest read.
-    if 'title' in changed and state.get('title'):
-        for post in group:
-            edit(post)['front']['title'] = state['title']
+    for post in group:
+        # Every post as the book, or as its own edition when that has a title of its own.
+        if ('title' in changed and state.get('title')) or title_of(post) != title:
+            want = title_of(post)
+            if want != str(post.get('title') or ''):
+                edit(post)['front']['title'] = want
     if changed & {'series', 'seriesNumber', 'seriesLabel'}:
         name = state.get('series')
         for post in group:
@@ -744,8 +761,9 @@ def plan_new(repo, data, posts, taken, now):
 
     years = re.fullmatch(r'(\d{4})(?:\s*[–-]\s*(\d{4}))?', str(data.get('date') or '').strip())
     text = boeken.body_text(review.get('text') or '') if review else ''
+    # The post is titled as the edition read (a translation has its own title), else as the book.
     fields = {
-        'title': title,
+        'title': str(((review or {}).get('edition') or {}).get('title') or data.get('editionTitle') or title),
         'series': [series] if series else None,
         'series_number': data.get('seriesNumber') if series else None,
         'series_number_label': (data.get('seriesLabel') or None) if series else None,
@@ -889,6 +907,106 @@ def plan_reads_gone(repo, data, group, every):
     if kept:
         plan.url = kept[-1]['_url']
     return plan
+
+
+# ───────────────────────── Books combined or split in the app ─────────────────────────
+
+def plan_regroup(repo, data, every, claimed, now):
+    """The Plan that brings the booklog's groups in line with a book that was combined with
+    another or had an edition split off in the app (`regroup`). → plan, or None when the
+    booklog already is that way.
+
+    The book owns the posts its reads name, the group of its own first post (`boeken`) and the
+    groups of the books combined into it (`joined`), except what another book on the shelf
+    claims (`claimed`: the posts other books' reads name, and their first posts). Its earliest
+    post is the first read, every other post a reread of it; posts another group lost its first
+    post to are re-rooted (reroot). At most one post is a read not done yet: the book's own, or
+    else the latest; it comes last, and the others go. `plan.rekey` is the book's first post
+    now, `plan.url` its latest; `plan.forget` the reads of posts that went.
+    """
+    by_slug = {p['slug']: p for p in every}
+    reviews = [r for r in data.get('reviews') or [] if isinstance(r, dict)]
+    named = {str(r['boeken']) for r in reviews if r.get('boeken') and str(r['boeken']) in by_slug}
+    keys = [str(k) for k in [data.get('boeken'), *(data.get('joined') or [])] if k]
+    owned = set(named)
+    for key in keys:
+        owned |= {p['slug'] for p in every if str(p.get('rereadOf') or p['slug']) == key and p['slug'] not in claimed}
+    if not owned:
+        return None
+    posts = sorted((by_slug[s] for s in owned), key=lambda p: p['_when'])
+    plan = Plan()
+    fronts = {}
+
+    def change(post, front):
+        fronts.setdefault(post['slug'], (post, {}))[1].update(front)
+
+    # One read not done yet at most: the one of the book's own group, else the latest.
+    is_open = lambda p: str(p.get('status') or 'read') in ('to-read', 'reading')
+    opens = [p for p in posts if is_open(p)]
+    own = str(data.get('boeken') or '')
+    keep = next((p for p in reversed(opens) if str(p.get('rereadOf') or p['slug']) == own), opens[-1] if opens else None)
+    gone = [p for p in opens if p is not keep]
+    if gone:
+        plan.removals.extend(p['_path'] for p in gone)
+        plan.forget = [r.get('id') for r in reviews if str(r.get('boeken') or '') in {p['slug'] for p in gone}]
+        posts = [p for p in posts if p not in gone]
+        plan.notes.append(f'{len(gone)} post(s) of a read not done yet removed')
+    # The read not done yet is the latest post: it is what the book's status is said by.
+    moved = bool(keep and posts[-1] is not keep)
+    if moved:
+        old = f'/{keep["_day"][:4]}/{keep["_day"][5:7]}/{keep["slug"]}/'
+        today = now.astimezone(BRUSSELS).date().isoformat()
+        change(keep, {'date': local(now)})
+        if today[:7] != keep['_day'][:7]:
+            change(keep, {'aliases': list(dict.fromkeys([*(keep.get('aliases') or []), old]))})
+        posts = [p for p in posts if p is not keep] + [keep]
+    root = min((p for p in posts if not (moved and p is keep)), key=lambda p: p['_when'], default=posts[0])
+    for post in posts:
+        want = None if post is root else root['slug']
+        if (post.get('rereadOf') or None) != want:
+            change(post, {'rereadOf': want})
+    # Groups that lost their first post to this book: the earliest post left is theirs now.
+    left = [p for p in every if p['slug'] not in owned]
+    reroot({p['slug'] for p in posts} | {p['slug'] for p in gone}, left, change)
+    for post, front in fronts.values():
+        if post['slug'] in {p['slug'] for p in gone}:
+            continue
+        front = {k: v for k, v in front.items() if not (v is None and k not in post)}
+        if front:
+            plan.files[post['_path']] = apply_front_matter(post['_file'], front)
+            plan.slugs.add(post['slug'])
+    if gone:
+        plan.removals.extend(leftovers(repo, gone, [p for p in every if p not in gone]))
+    plan.rekey = root['slug']
+    latest = posts[-1]
+    day = now.astimezone(BRUSSELS).date().isoformat() if moved and latest is keep else latest['_day']
+    plan.url = f'{boeken.SITE}/{day[:4]}/{day[5:7]}/{latest["slug"]}/'
+    if not plan.writes:
+        return plan   # nothing to write: the book only needs to know which posts are its own
+    title = str(data.get('title') or root['title'])
+    plan.message = f'Samengevoegd: {title}' if data.get('joined') else f'Gesplitst: {title}'
+    return plan
+
+
+def settle_regroup(data, plan, now=None):
+    """The book once its posts are regrouped: its first post, its address, the reads that went.
+    Its booklog state stays what it was (what else waits is published next); a book that was
+    not in the booklog before (split off) is in step with it from here."""
+    data = dict(data)
+    for key in ('regroup', 'joined'):
+        data.pop(key, None)
+    # When, so a device's copy from before (still asking for it) is recognised (views.kept_from_publishing).
+    data['regrouped'] = (now or timezone.now()).isoformat()
+    if plan.forget:
+        data['reviews'] = [r for r in data.get('reviews') or [] if not (isinstance(r, dict) and r.get('id') in plan.forget)]
+        if not data['reviews']:
+            data.pop('reviews')
+    if plan.rekey:
+        data['boeken'] = plan.rekey
+        data['url'] = plan.url
+        if 'boekenState' not in data:
+            data['boekenState'] = boeken.state_of(works.flat(data))
+    return data
 
 
 # ───────────────────────── Git ─────────────────────────
@@ -1095,6 +1213,34 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 row.data = {}   # said once; the book is gone from the shelf either way
                 row.save(update_fields=['data'])
 
+    # Books combined with another, or with an edition split off, in the app: their posts become
+    # their own first (plan_regroup), so whatever else changed is published to the right posts.
+    for row in Book.objects.filter(user=user, deleted=False, data__regroup=True):
+        if row.modified > now - timedelta(seconds=delay):
+            counts['waiting'] += 1
+            continue
+        try:
+            claimed = set()
+            for other in Book.objects.filter(user=user, deleted=False).exclude(pk=row.pk).only('data'):
+                if other.data.get('boeken'):
+                    claimed.add(str(other.data['boeken']))
+                claimed |= {str(r['boeken']) for r in other.data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken')}
+            plan = plan_regroup(repo, row.data, [p for g in groups.values() for p in g], claimed, now)
+            if plan and plan.writes:
+                say(f'{plan.message}  [{", ".join(plan.notes) or "groups put right"}]')
+                for path in [*plan.files, *plan.removals]:
+                    say(f'    {path.relative_to(repo).as_posix()}')
+                if not dry_run:
+                    commit(repo, plan)
+                    groups, taken = load()
+            counts['published' if plan and plan.writes else 'settled'] += 1
+            if not dry_run:
+                row.data = settle_regroup(row.data, plan or Plan(), now)
+                row.changed = timezone.now()
+                row.save(update_fields=['data', 'changed'])
+        except Exception as err:
+            failed(row, err)
+
     # Books that are to be added to the booklog.
     every = [post for group in groups.values() for post in group]
     for row in Book.objects.filter(user=user, deleted=False, data__boekenWanted=True):
@@ -1142,6 +1288,8 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
             failed(row, err)
 
     for row in Book.objects.filter(user=user, deleted=False, data__boeken__isnull=False):
+        if row.data.get('regroup'):
+            continue   # not regrouped yet (it waits, or failed): its posts aren't its own yet
         group = groups.get(str(row.data.get('boeken')))
         if not group or not is_pending(works.flat(row.data)):
             continue

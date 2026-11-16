@@ -251,15 +251,26 @@ def upgrade(book, status=None):
     return settle(work, status)
 
 
+def titled(edition):
+    """An edition's facts as a read of it is published: with its own title, when it has one (a translation)."""
+    facts = facts_of(edition)
+    if isinstance(edition, dict) and not empty(edition.get('title')):
+        facts['title'] = edition['title']
+    return facts
+
+
 def flat(data):
     """A new record in the old shape, for publishing: the main edition's facts at the top level,
     `lists` as the union of the book's and its editions', each review with the edition it was
-    of (`edition`, next to `ed`). A record without editions is returned as it is."""
+    of (`edition`, next to `ed`). A record without editions is returned as it is. The book's
+    `title` stays the book's; the main edition's own title, if it has one, is `editionTitle`."""
     if not isinstance(data.get('editions'), list) or not data['editions']:
         return data
     out = {k: v for k, v in data.items() if k not in ('editions', 'main', 'v')}
     main = main_edition(data) or {}
     out.update(facts_of(main))
+    if not empty(main.get('title')):
+        out['editionTitle'] = main['title']
     lists = dict(data.get('lists') or {})
     for edition in data['editions']:
         for key, entry in (edition.get('lists') or {}).items():
@@ -267,7 +278,7 @@ def flat(data):
                 lists[key] = entry
     out['lists'] = lists
     if isinstance(data.get('reviews'), list):
-        out['reviews'] = [{**r, 'edition': facts_of(edition_of(data, r.get('ed')))} if isinstance(r, dict) else r
+        out['reviews'] = [{**r, 'edition': titled(edition_of(data, r.get('ed')))} if isinstance(r, dict) else r
                           for r in data['reviews']]
     return out
 

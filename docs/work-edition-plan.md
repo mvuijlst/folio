@@ -5,10 +5,10 @@ against app version 1.28.0 (commit `fa2ecfa`, the one that added bulk edit); the
 reached 1.29.0 by the time it was pushed. It names functions, never line numbers, because the
 files keep moving. "As today" means: as in the build the work starts from.
 
-**Status (2026-11-16, later that day).** Stages 0 to 4 are built on the branch
-`works-and-editions` as 2.0.0, not merged; section 10 says how the build departs from this
-plan and what was not done. Michel's answers to section 9 are recorded there. Stage 5 and the
-cut-over (section 8) are not done.
+**Status (2026-11-16, later that day).** Stages 0 to 4 are built and live as 2.0.0 since the
+cut-over that evening ([cutover-2.0.md](cutover-2.0.md)); stage 5 is built as 2.1.0. Section
+10 says how the build departs from this plan; Michel's answers to section 9 are recorded
+there.
 
 **How to use it.** Read sections 1 to 6 before touching code: they are the design. Section 7
 is the build, in stages; each stage ends with a "done when" list that must hold before the
@@ -793,3 +793,24 @@ copy, with the same cover files):
 per record, newest wins, as before); an old build talking to the new server (covered by a
 server test: 409 and nothing stored); photographing a cover and *Describe it* (no camera and no
 assistant locally).
+
+**Stage 5, as built (2.1.0).**
+
+- *The booklog* (its own commit, D-054): the linter lets a reread carry another title when its
+  `language` differs from the first read's; a book's page names the other read's title beside
+  its date ("Herlezen op 1 november 2026 (Het Huis)") when it differs.
+- *Titles.* An edition's own `title` is its posts' title (new posts, an edited read, a changed
+  book title, the post of the read to come). A read's fingerprint covers that title only when
+  there is one (`sum` version 5 for those; every other fingerprint stays as it was, so no book
+  changed by this). The import gives an edition the title of its post when that differs from
+  the book's.
+- *Regrouping* (`plan_regroup`): the app marks a combined book (`regroup`, with `joined`: the
+  first posts of the books absorbed) and both halves of a split. Ownership as stage 5, point 3,
+  describes it; a read to come that is not the latest post moves to the end (its date becomes the day
+  of the regroup, the old address an alias). The book is stamped `regrouped`: a device's copy
+  from before that is not taken as a new request. The import leaves a book that waits for it,
+  and the groups joined into it, alone. Publishing regroups first, then publishes what else
+  changed.
+- *Found on the way* (and fixed in 2.0 as a hotfix): a dated read of a new edition wrote that
+  edition's facts onto the post of the read before. Production had not hit it.
+

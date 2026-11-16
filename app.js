@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.0.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.1.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3369,13 +3369,16 @@ function openCombine(book, back) {
 }
 
 async function combineWith(book, other, back) {
-  if (book.boeken && other.boeken) {
-    toast(t('Both are in the booklog: combining them there is not possible yet.'), { ms: 6000 });
-    return;
-  }
   const [survivor, absorbed] = other.boeken && !book.boeken ? [other, book] : [book, other];
   const before = [structuredClone(survivor), structuredClone(absorbed)];
   W.combine(survivor, absorbed);
+  // Reads of the other book that are in the booklog are pages there of another group: the
+  // booklog is regrouped with the next publish (shelf/publish.py, plan_regroup).
+  if (absorbed.boeken || inBooklog(absorbed)) {
+    survivor.regroup = true;
+    survivor.joined = [...new Set([...(survivor.joined || []), ...[absorbed.boeken, ...(absorbed.joined || [])].filter(Boolean)])];
+    if (!survivor.joined.length) delete survivor.joined;
+  }
   settleRating(survivor);
   await saveBook(survivor);
   await removeBook(absorbed);
@@ -3386,14 +3389,16 @@ async function combineWith(book, other, back) {
   });
 }
 
-/** An edition, with its reads, as a book of its own (plan 5.3). Not possible yet for reads that are in the booklog. */
+/** Whether any read of a book is a page in the booklog. */
+const inBooklog = (book) => (book.reviews || []).some((r) => r.boeken);
+
+/** An edition, with its reads, as a book of its own (plan 5.3). Reads of it that are in the
+    booklog become a group of their own there with the next publish (plan_regroup). */
 async function splitOff(book, edition, back) {
-  if ((book.reviews || []).some((r) => r.ed === edition.id && r.boeken)) {
-    toast(t('Its reads are in the booklog: making it a book of its own there is not possible yet.'), { ms: 6000 });
-    return;
-  }
   const before = structuredClone(book);
+  const moving = (book.reviews || []).some((r) => r.ed === edition.id && r.boeken);
   const { piece } = W.split(book, edition.id, { id: newId(), added: new Date().toISOString(), status: statusIds() });
+  if (moving) book.regroup = piece.regroup = true;
   settleRating(book);
   await saveBook(book);
   settle(piece);
@@ -3674,6 +3679,8 @@ function booklogCategories() {
 function addToBooklog(book, again) {
   const host = booklogHost();
   if (!host) return null;
+  // Split off a book of the booklog: its reads are pages there, which become its own.
+  if (book.regroup) return h('div', { class: 'from-site' }, h('p', { class: 'sheet-note', text: t('Its reads are on {host}; there too it becomes a book of its own within a few minutes.', { host }) }));
   const open = () => openBooklogForm(book, again);
   return h('div', { class: 'from-site' },
     book.boekenWanted
