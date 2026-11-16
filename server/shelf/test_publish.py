@@ -172,6 +172,49 @@ class PublishTests(BooklogCase):
         self.assertIn('3 unchanged', self.import_booklog())
         self.assertEqual(self.publish()[0]['published'], 0)
 
+    def test_language_categories_and_tags_are_published(self):
+        page = self.repo / 'site' / 'content' / 'categories'
+        for name in ('sf', 'roman'):
+            (page / name).mkdir(parents=True)
+            (page / name / '_index.md').write_text(f'---\ntitle: "{name}"\n---\n', encoding='utf-8', newline='')
+        git(self.repo, 'add', '.')
+        git(self.repo, '-c', 'user.name=T', '-c', 'user.email=t@example.org', 'commit', '--quiet', '-m', 'Categories')
+        self.change('dune', lambda data: data.update(language='nl', categories=['sf', 'roman'], tags=['desert', 'Spice Trade']))
+        self.publish()
+        self.assertEqual(self.log()[0], 'Bewerkt: Dune')
+        # The language is the edition's: the read last. Categories and tags are the book's.
+        self.assertEqual(self.changed_lines('dune'), ['+categories: ["sf", "roman"]', '+tags: ["desert", "spice-trade"]',
+                                                      '-categories: ["sf"]', '-tags: ["desert"]'])
+        self.assertEqual(self.changed_lines('dune-herlezing'), ['+categories: ["sf", "roman"]', '+language: "nl"',
+                                                                '+tags: ["desert", "spice-trade"]'])
+        term = self.repo / 'site' / 'content' / 'tags' / 'spice-trade' / '_index.md'
+        self.assertEqual(term.read_text(encoding='utf-8'), '---\ntitle: "Spice Trade"\nslug: "spice-trade"\n---\n')
+        self.import_booklog()
+        book = self.book('dune').data
+        self.assertEqual((book['language'], book['categories'], book['tags']), ('nl', ['sf', 'roman'], ['desert', 'spice-trade']))
+        self.assertEqual(self.publish()[0]['published'], 0)
+        # Taken off every read, a tag stays off.
+        self.change('dune', lambda data: data.update(tags=[]))
+        self.publish()
+        self.assertNotIn('tags:', self.post('dune') + self.post('dune-herlezing'))
+        self.import_booklog()
+        self.assertFalse(self.book('dune').data.get('tags'))
+        self.assertEqual(self.publish()[0]['published'], 0)
+
+    def test_a_category_the_booklog_lacks_is_refused(self):
+        self.change('dune', lambda data: data.update(categories=['nonsense']))
+        counts, said = self.publish()
+        self.assertEqual(counts['failed'], 1)
+        self.assertEqual(self.book('dune').data['boekenError'], 'The booklog has no category "nonsense".')
+        self.assertEqual(self.log(), ['The booklog'])
+
+    def test_a_state_from_before_categories_were_published_has_no_change_in_them(self):
+        row = self.book('dune')
+        older = {k: v for k, v in row.data['boekenState'].items() if k not in ('language', 'categories', 'tags')}
+        row.data = {**row.data, 'categories': ['other'], 'boekenState': {**older, 'tracks': 2}}
+        row.save()
+        self.assertEqual(publish.changed_keys(row.data), set())
+
     def test_every_read_has_its_own_edition(self):
         first, second = self.book('dune').data['reviews']
         self.assertEqual(first['edition'], {'publisher': 'Ace', 'date': '1990', 'pages': 535, 'isbn': '9780441172719', 'language': 'en',

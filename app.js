@@ -7,7 +7,7 @@
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.27.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.28.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -162,6 +162,30 @@ async function addBook(data) {
 }
 
 async function saveBook(book) {
+  if (settle(book)) toast(t('Not on a reading list any more, so it won’t be added to {host}.', { host: booklogHost() }), { ms: 6000 });
+  touch(book.id, book);
+  renderLibrary();
+  await DB.put(book).catch(storageFailed);
+}
+
+/** Several books changed at once: one drawing, one sync. → how many lost their way to the booklog. */
+async function saveBooks(changed) {
+  const now = new Date().toISOString();
+  let unwanted = 0;
+  for (const book of changed) {
+    if (settle(book)) unwanted += 1;
+    book.modified = now;
+    sync.dirty[book.id] = now;
+  }
+  store.set('syncDirty', sync.dirty);
+  scheduleSync();
+  renderLibrary();
+  await Promise.all(changed.map((book) => DB.put(book))).catch(storageFailed);
+  return unwanted;
+}
+
+/** What follows from a change, before a book is saved. → true when it is no longer on its way to the booklog. */
+function settle(book) {
   // How progress is said (page or percentage) is chosen per read: it ends with the read.
   if (!shelves(book).reading) { delete book.progressUnit; delete book.percentRead; }
   // Why the booklog refused the book was said about how it was; changed, it gets another
@@ -171,11 +195,9 @@ async function saveBook(book) {
   // that is what a post says. Taken off all of them before it got there, it isn't added.
   if (book.boekenWanted && !book.boeken && ![...FIXED.keys()].some((id) => shelves(book)[id])) {
     delete book.boekenWanted;
-    toast(t('Not on a reading list any more, so it won’t be added to {host}.', { host: booklogHost() }), { ms: 6000 });
+    return true;
   }
-  touch(book.id, book);
-  renderLibrary();
-  await DB.put(book).catch(storageFailed);
+  return false;
 }
 
 /** `drop`: the book is given up for good; for a booklog book its page there is deleted too. */
@@ -437,6 +459,8 @@ function addressOf() {
 
 /** Open every book (null), a list (its id), all series ({seriesIndex: true}), one ({series: name}) or an author's books ({author: name}). */
 function setView(target) {
+  // Going somewhere else ends selecting books (it is a step in history of its own).
+  if (picking.on) { closeLayersThen(() => setView(target)); return; }
   const wasSeries = view.seriesIndex || view.series || view.author;
   // Another place: its own filters, and the order kept for it.
   Object.assign(view, { list: null, series: null, seriesIndex: false, author: null, filters: {}, sort: null });
@@ -836,6 +860,43 @@ function formatPicker(initial) {
   return picker;
 }
 
+/* What a book is in and about: the language of its edition (a two-letter code, as the booklog
+   has it), its categories (the booklog's own small set) and its tags (anything). */
+const LANGUAGE_NAMES = { nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' };
+const languageName = (code) => LANGUAGE_NAMES[code] || String(code || '').toUpperCase();
+/** The languages to choose from: the four the booklog mostly has, and any other a book is in. */
+const languageCodes = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.map((b) => b.language).filter((code) => /^[a-z]{2}$/.test(code || ''))])];
+/** Categories to choose from: the booklog's, most used first, then any other a book has. */
+function categoryNames() {
+  const all = booklogCategories();
+  for (const b of books) for (const c of b.categories || []) if (!all.includes(c)) all.push(c);
+  return all;
+}
+/** "a, b ,, c" → ['a', 'b', 'c'], nothing twice. */
+const commaList = (text) => [...new Map(String(text || '').split(',').map((part) => part.replace(/\s+/g, ' ').trim()).filter(Boolean).map((part) => [fold(part), part])).values()];
+/** Chips to choose one of, or none: tapping the chosen one again leaves it unsaid. → { el, value } */
+function oneChip(options, initial, name = (v) => v) {
+  const picker = { value: initial || '', el: h('div', { class: 'chips' }) };
+  const draw = () => picker.el.replaceChildren(...options.map((option) => h('button', {
+    class: 'chip', type: 'button', text: name(option), 'aria-pressed': String(picker.value === option),
+    onclick: () => { picker.value = picker.value === option ? '' : option; draw(); },
+  })));
+  draw();
+  return picker;
+}
+/** Chips to choose any number of. → { el, value: Set } */
+function someChips(options, initial) {
+  const picker = { value: new Set(initial), el: h('div', { class: 'chips' }) };
+  const draw = () => picker.el.replaceChildren(...[...new Set([...options, ...picker.value])].map((option) => h('button', {
+    class: 'chip', type: 'button', text: option, 'aria-pressed': String(picker.value.has(option)),
+    onclick: () => { if (!picker.value.delete(option)) picker.value.add(option); draw(); },
+  })));
+  draw();
+  return picker;
+}
+/** Every tag on the shelf, for suggesting. */
+const tagNames = () => [...new Set(books.flatMap((b) => b.tags || []))].sort((a, b) => a.localeCompare(b, LOCALE));
+
 function metaLine(b) {
   // Rating (0–10) and how far along come with books from the booklog at boeken.tsuk.org.
   const { percent } = progressOf(b);
@@ -1015,11 +1076,13 @@ async function searchByText(guess, lines) {
 // Every overlay pushes a history entry so Android's back gesture closes it. Views are history
 // entries too (see setView): Back closes what is open on top first, then walks back through them.
 const layers = [];
-function openLayer(onClose) {
-  layers.push(onClose);
+/** `scrolls`: what is under it can still be scrolled (choosing books is a layer, but over the shelf). */
+function openLayer(onClose, { scrolls = false } = {}) {
+  layers.push(Object.assign(() => onClose(), { scrolls }));
   history.pushState({ layer: layers.length }, '');
-  document.body.classList.add('locked');
+  relock();
 }
+const relock = () => document.body.classList.toggle('locked', layers.some((layer) => !layer.scrolls));
 function closeLayer() { if (layers.length) history.back(); }
 /** Close whatever is open on top, then do `next`: going back in history takes a moment, and a
  *  new view must not be pushed onto the entry that is on its way out. Everything that is open
@@ -1036,7 +1099,7 @@ window.addEventListener('popstate', (e) => {
   const depth = Math.min(layers.length, e.state?.layer || 0);
   if (layers.length > depth) {
     while (layers.length > depth) layers.pop()();
-    if (!layers.length) document.body.classList.remove('locked');
+    relock();
     return;
   }
   // Nothing was open on top: Back or Forward moved between views.
@@ -1173,7 +1236,7 @@ function bookRow(b, onPick, extra, tags) {
   if (b.pending) meta = h('div', { class: 'book-meta flag' }, icon('cloud-off'), t('Will be looked up when you’re online'));
   else if (b.unresolved) meta = h('div', { class: 'book-meta flag', text: t('No match found — tap to fill in') });
   else meta = h('div', { class: 'book-meta', text: metaLine(b) });
-  return h('button', { class: 'book', type: 'button', onclick: () => onPick(b) },
+  return h('button', { class: 'book', type: 'button', onclick: (e) => onPick(b, e) },
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title' }, extra, displayTitle(b)),
@@ -1233,7 +1296,7 @@ function bookTile(b, onPick, numbered) {
     ? h('div', { class: 'cover-stack', style: `--n:${covers.length}` }, covers.map((c, i) => { const el = coverEl(c); el.style.setProperty('--i', i); return el; }))
     : coverEl(b, false, true);
   const dates = numbered ? readDates(b) : '';
-  return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: () => onPick(b) },
+  return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: (e) => onPick(b, e) },
     front,
     h('div', { class: 'tile-foot' },
       b.rating != null ? stars(b.rating) : h('span'),
@@ -1251,7 +1314,7 @@ function excerpt(b) {
 /** A book in the cards view: a larger cover, the details, the lists and the start of the review. */
 function bookCard(b, onPick, tags) {
   const text = excerpt(b);
-  return h('button', { class: 'bcard', type: 'button', onclick: () => onPick(b) },
+  return h('button', { class: 'bcard', type: 'button', onclick: (e) => onPick(b, e) },
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title', text: displayTitle(b) }),
@@ -1424,7 +1487,7 @@ function facetsOf() {
     return { key, values: all.map((value) => ({ value: String(value), name: name(value), test: (b) => pick(b).includes(value) })) };
   };
   facets.push({ ...having('category', (b) => b.categories || []), name: t('Category') });
-  facets.push({ ...having('language', (b) => [b.language].filter(Boolean), (v) => v.toUpperCase()), name: t('Language') });
+  facets.push({ ...having('language', (b) => [b.language].filter(Boolean), languageName), name: t('Language') });
   if (view.list !== 'to-read' && view.list !== 'reading') {
     facets.push({ ...having('year', (b) => [lastRead(b).slice(0, 4)].filter(Boolean), (v) => v, (a, b) => b.localeCompare(a)), name: t('Year read') });
     facets.push({ key: 'rating', name: t('Rating'), values: RATINGS.map(([value, name, fits]) => ({ value, name: typeof name === 'function' ? name() : name, test: (b) => fits(b.rating ?? null) })) });
@@ -1547,10 +1610,24 @@ function appendRows(upTo = shown.next + PAGE) {
     const day = shown.series ? '' : shown.heading(b);
     if (!shown.query && day && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
     const number = shown.series && seriesNo(b) ? h('span', { class: 'badge', text: `#${seriesNo(b)}` }) : null;
-    const open = (book) => openBook(book, shown.rows);   // with the list it is opened from, for previous and next
-    if (view.mode === 'covers') frag.append(bookTile(b, open, !!shown.series));
-    else if (view.mode === 'cards') frag.append(bookCard(b, open, listTags(b, shown.current)));
-    else frag.append(bookRow(b, open, number, listTags(b, shown.current)));
+    // A book opens with the list it is opened from, for previous and next. While books are
+    // being selected a tap selects it instead; a Ctrl-click starts selecting.
+    const open = (book, e) => {
+      if (picking.on) togglePick(book, e);
+      else if (e?.ctrlKey || e?.metaKey) startPicking(book);
+      else openBook(book, shown.rows);
+    };
+    const el = view.mode === 'covers' ? bookTile(b, open, !!shown.series)
+      : view.mode === 'cards' ? bookCard(b, open, listTags(b, shown.current))
+        : bookRow(b, open, number, listTags(b, shown.current));
+    // The mark that says it is selected: beside the book in the list, on its cover elsewhere.
+    el.dataset.id = b.id;
+    const mark = h('span', { class: 'pick-mark', 'aria-hidden': 'true' }, icon('check'));
+    if (view.mode === 'list') el.prepend(mark);
+    else (el.querySelector('.cover-stack > .cover:last-child') || el.querySelector('.cover')).append(mark);
+    if (picking.ids.has(b.id)) el.classList.add('picked');
+    if (picking.on) el.setAttribute('aria-pressed', String(picking.ids.has(b.id)));
+    frag.append(el);
   }
   shown.next = end;
   const more = end < shown.rows.length
@@ -1573,9 +1650,9 @@ function renderLibrary() {
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
-  $('viewSeg').hidden = $('filterBtn').hidden = $('sortBtn').hidden = view.seriesIndex;
+  $('viewSeg').hidden = $('filterBtn').hidden = $('sortBtn').hidden = $('pickBtn').hidden = view.seriesIndex;
   $('activeFilters').hidden = true;
-  if (view.seriesIndex) { renderSeriesIndex(query); return; }
+  if (view.seriesIndex) { renderSeriesIndex(query); drawPicking(); return; }
 
   // 1. The place: every book, a list, a series, a person's books.
   const since = (b) => (current ? shelves(b)[current.id].at || b.added : b.added);
@@ -1632,6 +1709,390 @@ function renderLibrary() {
   else if (current && !found.length && books.length) {
     $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Add a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
   }
+  drawPicking();
+}
+
+/* ───────────────────────── Selecting books, and changing them all at once ─────────────────────────
+
+   Select (beside the views), a Ctrl-click or a long press on a book starts selecting: a tap
+   then selects a book instead of opening it, and Shift takes in every book in between. Add
+   a book makes way for a bar with what there is to do with them: Edit opens one sheet for
+   all of them. Selecting is a step in history, so Back ends it, and going elsewhere does too.
+   What is selected stays selected while you search or filter, to pick books from all over. */
+
+const picking = { on: false, ids: new Set(), anchor: null };
+
+/** The books selected: in the order they are shown, then any the view hides now. */
+function pickedBooks() {
+  const seen = new Set(), out = [];
+  for (const b of [...shown.rows, ...books]) if (picking.ids.has(b.id) && !seen.has(b.id)) { seen.add(b.id); out.push(b); }
+  return out;
+}
+
+function startPicking(first) {
+  if (!picking.on) {
+    Object.assign(picking, { on: true, ids: new Set(), anchor: null });
+    openLayer(endPicking, { scrolls: true });
+  }
+  if (first) { picking.ids.add(first.id); picking.anchor = first; }
+  drawPicking();
+}
+
+function endPicking() {
+  Object.assign(picking, { on: false, ids: new Set(), anchor: null });
+  history.replaceState(history.state, '', addressOf());   // filtered or ordered meanwhile: the address says so
+  drawPicking();
+}
+
+function togglePick(book, e) {
+  const at = shown.rows.indexOf(book), from = picking.anchor ? shown.rows.indexOf(picking.anchor) : -1;
+  if (e?.shiftKey && at >= 0 && from >= 0) {
+    for (const b of shown.rows.slice(Math.min(at, from), Math.max(at, from) + 1)) picking.ids.add(b.id);
+  } else if (!picking.ids.delete(book.id)) picking.ids.add(book.id);
+  picking.anchor = book;
+  drawPicking();
+}
+
+function pickAll() {
+  const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
+  for (const b of shown.rows) if (all) picking.ids.delete(b.id); else picking.ids.add(b.id);
+  drawPicking();
+}
+
+/** The marks on the books, and the bar of what to do with them. */
+function drawPicking() {
+  $('library').classList.toggle('picking', picking.on);
+  for (const el of $('library').querySelectorAll('[data-id]')) {
+    const on = picking.ids.has(el.dataset.id);
+    el.classList.toggle('picked', on);
+    if (picking.on) el.setAttribute('aria-pressed', String(on)); else el.removeAttribute('aria-pressed');
+  }
+  $('pickBtn').setAttribute('aria-pressed', String(picking.on));
+  $('addBtn').hidden = picking.on;
+  $('pickBar').hidden = !picking.on;
+  if (!picking.on) return;
+  const n = picking.ids.size;
+  const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
+  fill($('pickBar'),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Stop selecting'), title: t('Stop selecting'), onclick: closeLayer }, icon('x')),
+    h('span', { class: 'pick-count', text: n ? t('{n} selected', { n }) : t('Select books') }),
+    shown.rows.length > 0 && h('button', { class: 'link-btn', type: 'button', text: all ? t('None') : t('All {n}', { n: shown.rows.length }), onclick: pickAll }),
+    h('button', { class: 'btn btn-primary', type: 'button', disabled: !n, onclick: () => openBulkEdit(pickedBooks()) }, icon('pencil'), t('Edit')));
+}
+
+/** A long press on a book starts selecting, with that book; Escape and Ctrl+A do what they do. */
+function initPicking() {
+  const library = $('library');
+  let timer = null, from = null, swallow = false;
+  const cancel = () => { clearTimeout(timer); timer = null; };
+  library.addEventListener('pointerdown', (e) => {
+    swallow = false;
+    cancel();
+    const el = e.target.closest('[data-id]');
+    if (e.pointerType === 'mouse' || picking.on || !el) return;
+    from = [e.clientX, e.clientY];
+    timer = setTimeout(() => {
+      timer = null;
+      const book = books.find((b) => b.id === el.dataset.id);
+      if (!book) return;
+      swallow = true;   // the tap that ends the press is not also a tap on the book
+      buzz();
+      startPicking(book);
+    }, 450);
+  });
+  library.addEventListener('pointermove', (e) => { if (timer && Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 10) cancel(); });
+  for (const type of ['pointerup', 'pointercancel']) library.addEventListener(type, cancel);
+  window.addEventListener('scroll', cancel, { passive: true });
+  library.addEventListener('click', (e) => { if (swallow) { swallow = false; e.preventDefault(); e.stopPropagation(); } }, true);
+  // A long press on a cover would otherwise offer to save the picture.
+  library.addEventListener('contextmenu', (e) => { if (timer || swallow || (picking.on && e.pointerType !== 'mouse')) e.preventDefault(); });
+  $('pickBtn').addEventListener('click', () => (picking.on ? closeLayer() : startPicking()));
+  document.addEventListener('keydown', (e) => {
+    // Only while nothing is open over the shelf.
+    if (!picking.on || document.body.classList.contains('locked') || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+    if (e.key === 'Escape') closeLayer();
+    else if (e.key.toLowerCase() === 'a' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); pickAll(); }
+  });
+}
+
+/**
+ * One sheet for all the books selected. Each part of it starts out changing nothing (it shows
+ * how the books are now) and says when it would change something; only those parts are
+ * applied. Lists, authors, categories and tags can be added to what the books have, taken
+ * from it, or replace it. Undo puts every book back as it was.
+ */
+function openBulkEdit(chosen) {
+  const n = chosen.length;
+  const count = (test) => chosen.filter(test).length;
+  /** How many of the books have each value: Map(value → n), most first. */
+  const tally = (valuesOf) => {
+    const map = new Map();
+    for (const b of chosen) for (const v of new Set(valuesOf(b))) map.set(v, (map.get(v) || 0) + 1);
+    return new Map([...map].sort((a, b) => b[1] - a[1]));
+  };
+  const chip = (text, have, pressed, onclick, extra = {}) => h('button', { class: 'chip', type: 'button', 'aria-pressed': String(pressed), onclick, ...extra },
+    text, have > 0 && h('b', { text: String(have) }));
+
+  // A part: a heading (with Reset, once it would change something, and where it applies, the
+  // way it changes: add, remove or replace), its controls and a note.
+  const part = (label, { modes = false } = {}) => {
+    const p = { mode: 'add', controls: h('div'), note: h('p', { class: 'sheet-note', hidden: true }) };
+    const seg = modes && h('div', { class: 'seg bulk-mode', role: 'group', 'aria-label': t('How') });
+    const drawSeg = () => seg && seg.replaceChildren(...[['add', t('Add')], ['remove', t('Remove')], ['replace', t('Replace')]].map(([mode, name]) => h('button', {
+      type: 'button', text: name, 'aria-pressed': String(p.mode === mode),
+      onclick: () => { p.mode = mode; drawSeg(); p.draw?.(); },
+    })));
+    drawSeg();
+    p.reset = h('button', { class: 'bulk-reset', type: 'button', text: t('Reset') });
+    p.el = h('section', { class: 'bulk-part' }, h('div', { class: 'bulk-head' }, h('h3', { text: label }), p.reset, seg), p.controls, p.note);
+    return p;
+  };
+
+  /** Choose one of these for all of them (or, with `none`, none of them). */
+  const oneOf = (label, options, { name, has, set, none }) => () => {
+    const p = part(label);
+    let value = null;   // null: as they are; '' (with `none`): none of them
+    p.draw = () => fill(p.controls, h('div', { class: 'chips' },
+      options.map((option) => chip(name(option), count((b) => has(b, option)), value === option, () => { value = value === option ? null : option; p.draw(); })),
+      none && chip(t('None'), count((b) => !options.some((option) => has(b, option))), value === '', () => { value = value === '' ? null : ''; p.draw(); })));
+    p.draw();
+    p.changed = () => value !== null;
+    p.apply = (book) => set(book, value);
+    return p;
+  };
+
+  // The lists of one either-or set: a book goes on the one chosen, and off the others.
+  const setOfLists = (label, members, none) => oneOf(label, members.map((l) => l.id), {
+    name: (id) => listName(listById(id)), has: (b, id) => !!shelves(b)[id], none,
+    set: (book, id) => {
+      const on = { ...shelves(book) };
+      if (id) place(on, id); else for (const l of members) delete on[l.id];
+      book.lists = on;
+    },
+  });
+
+  /** Choose any of these chips to add, remove or be all there is. */
+  const someOf = (label, options, { name = (v) => v, has, apply, after }) => () => {
+    const p = part(label, { modes: true });
+    const picked = new Set();
+    let touched = false;
+    p.draw = () => {
+      fill(p.controls, h('div', { class: 'chips' }, options.map((option) => chip(name(option), count((b) => has(b, option)), picked.has(option), () => {
+        if (!picked.delete(option)) picked.add(option);
+        touched = true;
+        p.draw();
+      }))), after?.(p.mode, picked));
+      p.note.hidden = p.mode !== 'replace';
+      p.note.textContent = p.mode === 'replace' ? t('What isn’t chosen here is taken off.') : '';
+    };
+    p.draw();
+    p.changed = () => (p.mode === 'replace' ? touched : picked.size > 0);
+    p.apply = (book) => apply(book, p.mode, picked);
+    return p;
+  };
+
+  /** Type names (comma between them) to add, remove or be all there is; those the books have are offered. */
+  const someTyped = (label, { present, apply, suggest, note }) => () => {
+    const p = part(label, { modes: true });
+    const input = h('input', { autocomplete: 'off', autocapitalize: 'words', list: suggest.id, placeholder: t('Separate them with commas') });
+    let touched = false;
+    input.addEventListener('input', () => { touched = true; });
+    const there = tally(present);
+    const offered = h('div', { class: 'chips bulk-present' }, [...there].slice(0, 12).map(([value, have]) => chip(value, have, false, () => {
+      const now = commaList(input.value);
+      if (!now.some((v) => fold(v) === fold(value))) input.value = [...now, value].join(', ');
+      touched = true;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    }, { title: t('{n} of these books', { n: have }) })));
+    fill(p.controls, h('label', { class: 'field bulk-field' }, input), suggest, there.size > 0 && offered);
+    p.draw = () => { p.note.textContent = note?.(p.mode) || ''; p.note.hidden = !p.note.textContent; };
+    p.draw();
+    p.changed = () => (p.mode === 'replace' ? touched : commaList(input.value).length > 0);
+    p.apply = (book) => apply(book, p.mode, commaList(input.value));
+    return p;
+  };
+
+  /** One text for all of them: what they share is filled in; ⊘ empties it for all. */
+  const oneText = (label, key, { suggest, extra } = {}) => () => {
+    const p = part(label);
+    const values = new Set(chosen.map((b) => b[key] || ''));
+    const shared = values.size === 1 ? [...values][0] : null;
+    // Where they differ, the field says how: "Earthsea, on 2 of them", or "3 different".
+    const said = [...values].filter(Boolean);
+    const mixed = said.length === 1 ? t('{value}, on {n} of them', { value: said[0], n: count((b) => b[key] === said[0]) }) : t('{n} different', { n: said.length });
+    let cleared = false;
+    const input = h('input', { value: shared || '', autocomplete: 'off', autocapitalize: 'words', list: suggest?.id, placeholder: shared === null ? mixed : '' });
+    // Only where any of them has one is there anything to empty.
+    const clear = said.length === 0 ? null : h('button', { class: 'icon-btn bulk-clear', type: 'button', 'aria-pressed': 'false', 'aria-label': t('None, for all of them'), title: t('None, for all of them') }, icon('ban'));
+    clear?.addEventListener('click', () => {
+      cleared = !cleared;
+      clear.setAttribute('aria-pressed', String(cleared));
+      input.disabled = cleared;
+      if (cleared) input.value = '';
+      input.placeholder = cleared ? t('None, for all of them') : shared === null ? mixed : '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const extras = extra?.(input, () => cleared);
+    fill(p.controls, h('div', { class: 'bulk-text' + (clear ? '' : ' alone') }, h('label', { class: 'field bulk-field' }, input), clear), suggest, extras?.el);
+    const typed = () => input.value.replace(/\s+/g, ' ').trim();
+    // Emptied where they all had the same: none for all of them. Left empty where they differ: as they are.
+    p.changed = () => cleared || (shared !== null ? typed() !== shared : typed() !== '') || !!extras?.changed();
+    p.apply = (book, i) => {
+      const value = cleared ? '' : (shared !== null || typed()) ? typed() : book[key] || '';
+      book[key] = value;
+      extras?.apply(book, i, value);
+    };
+    return p;
+  };
+
+  const setList = (book, key, values) => { if (values.length || book[key]?.length) book[key] = values; };
+  // A tag the booklog has as "spice-trade" is the same tag as "Spice trade".
+  const tagKey = (tag) => fold(tag).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const sets = listSections().filter((s) => s.label && s.label !== READING);
+  const loose = lists.filter((l) => !l.group);
+  const host = booklogHost();
+  const published = host ? count((b) => b.boeken || b.boekenWanted) : 0;
+
+  const makers = [
+    setOfLists(t('Reading status'), lists.filter((l) => l.group === READING), false),
+    loose.length > 0 && someOf(t('Lists'), loose.map((l) => l.id), {
+      name: (id) => listName(listById(id)), has: (b, id) => !!shelves(b)[id],
+      // A list that asks for a note (lent to whom) asks it here too, for every book put on it.
+      after: (mode, picked) => mode !== 'remove' && [...picked].map(listById).filter((l) => l?.noteLabel).map((l) => {
+        const input = h('input', { value: notes[l.id] || '', autocomplete: 'off', autocapitalize: 'words' });
+        input.addEventListener('input', () => { notes[l.id] = input.value.replace(/\s+/g, ' ').trim(); });
+        return h('label', { class: 'field bulk-note' }, h('span', { text: show(l.noteLabel) }), input);
+      }),
+      apply: (book, mode, picked) => {
+        const on = { ...shelves(book) };
+        for (const l of loose) {
+          const wanted = picked.has(l.id);
+          if (mode === 'remove' ? wanted : mode === 'replace' && !wanted) delete on[l.id];
+          else if (wanted) { place(on, l.id); if (notes[l.id]) on[l.id] = { ...on[l.id], note: notes[l.id] }; }
+        }
+        book.lists = on;
+      },
+    }),
+    ...sets.map((s) => setOfLists(show(s.label), s.members, true)),
+    oneText(t('Series'), 'series', {
+      suggest: h('datalist', { id: 'bulkSeries' }, [...seriesMap().keys()].sort().map((value) => h('option', { value }))),
+      // Books of one series, selected in the order they are shown, can be numbered in that order.
+      extra: (input, cleared) => {
+        if (n < 2) return null;
+        const box = h('input', { type: 'checkbox' });
+        const el = h('label', { class: 'bulk-check' }, box, h('span', { text: t('Number them 1 to {n}, in the order shown', { n }) }));
+        const sync = () => { el.hidden = cleared() || !input.value.trim(); if (el.hidden) box.checked = false; };
+        input.addEventListener('input', sync);
+        sync();
+        return {
+          el, changed: () => box.checked,
+          apply: (book, i, name) => {
+            if (!name) Object.assign(book, { seriesNumber: null, seriesLabel: '' });
+            else if (box.checked) Object.assign(book, { seriesNumber: i + 1, seriesLabel: '' });
+          },
+        };
+      },
+    }),
+    someTyped(t('Authors'), {
+      present: (b) => peopleOf(b).map((person) => person.name),
+      suggest: h('datalist', { id: 'bulkPeople' }, [...new Set(books.flatMap((b) => peopleOf(b).map((person) => person.name)))].sort().map((value) => h('option', { value }))),
+      note: (mode) => (mode === 'replace' ? t('Others with a role (translation, voice…) stay.') : ''),
+      apply: (book, mode, names) => {
+        const named = (person) => names.some((name) => fold(name) === fold(person.name));
+        let people = peopleOf(book).map((person) => ({ ...person }));
+        if (mode === 'add') people.push(...names.filter((name) => !people.some((person) => fold(person.name) === fold(name))).map((name) => ({ name, role: '' })));
+        else if (mode === 'remove') people = people.filter((person) => !named(person));
+        else people = [...names.map((name) => ({ name, role: '' })), ...people.filter((person) => !isWriter(person) && !named(person))];
+        if (!people.length && book.boeken) return;   // a booklog book always has someone
+        const asPeople = people.length > 0 && (people.some((person) => person.role) || Array.isArray(book.people));
+        book.author = writersIn(people).join(', ');
+        if (asPeople) book.people = people; else delete book.people;
+      },
+    }),
+    oneText(t('Publisher'), 'publisher'),
+    oneOf(t('Format'), FORMATS, {
+      name: formatName, has: (b, format) => formatOf(b) === format,
+      // As in a book's details: an audiobook has a length and no pages, the others pages.
+      set: (book, format) => { book.format = format; if (format === 'audiobook') book.pages = null; else book.duration = ''; },
+    }),
+    oneOf(t('Language'), languageCodes(), { name: languageName, has: (b, code) => b.language === code, set: (book, code) => { book.language = code; } }),
+    categoryNames().length > 0 && someOf(t('Categories'), categoryNames(), {
+      has: (b, c) => (b.categories || []).includes(c),
+      apply: (book, mode, picked) => {
+        const now = book.categories || [];
+        setList(book, 'categories', mode === 'add' ? [...new Set([...now, ...picked])] : mode === 'remove' ? now.filter((c) => !picked.has(c)) : [...picked]);
+      },
+    }),
+    someTyped(t('Tags'), {
+      present: (b) => b.tags || [],
+      suggest: h('datalist', { id: 'bulkTags' }, tagNames().map((value) => h('option', { value }))),
+      apply: (book, mode, tags) => {
+        const now = book.tags || [], keys = new Set(tags.map(tagKey));
+        setList(book, 'tags', mode === 'add' ? [...now, ...tags.filter((tag) => !now.some((x) => tagKey(x) === tagKey(tag)))]
+          : mode === 'remove' ? now.filter((x) => !keys.has(tagKey(x))) : tags);
+      },
+    }),
+  ].filter(Boolean);
+  const notes = {};
+
+  const parts = [];
+  const mount = (i) => {
+    const p = makers[i]();
+    p.reset.addEventListener('click', () => { const fresh = mount(i); p.el.replaceWith(fresh.el); parts[i] = fresh; refresh(); });
+    return p;
+  };
+  makers.forEach((make, i) => { parts[i] = mount(i); });
+
+  const apply = h('button', { class: 'btn btn-primary', type: 'submit' });
+  function refresh() {
+    let any = false;
+    for (const p of parts) { const changed = p.changed(); p.el.classList.toggle('changed', changed); any ||= changed; }
+    apply.disabled = !any;
+  }
+  fill(apply, icon('check'), t('Change {books}', { books: plural(n, 'book') }));
+
+  const titles = chosen.slice(0, 3).map(displayTitle).join(', ');
+  const form = h('form', {
+    class: 'bulk', novalidate: true, onsubmit: submit,
+    // Every control redraws itself first; then the parts say whether they change anything.
+    onclick: () => refresh(), oninput: () => refresh(),
+  },
+    sheetHead(t('Edit {books}', { books: plural(n, 'book') }), n > 3 ? t('{titles} and {n} more', { titles, n: n - 3 }) : titles),
+    published > 0 && h('p', { class: 'sheet-note bulk-booklog', text: published === n
+      ? t('These are on {host}: what changes is published there within a few minutes.', { host })
+      : t('{n} of these are on {host}: what changes is published there within a few minutes.', { n: published, host }) }),
+    parts.map((p) => p.el),
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => sheet.close() }),
+      apply));
+  refresh();
+
+  async function submit(e) {
+    e.preventDefault();
+    const active = parts.filter((p) => p.changed());
+    if (!active.length) return;
+    const before = new Map(chosen.map((b) => [b, JSON.stringify(b)]));
+    chosen.forEach((book, i) => { for (const p of active) p.apply(book, i); });
+    const changed = chosen.filter((b) => JSON.stringify(b) !== before.get(b));
+    const unwanted = changed.length ? await saveBooks(changed) : 0;
+    const said = changed.length
+      ? [t('{books} changed', { books: plural(changed.length, 'book') }),
+        unwanted > 0 && t('{n} won’t be added to {host}: no reading status.', { n: unwanted, host })].filter(Boolean).join(' · ')
+      : t('Nothing to change: they already were like that.');
+    // Done: the sheet closes, and so does selecting.
+    closeLayersThen(() => toast(said, changed.length ? {
+      action: t('Undo'), ms: 8000,
+      onAction: async () => {
+        for (const book of changed) {
+          for (const key of Object.keys(book)) delete book[key];
+          Object.assign(book, JSON.parse(before.get(book)));
+        }
+        await saveBooks(changed);
+      },
+    } : {}));
+  }
+
+  sheet.open(form);
 }
 
 /* ───────────────────────── Book form ───────────────────────── */
@@ -2172,6 +2633,10 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   const showExtent = () => { extent.duration.hidden = format.value !== 'audiobook'; extent.pages.hidden = format.value === 'audiobook'; };
   format.onChange = showExtent;
   showExtent();
+  // What it is in and about. A booklog book always says its language (its post does).
+  const language = oneChip(languageCodes(), book.language, languageName);
+  const categories = someChips(categoryNames(), book.categories || []);
+  const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off', list: 'tagNames' });
   const error = h('p', { class: 'field-error', hidden: true });
   // The lists the book is on, edited as a copy until the form is saved.
   const on = {};
@@ -2232,6 +2697,10 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     field('ISBN', f.isbn),
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
     seriesNames,
+    h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
+    (categories.value.size > 0 || categoryNames().length > 0) && h('div', { class: 'field' }, h('span', { text: t('Categories') }), categories.el),
+    field(t('Tags'), tags),
+    h('datalist', { id: 'tagNames' }, tagNames().map((value) => h('option', { value }))),
     lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: t('Lists') }), listPicker(on)),
     error,
     h('div', { class: 'btn-row sheet-actions' },
@@ -2251,6 +2720,8 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
       isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
       format: format.value,
+      language: language.value || (book.boeken ? book.language || '' : ''),
+      categories: [...categories.value], tags: commaList(tags.value),
       lists: {},
       series: v('series'), seriesNumber: null, seriesLabel: '',
       // A new cover: the small copy is the cover until the server has kept the larger one.
@@ -2762,7 +3233,7 @@ function openBooklogForm(book, back) {
   const chip = (text, pressed, onclick) => h('button', { class: 'chip', type: 'button', text, 'aria-pressed': String(pressed), onclick });
   function draw() {
     rows.status.replaceChildren(...status.map((l) => chip(listName(l), !!on[l.id], () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); })));
-    rows.language.replaceChildren(...Object.entries({ nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' })
+    rows.language.replaceChildren(...Object.entries(LANGUAGE_NAMES)
       .map(([code, name]) => chip(name, language === code, () => { language = code; draw(); })));
     rows.categories.replaceChildren(...booklogCategories()
       .map((name) => chip(name, chosen.has(name), () => { if (!chosen.delete(name)) chosen.add(name); draw(); })));
@@ -3123,6 +3594,10 @@ function openBook(book, rows) {
           onclick: () => closeLayersThen(() => setView({ series: book.series })),
         }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
+        // What it is in and about, quietly: the language and categories, then the tags.
+        (book.language || book.categories?.length || book.tags?.length) && h('p', { class: 'book-meta page-about' },
+          [book.language && languageName(book.language), ...(book.categories || [])].filter(Boolean).join(' · '),
+          book.tags?.length > 0 && h('span', { text: (book.language || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
         listTags(book, null),
         coverSearch(book, viewer)),
       h('div', { class: 'page-corner' },
@@ -4257,6 +4732,7 @@ async function processCover({ canvas, thumb }) {
 
 function bindEvents() {
   initTurning();
+  initPicking();
   $('addBtn').addEventListener('click', () => openAdd());
   $('settingsBtn').addEventListener('click', openSettings);
   $('sortBtn').addEventListener('click', openSortSheet);
@@ -4352,6 +4828,9 @@ function initUpdates() {
 }
 
 async function init() {
+  // Reloaded with a sheet open, the page is on that sheet's step in history, but nothing is open
+  // now: it is a plain step again, or closing what opens next would stop there.
+  if (history.state?.layer) history.replaceState(null, '', location.href);
   localize();
   initTheme();
   bindEvents();

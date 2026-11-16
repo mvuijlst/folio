@@ -96,12 +96,12 @@ def body_text(text, relative=()):
 
 # What of a book can be changed in the app and is then published to the booklog (shelf/publish.py).
 PUBLISHED = ('title', 'publisher', 'date', 'pages', 'isbn', 'series', 'seriesNumber', 'seriesLabel',
-             'pagesRead', 'durationLeft', 'cover', 'people', 'format', 'duration')
+             'pagesRead', 'durationLeft', 'cover', 'people', 'format', 'duration', 'language', 'categories', 'tags')
 # What is published grew over time. A book's `boekenState` says under 'tracks' how far it
 # goes, and is only compared that far: a fact that wasn't tracked when the state was written
 # (a length the book already had) is not a change made in the app.
-TRACKED = {1: PUBLISHED[:12], 2: PUBLISHED}
-TRACKS = 2
+TRACKED = {1: PUBLISHED[:12], 2: PUBLISHED[:14], 3: PUBLISHED}
+TRACKS = 3
 
 # What a read was read as. A post says so under `format`; one that doesn't is an audiobook if
 # it has a length, and otherwise it isn't said. (The booklog's audiobook and kindle categories
@@ -142,7 +142,7 @@ def people_of(slugs, roles, names):
 def state_of(book):
     """Those facts of a book, and the reading list it is on. Kept in the book as `boekenState`
     whenever the app and the booklog agree; a difference later on is a change made in the app."""
-    state = {key: book[key] for key in PUBLISHED if book.get(key) not in (None, '')}
+    state = {key: book[key] for key in PUBLISHED if book.get(key) not in (None, '', [])}
     state.pop('people', None)
     if tidy_people(book.get('people')):
         state['people'] = tidy_people(book['people'])

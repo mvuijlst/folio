@@ -81,6 +81,32 @@ What you see is decided in three steps.
 
 Books scanned before lists existed count as being in the *Library*.
 
+## Changing many books at once
+
+*Select* (the square beside the order) starts selecting books: a tap then selects a book
+instead of opening it, and Shift-click takes in every book in between. A Ctrl-click (⌘ on a
+Mac) on a book, or a long press on a phone, starts selecting with that book. While you select,
+*Add a book* makes way for a bar: how many are selected, *All* (every book the view shows) or
+*None*, and *Edit*. What is selected stays selected while you search and filter, so books can
+be picked from all over the shelf. Back, Escape or the × end it, and so does going elsewhere.
+
+*Edit* opens one sheet for all of them:
+
+- **Reading status**, and every set of lists of your own (*Bureau*, *Bibliotheek*): choose one
+  and they all go on it (and off the others of that set); a set of your own also has *None*.
+- **Lists** you keep by hand, **authors**, **categories** and **tags** can be *added* to what
+  each book has, *removed* from it, or *replace* it. *Replace* leaves translators, voices and
+  others with a role where they are. Authors and tags are typed, a comma between them; those
+  the selected books already have are offered beneath, to tap.
+- **Series** and **publisher**: what they share is filled in; where they differ the field says
+  how ("Earthsea, on 2 of them"). ⊘ empties it for all of them. A series can number the books
+  1, 2, 3… in the order they are shown.
+- **Format** and **language**: choose one for all of them.
+
+Each part starts out changing nothing and shows, with a count on each choice, how many of the
+books have it now. A part that would change something says so (its name lit, with *Reset*),
+and only those parts are applied. *Undo* in the message afterwards puts every book back.
+
 ## Views, covers and reviews
 
 - **Three views** of every list, chosen with the buttons beside the search box: the *list*
@@ -120,6 +146,10 @@ Books scanned before lists existed count as being in the *Library*.
   role, in a book's details (for the book, which is its latest read) and under *Edition read*
   in a review (for that read). Any name leads to all of that person's books
   (`#/author/<name>`), whatever they did on them.
+- **Language, categories and tags.** A book's details say what language its edition is in,
+  which of the booklog's categories it belongs to, and its tags (a comma between them). Its
+  page shows them quietly under the other details. For a book in the booklog they are
+  published like the rest.
 - **A book without a cover**, or with only the photograph you took when adding it, offers
   *Find a (better) cover*, which opens the cover (see *The cover, large*).
 - **The menu shows the lists that have books on them.** An empty list is still there to put
@@ -349,6 +379,8 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | a book that was only marked as read gets its review later | that same post gets the text and rating: no reread is made of it |
 | a book to read is dropped | its post is deleted, with its cover and the author, tag and series pages nothing else uses. Never a book that was read: that is refused |
 | title, series, publisher, year, pages or ISBN change | the front matter (title and series on every read of the book) |
+| the language changes | `language` on the latest read's post (it is the edition's) |
+| categories or tags change | `categories` and `tags` on every read's post that has any, and the latest's; a new tag gets its page, and a category the booklog doesn't have is refused |
 | the cover is replaced | the picture goes into `media/` and the post points at it |
 
 - **Only what changed is written.** Posts are edited line by line, as boeggn did, never

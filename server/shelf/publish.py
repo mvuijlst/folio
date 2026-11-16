@@ -493,6 +493,31 @@ def plan_book(repo, data, group, taken, now):
             plan.files[term] = f'---\ntitle: {quote(name)}\nslug: {quote(slugify(name))}\n---\n'
     if 'publisher' in changed:
         edit(latest)['front']['publisher'] = state.get('publisher')
+    # The language is the edition's, so the latest read's. Categories and tags are the book's:
+    # every read that names any gets them, and the latest always (the import takes the latest
+    # read that names any, so one left behind would come back).
+    if 'language' in changed and state.get('language'):
+        edit(latest)['front']['language'] = state['language']
+    if 'categories' in changed:
+        wanted = [str(c) for c in state.get('categories') or []]
+        for category in wanted:
+            if not Path(repo, 'site', 'content', 'categories', category, '_index.md').exists():
+                raise ValueError(f'The booklog has no category "{category}".')
+        for post in group:
+            if (post.get('categories') or post is latest) and list(post.get('categories') or []) != wanted:
+                edit(post)['front']['categories'] = wanted or None
+    if 'tags' in changed:
+        wanted = []
+        for tag in state.get('tags') or []:
+            tag_slug = slugify(tag)
+            if tag_slug and tag_slug not in wanted:
+                wanted.append(tag_slug)
+                page = Path(repo, 'site', 'content', 'tags', tag_slug, '_index.md')
+                if not page.exists():
+                    plan.files[page] = f'---\ntitle: {quote(str(tag).strip())}\nslug: {quote(tag_slug)}\n---\n'
+        for post in group:
+            if (post.get('tags') or post is latest) and list(post.get('tags') or []) != wanted:
+                edit(post)['front']['tags'] = wanted or None
     if 'pages' in changed and (state.get('pages') is None or isinstance(state.get('pages'), int)):
         edit(latest)['front']['pages'] = state.get('pages')
     if 'isbn' in changed:
@@ -511,7 +536,7 @@ def plan_book(repo, data, group, taken, now):
         if minutes != parse_duration(latest.get('duration')):
             edit(latest)['front']['duration'] = format_duration(minutes) if minutes is not None else None
             kinds.append('edit')
-    if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date'}:
+    if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date', 'language', 'categories', 'tags'}:
         kinds.append('edit')
 
     # 5. A new cover: the picture the server kept goes into the booklog's media folder.
