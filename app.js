@@ -2720,7 +2720,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
       h('div', { class: 'chips' }, chips));
   }
 
-  const swap = (isNew && ocrLines.length) && h('button', {
+  const swap = isNew && ocrLines.length > 0 && h('button', {
     class: 'swap', type: 'button',
     onclick: () => { [f.title.value, f.author.value] = [f.author.value, f.title.value]; },
   }, icon('swap'), t('Swap title and author'));
@@ -3647,7 +3647,7 @@ function openBook(book, rows) {
         }),
         metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
         // What it is in and about, quietly: the language and categories, then the tags.
-        (book.language || book.categories?.length || book.tags?.length) && h('p', { class: 'book-meta page-about' },
+        (book.language || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
           [book.language && languageName(book.language), ...(book.categories || [])].filter(Boolean).join(' · '),
           book.tags?.length > 0 && h('span', { text: (book.language || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
         listTags(book, null),
