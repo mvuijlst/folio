@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2800,8 +2800,9 @@ function setFacts(ed, data) {
  * edition the form holds what is the book's (title, writers, series, categories, tags, reading
  * status); the rest is on each edition's own sheet.
  */
-function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClose, back }) {
-  // `back` is where Cancel and Save go instead of closing the sheet (the book's page).
+function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClose, back, onCancel }) {
+  // `back` is where Cancel and Save go instead of closing the sheet (the book's page);
+  // `onCancel`, where Cancel alone goes (back to the proposals it was opened from).
   const leave = () => (back ? back() : sheet.close());
   let saved = false;
   const whole = isNew || !several(book);
@@ -2841,7 +2842,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
   // The cover: tap it to choose a picture; or paste or drop one while no text field has the cursor.
   // With several editions each has its own, changed on its sheet.
   const cover = whole && coverControl(() => src, () => form, () => ({ isbn: f.isbn.value.replace(/[^0-9Xx]/g, '') || src.isbn, title: f.title.value.trim() || book.title, author: writersIn(who.value()).join(', ') || book.author }));
-  const again = () => openBookForm({ book, isNew, heading, subheading, onSaved, onClose, back });
+  const again = () => openBookForm({ book, isNew, heading, subheading, onSaved, onClose, back, onCancel });
 
   const form = h('form', {
     novalidate: true, onsubmit: submit,
@@ -2873,7 +2874,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: leave }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: onCancel || leave }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add to shelf') : t('Save'))));
 
   async function submit(e) {
@@ -3405,7 +3406,10 @@ function openDescribe(shared, found) {
           p.note && h('p', { class: 'card-excerpt', text: p.note }),
           // The assistant only read its title and author: it says nothing of what the book is about.
           p.unknown && h('p', { class: 'card-excerpt unknown', text: t('The assistant doesn’t know this book, so it says nothing about what it is about.') }),
-          h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text })))));
+          h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text }))),
+          // Nearly right (the number in the series, say): put it right before it is added.
+          !there && h('button', { class: 'link-btn proposal-edit', type: 'button', onclick: (e) => { e.preventDefault(); edit(p); } },
+            icon('pencil'), t('Edit before adding'))));
     };
     const booklog = host && h('label', { class: 'check-line' },
       h('input', { type: 'checkbox', checked: toBooklog, onchange: (e) => { toBooklog = e.target.checked; } }),
@@ -3450,33 +3454,65 @@ function openDescribe(shared, found) {
     }
   }
 
+  /** A proposal as the book it is added as. `one`: the only book taken from the photograph. → {book, other} */
+  function draftOf({ picked: _, unknown: __, note, ...p }, one) {
+    const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
+    // From a photograph of one book: that photograph is its cover until a better one is found,
+    // and a barcode that was scanned first but found nowhere is its ISBN.
+    if (found && one) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
+    if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
+    // Another edition of a book you have (its audiobook) becomes an edition of it: what the
+    // find said of the book itself (its series as a store names it, its note) is not needed.
+    const other = adding.into || editionOfShelf(book);
+    // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
+    if (note && !other) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
+    return { book, other };
+  }
+
+  // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
+  const forBooklog = (status, language, categories) => !!(host && toBooklog && status && language && categories?.length);
+
+  /** The photograph, larger, for the server to keep: it can be straightened later. */
+  function keepPhoto(added) {
+    if (!added.edition.cover && added.edition.thumb && found?.canvas && found.thumb === added.edition.thumb) {
+      found.canvas.toBlob((large) => large && uploadCover(added.edition, { thumb: added.edition.thumb, large }, added.book), 'image/jpeg', 0.9);
+    }
+  }
+
   async function add() {
     const picked = proposals.filter((p) => p.picked && !onShelfAlready(p));
     let attached = false;
-    for (const { picked: _, unknown: __, note, ...p } of picked) {
-      const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
-      // From a photograph of one book: that photograph is its cover until a better one is found,
-      // and a barcode that was scanned first but found nowhere is its ISBN.
-      if (found && picked.length === 1) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
-      if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
-      // Another edition of a book you have (its audiobook) becomes an edition of it: what the
-      // find said of the book itself (its series as a store names it, its note) is not needed.
-      const other = adding.into || editionOfShelf(book);
-      // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
-      if (note && !other) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
-      // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
-      if (!other && host && toBooklog && hasStatus() && p.language && p.categories?.length) book.boekenWanted = true;
+    for (const p of picked) {
+      const { book, other } = draftOf(p, picked.length === 1);
+      if (!other && forBooklog(hasStatus(), p.language, p.categories)) book.boekenWanted = true;
       const added = await addFound(book, { say: picked.length === 1 });
       attached = added.attached;
-      // The photograph, larger, for the server to keep: it can be straightened later.
-      if (!added.edition.cover && added.edition.thumb && found?.canvas && found.thumb === added.edition.thumb) {
-        found.canvas.toBlob((large) => large && uploadCover(added.edition, { thumb: added.edition.thumb, large }, added.book), 'image/jpeg', 0.9);
-      }
+      keepPhoto(added);
     }
     saved = picked.length > 0;
     if (saved) rememberTarget(Object.keys(on));
     sheet.close();
     if (!(picked.length === 1 && attached)) toast(t('{n} added', { n: plural(picked.length, 'book') }));
+  }
+
+  /** One proposal in the book form, everything filled in, to put right and add; Cancel comes back here. */
+  function edit(p) {
+    const { book } = draftOf(p, true);
+    openBookForm({
+      book, isNew: true, heading: t('Check the details'), onCancel: show,
+      onSaved: async (result) => {
+        const added = adding.last;
+        if (!added || added.book !== result) return;
+        keepPhoto(added);
+        const status = lists.some((l) => l.group === READING && result.lists?.[l.id]);
+        if (!added.attached && forBooklog(status, added.edition.language, result.categories)) {
+          result.boekenWanted = true;
+          await saveBook(result);
+        }
+        if (!found && !added.attached) toast(t('{n} added', { n: plural(1, 'book') }));
+      },
+      onClose: (done) => { adding.into = null; found?.onClose(done); },
+    });
   }
 
   const head = found ? sheetHead(t('Is this the book?'), t('This is what the assistant makes of the cover.'))
@@ -3489,7 +3525,12 @@ function openDescribe(shared, found) {
     !found && onLists,
     find);
   // From a photograph the answer comes first; from words, the question.
-  sheet.open(h('div', null, head, found ? [results, onLists, form] : [form, results]), () => { adding.into = null; found?.onClose(saved); });
+  const page = h('div', null, head, found ? [results, onLists, form] : [form, results]);
+  function show() {
+    sheet.open(page, () => { adding.into = null; found?.onClose(saved); });
+    drawResults();   // a proposal may be on the shelf by now
+  }
+  sheet.open(page, () => { adding.into = null; found?.onClose(saved); });
   if (found) drawResults();
   else if (shared) form.requestSubmit();
   else words.focus();

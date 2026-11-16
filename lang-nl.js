@@ -409,6 +409,7 @@ export default {
   'Couldn’t tell which book this is': 'Niet te zien welk boek dit is',
   'The photo is its cover. Type the details.': 'De foto wordt de cover. Vul de gegevens in.',
   'None of these — enter it myself': 'Geen van deze — ik vul het zelf in',
+  'Edit before adding': 'Eerst aanpassen',
   'The flashlight isn’t available': 'De zaklamp is niet beschikbaar',
   'A new version is ready': 'Er is een nieuwe versie',
   'Reload': 'Herladen',

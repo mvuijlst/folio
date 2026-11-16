@@ -273,7 +273,9 @@ they can go to the booklog in the same move.
 
 A photographed cover goes the same way: the photograph (made no larger than 1024 pixels) is
 shown to the assistant, which names the book or books on it, and its proposals open as *Is
-this the book?*, with a field to say it in words if it got it wrong. `manage.py try_covers
+this the book?*, with a field to say it in words if it got it wrong. When it is nearly right
+(the number in the series, say), *Edit before adding* under a proposal opens it in the book form
+with everything filled in, to put right and add; Cancel goes back to the proposals. `manage.py try_covers
 /path/to/boeken` tries this on covers of books the booklog knows and reports how many it got
 right, how long it took and what it cost in tokens, per model (`--models a,b`) and per
 thinking effort (`--effort low`). On 30 covers made to look like phone photographs, the
