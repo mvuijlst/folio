@@ -1141,6 +1141,19 @@ const sheet = {
 };
 $('backdrop').addEventListener('click', () => sheet.close());
 
+// Escape is Cancel: in whatever is on top (the cover, large, over a sheet over the scanner) it
+// does what that one's Cancel button does — back to the book from editing it, say. Where there
+// is no Cancel, it closes what is open, as a tap beside a sheet does.
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || e.defaultPrevented || e.isComposing || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+  if (e.target.type === 'search' && e.target.value) return;   // that Escape empties the search box
+  const top = coverRoom || (sheet.isOpen && $('sheet')) || (scanner.open && scannerEl);
+  if (!top) return;
+  e.preventDefault();
+  const cancel = [...top.querySelectorAll('[data-cancel]')].filter((b) => b.offsetParent && !b.disabled).pop();
+  if (cancel) cancel.click(); else closeLayer();
+});
+
 // A field you type in stays clear of the sheet's buttons. The keyboard shrinks the page after
 // the field has the focus, and the browser then scrolls it into view behind them.
 function clearOfActions() {
@@ -2102,7 +2115,7 @@ function openBulkEdit(chosen) {
       : t('{n} of these are on {host}: what changes is published there within a few minutes.', { n: published, host }) }),
     parts.map((p) => p.el),
     h('div', { class: 'btn-row sheet-actions' },
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => sheet.close() }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => sheet.close() }),
       apply));
   refresh();
 
@@ -2474,7 +2487,7 @@ function openCoverRoom({ subject, query, onChoose }) {
     straightenBtn,
     camera, chooser);
 
-  const normalFooter = () => fill(footer, h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: close }), use);
+  const normalFooter = () => fill(footer, h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: close }), use);
 
   /* Straightening: the picture with a frame of four corners to drag onto the book's. */
   async function startStraighten() {
@@ -2532,7 +2545,7 @@ function openCoverRoom({ subject, query, onChoose }) {
     caption.textContent = t('Drag the corners onto the corners of the book.');
     const done = () => { room.classList.remove('cropping'); stage.replaceChildren(picture); normalFooter(); };
     fill(footer,
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => { done(); caption.textContent = picture.naturalWidth ? `${picture.naturalWidth} × ${picture.naturalHeight}` : ''; } }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => { done(); caption.textContent = picture.naturalWidth ? `${picture.naturalWidth} × ${picture.naturalHeight}` : ''; } }),
       h('button', {
         class: 'btn btn-primary', type: 'button',
         onclick: async () => {
@@ -2744,7 +2757,7 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: leave }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: leave }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add to shelf') : t('Save'))));
 
   async function submit(e) {
@@ -3313,7 +3326,7 @@ function openBooklogForm(book, back) {
         class: 'btn btn-quiet btn-danger', type: 'button', text: t('Don’t add'),
         onclick: async () => { book.boekenWanted = false; book.boekenError = ''; await saveBook(book); back(); },
       }),
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Add')))));
 }
 
@@ -3371,7 +3384,7 @@ function confirmDelete(book, back) {
     h('label', { class: 'check-line' }, also, h('span', { text: t('Also delete it from {host}', { host }) })),
     note,
     h('div', { class: 'btn-row sheet-actions' },
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'button', onclick: () => gone(also.checked) }, icon('trash'), t('Delete')))));
 }
 
@@ -3382,7 +3395,7 @@ function confirmDrop(book) {
     sheetHead(t('Drop this book?'), displayTitle(book)),
     h('p', { class: 'sheet-note drop-note', text: host ? t('It is removed from your shelf, and its page on {host} is deleted.', { host }) : t('It is removed from your shelf.') }),
     h('div', { class: 'btn-row sheet-actions' },
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => openBook(book) }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => openBook(book) }),
       h('button', {
         class: 'btn btn-primary', type: 'button',
         onclick: () => {
@@ -3593,8 +3606,6 @@ function initTurning() {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.key === 'ArrowLeft') turnTo(-1);
     else if (e.key === 'ArrowRight') turnTo(1);
-    // Escape closes what is on top: the cover, large, if that is open over the page, else the page.
-    else if (e.key === 'Escape') { e.preventDefault(); closeLayer(); }
   });
 }
 
@@ -3779,7 +3790,7 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: back }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save'))));
   sheet.open(form);
   if (isNew) text.focus();
@@ -3879,7 +3890,7 @@ function openListForm(list) {
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete list'), onclick: remove }, icon('trash')),
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => openLists() }),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => openLists() }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add list') : t('Save')))));
   if (isNew) name.focus();
 }
