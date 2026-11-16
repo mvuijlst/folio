@@ -6,7 +6,7 @@ What the app does and how, screen by screen. For running it yourself see
 ## Adding books
 
 1. **Scan** the ISBN barcode on the back cover. The book is looked up in Open Library and
-   Google Books and added to your shelf with title, author, publication date, publisher and
+   Google Books and added to your shelf with title, author, publication date, publisher, language and
    page count. Keep scanning — each hit is added straight away, with *Undo* and *Edit* on the card.
 2. **No match?** Photograph the front cover. Where the server has an assistant (see [The assistant](#the-assistant)) it
    looks at the photograph and names the book, for you to confirm. Without one, or when it

@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.1.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.1.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1003,7 +1003,7 @@ async function getJSON(url, ms = 8000) {
 }
 
 function googleUrl(query, max) {
-  const fields = 'totalItems,items(id,volumeInfo(title,subtitle,authors,publisher,publishedDate,pageCount,imageLinks,industryIdentifiers))';
+  const fields = 'totalItems,items(id,volumeInfo(title,subtitle,authors,publisher,publishedDate,pageCount,imageLinks,industryIdentifiers,language))';
   let url = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(query)}&maxResults=${max}&printType=books&fields=${encodeURIComponent(fields)}`;
   if (settings.googleKey) url += `&key=${encodeURIComponent(settings.googleKey)}`;
   return url;
@@ -1021,8 +1021,15 @@ function fromGoogle(volume) {
     date: normDate(i.publishedDate),
     pages: i.pageCount > 0 ? i.pageCount : null,
     cover, isbn,
+    language: /^[a-z]{2}$/.test(i.language || '') ? i.language : '',
   };
 }
+
+/* Open Library says an edition's language as a MARC code ("/languages/dut"); the shelf, like
+   the booklog, as two letters. */
+const MARC_LANGUAGES = { eng: 'en', dut: 'nl', fre: 'fr', ger: 'de', spa: 'es', ita: 'it', por: 'pt', swe: 'sv', dan: 'da',
+  nor: 'no', fin: 'fi', pol: 'pl', rus: 'ru', lat: 'la', gre: 'el', jpn: 'ja', chi: 'zh', afr: 'af', fry: 'fy' };
+const marcLanguage = (edition) => MARC_LANGUAGES[String(edition?.languages?.[0]?.key || '').split('/').pop()] || '';
 
 function fromOpenLibraryEdition(d) {
   return {
@@ -1061,21 +1068,26 @@ async function sourceGoogleIsbn(isbn) {
 async function sourceOpenLibraryIsbn(isbn) {
   // Which work the edition is of (`olid`: what tells editions of one book apart) comes from another
   // call. It is asked at the same time and not waited for long: a scan is never held up for it.
-  const work = getJSON(`https://openlibrary.org/isbn/${isbn}.json`, 6000).then((d) => String(d.works?.[0]?.key || '').split('/').pop()).catch(() => '');
+  // The same record says the edition's language.
+  const work = getJSON(`https://openlibrary.org/isbn/${isbn}.json`, 6000)
+    .then((d) => ({ olid: String(d.works?.[0]?.key || '').split('/').pop(), language: marcLanguage(d) })).catch(() => ({}));
   try {
     const data = await getJSON(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`);
     const hit = data['ISBN:' + isbn];
     if (!hit) return { ok: true, book: null };
-    const olid = await Promise.race([work, new Promise((resolve) => setTimeout(() => resolve(''), 1500))]);
-    return { ok: true, book: { ...fromOpenLibraryEdition(hit), ...(/^OL\d+W$/.test(olid) && { olid }) } };
+    const { olid, language } = await Promise.race([work, new Promise((resolve) => setTimeout(() => resolve({}), 1500))]);
+    return { ok: true, book: { ...fromOpenLibraryEdition(hit), ...(/^OL\d+W$/.test(olid || '') && { olid }), ...(language && { language }) } };
   } catch { return { ok: false }; }
 }
 
 function mergeBooks(list) {
   const out = {};
   for (const key of FIELDS) out[key] = list.map((b) => b[key]).find(Boolean) || (key === 'pages' ? null : '');
-  const olid = list.map((b) => b.olid).find(Boolean);
-  if (olid) out.olid = olid;
+  // What only some catalogues say: the Open Library work (olid) and the edition's language.
+  for (const key of ['olid', 'language']) {
+    const value = list.map((b) => b[key]).find(Boolean);
+    if (value) out[key] = value;
+  }
   return out;
 }
 
@@ -5459,7 +5471,7 @@ function initUpdates() {
 
 async function init() {
   // While developing (?guard=1): a way in from the console.
-  if (GUARD) window.folio = { get books() { return books; }, exportJson, exportGoodreads, look, W };
+  if (GUARD) window.folio = { get books() { return books; }, exportJson, exportGoodreads, look, W, lookupIsbn };
   // Reloaded with a sheet open, the page is on that sheet's step in history, but nothing is open
   // now: it is a plain step again, or closing what opens next would stop there.
   if (history.state?.layer) history.replaceState(null, '', location.href);
