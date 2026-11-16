@@ -34,10 +34,11 @@ venv/bin/python manage.py runserver   # serves the app too, at http://localhost:
 venv/bin/python manage.py test
 ```
 
-Settings come from environment variables, or `server/.env`; the list is at the top of
-[`server/config/settings.py`](../server/config/settings.py). The assistant needs
-`OPENAI_API_KEY` (and optionally `OPENAI_MODEL`); without a key the app does not offer it.
-Publishing to the booklog has settings of its own: see [booklog.md](booklog.md).
+Settings are environment variables. Copy [`server/.env.example`](../server/.env.example) to
+`server/.env`, which says what each one is for; Django does not read the file itself, so
+load it into the shell (`set -a; . ./.env; set +a`) before running `manage.py`. The assistant
+needs `OPENAI_API_KEY`; without a key the app does not offer it. Publishing to the booklog
+has settings of its own: see [booklog.md](booklog.md).
 
 ### Production (folio.yusupov.cloud)
 
