@@ -668,7 +668,8 @@ Not needed for the cut-over. Until it is built the app refuses the cases that ne
 
 ## 8. Cut-over on production
 
-Michel starts this; whoever built the stages prepares it and stays for it. The server's
+Michel starts this; whoever built the stages prepares it and stays for it. The commands, with
+what the rehearsal says each should print, are in [cutover-2.0.md](cutover-2.0.md). The server's
 layout is in `docs/server.md` under *Production*. `NAME` below is his account.
 
 Before:
