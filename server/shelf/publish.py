@@ -506,7 +506,9 @@ def plan_book(repo, data, group, taken, now):
             reread(review=review)
         if not fresh and target in ('to-read', 'reading'):
             reread(shelf=target)
-            # The new post has the main edition's facts; the read before keeps its own.
+        if 'reread' in kinds:
+            # The new post has its edition's facts (the main edition is that of the read last, or
+            # of the one to come); the reads before keep their own.
             changed -= EDITION_KEYS
 
     # 3. How far along: only for a book that is (still) being read.

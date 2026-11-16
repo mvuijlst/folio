@@ -682,8 +682,10 @@ class AddToBooklogTests(BooklogCase):
         def listened(data):
             data['editions'].append({'id': 'audio', 'publisher': 'Macmillan Audio', 'format': 'audiobook', 'duration': '21u 2m'})
             data['reviews'].append({'id': 'r3', 'date': '2026-06-01', 'rating': 9, 'text': '', 'ed': 'audio'})
+        before = {slug: self.post(slug) for slug in ('dune', 'dune-herlezing')}
         self.change('dune', listened, flat=False)
         self.publish()
+        self.assertEqual({slug: self.post(slug) for slug in before}, before)   # the reads before keep their own edition
         post = self.post('dune-herlezing-2')
         self.assertIn('publisher: "Macmillan Audio"\nformat: "audiobook"\nduration: "21u 2m"\n', post)
         self.import_booklog()
