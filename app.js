@@ -1,13 +1,16 @@
-// Folio — your books on lists (library, to read, reading, read, lent out, …), added by
-// scanning their ISBN barcode. It began as Bookscan, which is why the names of things kept
-// in the browser (storage keys, databases, caches) still start with "bookscan": renaming
-// those would cut existing installs off from their shelf.
+// Folio — a personal book catalogue and reading log: your books on lists, what you are
+// reading and how far along, and a review and an edition for every read. Books are added by
+// scanning their barcode, photographing the cover, describing them or sharing a page to the
+// app, and can be published to the booklog at boeken.tsuk.org.
+// It began as Bookscan, which is why the names of things kept in the browser (storage keys,
+// databases, caches) still start with "bookscan": renaming those would cut existing installs
+// off from their shelf.
 // Plain ES module, no build step. The shelf is stored on the device (IndexedDB) and, for
 // signed-in users, synced with the small Django server in server/.
 
 import NL from './lang-nl.js';
 
-const APP_VERSION = '1.28.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '1.28.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 

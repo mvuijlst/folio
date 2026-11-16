@@ -1,7 +1,7 @@
 {
   "name": "Folio",
   "short_name": "Folio",
-  "description": "Your books on lists: library, to read, reading, read, lent out. Scan a barcode to add one.",
+  "description": "Your books on lists, what you are reading and how far along, and a review of every read. Add a book by scanning its barcode, photographing its cover or describing it.",
   "id": "./",
   "start_url": "./",
   "scope": "./",
