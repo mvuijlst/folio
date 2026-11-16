@@ -5,6 +5,8 @@
 | Path | What |
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | the whole app |
+| `works.js` | a book and its editions: the pure functions for them (upgrading an old record, which edition a row shows, finding the book a find is another edition of, combining, splitting), shared in spirit with `server/shelf/works.py` |
+| `tests/` | the app's tests (`node --test "tests/*.test.mjs"`, Node 22), and `tests/fixtures/works/`: old records and what each must become, which the server is tested against too |
 | `lang-nl.js` | the app's text in Dutch |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
 | `server/` | optional Django sync server (accounts, a copy of each shelf and its lists), and the booklog import |
@@ -17,7 +19,12 @@ Icons in the interface are from [Lucide](https://lucide.dev) (ISC).
 
 The app is plain ES modules with no build step and no dependencies to install: edit a file,
 reload the page. The server's tests run with `venv/bin/python manage.py test` in `server/`
-(see [server.md](server.md)); the app itself has no automated tests.
+(see [server.md](server.md)); the app's book logic (`works.js`) with `node --test
+"tests/*.test.mjs"`. Both sides upgrade a record from before editions the same way, and
+`tests/fixtures/works/` is how that is held: a fixture is an old record and the record it must
+become (`node tests/fixtures/works/make-after.mjs` fills in a new one's, to be read before it is
+trusted). Opening the app with `?guard=1` makes reading a field that moved into the editions
+off a book itself say so in the console, with where.
 
 ## Old names
 

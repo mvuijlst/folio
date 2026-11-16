@@ -32,6 +32,7 @@ venv/bin/python manage.py migrate && venv/bin/python manage.py createcachetable
 venv/bin/python manage.py createsuperuser
 venv/bin/python manage.py runserver   # serves the app too, at http://localhost:8000
 venv/bin/python manage.py test
+node --test "../tests/*.test.mjs"     # the app's own book logic (works.js)
 ```
 
 Settings are environment variables. Copy [`server/.env.example`](../server/.env.example) to
@@ -66,3 +67,9 @@ the bottom of the settings sheet; bump `APP_VERSION` in `app.js` when you releas
 
 Do not uninstall the app to update it: Android offers to clear the site's data along with it,
 and that deletes the shelf.
+
+A sync says which shape of book the app speaks (`"schema": 2`, books with editions since
+2.0). The server refuses a sync without it (409, *This version of Folio is out of date…*),
+so a copy of the app from before can never write books in the old shape over new ones; it
+shows that under Settings and updates itself the next time it is opened. The one-time
+conversion of a shelf is `manage.py to_works` (see [booklog.md](booklog.md#books-with-editions-and-what-a-version-was)).

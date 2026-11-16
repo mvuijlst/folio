@@ -5,12 +5,14 @@ const SHELL = 'bookscan-shell-v2';   // only renamed when the cache layout chang
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
 const SHARE = 'bookscan-share-v1';   // what another app just shared to this one, until the page picks it up
 
+const MODULES = ['app.js', 'works.js', 'lang-nl.js'];   // imported by one another: refreshed together
 const BYPASS = /\/(api|admin|django-static|covers)\//;   // never cached here; see the fetch handler
 
 const SHELL_FILES = [
   './',
   'styles.css',
   'app.js',
+  'works.js',
   'lang-nl.js',
   'manifest.webmanifest',
   'icons/favicon-48.png',
@@ -106,6 +108,15 @@ async function staleWhileRevalidate(event) {
   const hit = await cache.match(key);
   // The copy handed to the page gets consumed, so keep a clone to compare the fresh one against.
   const refresh = revalidate(cache, key, navigation ? './' : request.url, hit?.clone());
+  // The app's modules are one: the page is never told to reload until all of them are fresh, so it
+  // can't come back with a new app.js next to an old works.js.
+  if (!navigation && MODULES.includes(new URL(request.url).pathname.split('/').pop())) {
+    for (const other of MODULES) {
+      if (request.url.endsWith('/' + other) || partners.has(other)) continue;
+      partners.add(other);
+      event.waitUntil(revalidate(cache, other, other).catch(() => {}).finally(() => partners.delete(other)));
+    }
+  }
   if (hit) {
     event.waitUntil(refresh.catch((err) => console.warn('Folio: refresh failed', err)));
     return hit;
@@ -113,6 +124,7 @@ async function staleWhileRevalidate(event) {
   return refresh;
 }
 
+const partners = new Set();   // modules being refreshed because another one was asked for
 let pending = 0;
 let changed = false;
 

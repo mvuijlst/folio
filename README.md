@@ -15,7 +15,7 @@ works for anyone: it needs no account and keeps your shelf on your device. The o
 is built for that one deployment: accounts are made by hand in the Django admin (there is no
 sign-up), and publishing goes to one particular Hugo booklog,
 [boeken.tsuk.org](https://boeken.tsuk.org). Every push to the default branch deploys. There are no
-releases, and the app has no automated tests (the server has).
+releases; the server and the app's book logic have automated tests, the interface has not.
 
 ## What it does
 
@@ -27,9 +27,12 @@ releases, and the app has no automated tests (the server has).
 - **Lists.** *To read*, *Reading*, *Read* and *Did not finish* are built in, with progress in
   pages, time left or a percentage. Any other lists you like (*Library*, *Lent out*, a
   wishlist, where the books stand), some of them either-or, some with a note per book.
-- **Reads, reviews and editions.** A book can be read more than once, each read with its date,
-  rating, a review in Markdown and the edition read (paper, e-book or audiobook, with its own
-  cover and people). Series, authors and others with their roles, language, categories, tags.
+- **Books and their editions.** A book holds the editions of it you have or read: the
+  hardcover, the paperback, the audiobook with its voice, the translation, each with its own
+  facts, cover, people and the lists of where that copy is. A second edition found by scanning
+  or describing is added to the book it is an edition of, without asking (*Keep separate* if
+  not). A book can be read more than once, each read of one edition, with its date, rating and
+  a review in Markdown. Series, authors and others with their roles, language, categories, tags.
 - **Finding and changing.** Filters, orders, three views (list, covers, cards), and editing
   many books at once.
 - **Covers.** Taken from the catalogues, photographed and straightened, pasted or shared in.

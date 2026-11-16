@@ -9,8 +9,9 @@
 // signed-in users, synced with the small Django server in server/.
 
 import NL from './lang-nl.js';
+import * as W from './works.js';
 
-const APP_VERSION = '1.29.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.0.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -80,8 +81,8 @@ function t(text, values) {
 }
 
 const COUNTED = {
-  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'] },
-  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'] },
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'] },
 };
 const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
 
@@ -151,12 +152,33 @@ let books = [];
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
+/* A book is the work you know by its title and writers, with the editions of it you have or
+   read inside (`editions`: the paperback, the audiobook, the translation; see works.js). Its
+   reading status is its own; every other list says where a copy is, and is an edition's. A
+   read is of one edition. Almost every book has one edition, and looks and works as if there
+   were no such thing. What is shown of a book is one edition's facts with the book's own
+   (`look`): the main edition's, or, in a list, the one that is there (`faceOf`). */
+
+/** The ids of the reading-status lists: the app's, and any of your own in that set. */
+const statusIds = () => [...new Set([...FIXED.keys(), ...lists.filter((l) => l.group === READING).map((l) => l.id)])];
+const isStatus = (id) => FIXED.has(id) || listById(id)?.group === READING;
+/** A book as one edition (its main one unless said), with the book's own facts: what is shown. Never stored. */
+const look = (b, ed) => W.flatView(b, ed || W.mainEdition(b));
+const editionsOf = (b) => b.editions || [];
+const several = (b) => editionsOf(b).length > 1;
+
+// While developing, ?guard=1 makes reading or writing a field that moved into the editions on a
+// book itself say so in the console, with where (plan, stage 2). Costs nothing otherwise.
+const GUARD = new URLSearchParams(location.search).has('guard') && Object.create(Object.prototype, Object.fromEntries(W.MOVED.map((key) => [key, {
+  configurable: true,
+  get() { console.error(`Folio guard: book.${key} read; it is an edition's`, new Error().stack); return undefined; },
+  set(value) { console.error(`Folio guard: book.${key} written; it is an edition's`, new Error().stack); Object.defineProperty(this, key, { value, writable: true, enumerable: true, configurable: true }); },
+}])));
+const guarded = (b) => { if (GUARD && b && Object.getPrototypeOf(b) === Object.prototype) Object.setPrototypeOf(b, GUARD); return b; };
+
+/** A new book from a flat proposal (a lookup, the assistant, a form): one edition. */
 async function addBook(data) {
-  const book = {
-    id: newId(), added: new Date().toISOString(),
-    title: '', author: '', publisher: '', date: '', pages: null, isbn: '', cover: '', thumb: '', lists: {},
-    ...data,
-  };
+  const book = guarded(W.newWork({ id: newId(), added: new Date().toISOString(), title: '', author: '', lists: {}, ...data }, statusIds()));
   books.unshift(book);
   touch(book.id, book);
   renderLibrary();
@@ -169,6 +191,13 @@ async function saveBook(book) {
   touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
+}
+
+/** Puts a book back exactly as it was (`copy`, a structuredClone of it), and saves it. */
+async function putBack(book, copy) {
+  for (const key of Object.keys(book)) delete book[key];
+  Object.assign(book, structuredClone(copy));
+  if (books.includes(book)) await saveBook(book); else await restoreBook(book);
 }
 
 /** Several books changed at once: one drawing, one sync. → how many lost their way to the booklog. */
@@ -189,14 +218,16 @@ async function saveBooks(changed) {
 
 /** What follows from a change, before a book is saved. → true when it is no longer on its way to the booklog. */
 function settle(book) {
+  // Everything at the level it belongs to (works.js): lists, the facts of editions, which edition each read was of.
+  W.settle(book, statusIds());
   // How progress is said (page or percentage) is chosen per read: it ends with the read.
-  if (!shelves(book).reading) { delete book.progressUnit; delete book.percentRead; }
+  if (!book.lists.reading) { delete book.progressUnit; delete book.percentRead; }
   // Why the booklog refused the book was said about how it was; changed, it gets another
   // try, and the server says so again if it still won't do.
   delete book.boekenError;
   // A book on its way to the booklog goes there on a reading list (to read, reading, read):
   // that is what a post says. Taken off all of them before it got there, it isn't added.
-  if (book.boekenWanted && !book.boeken && ![...FIXED.keys()].some((id) => shelves(book)[id])) {
+  if (book.boekenWanted && !book.boeken && ![...FIXED.keys()].some((id) => book.lists[id])) {
     delete book.boekenWanted;
     return true;
   }
@@ -214,6 +245,7 @@ async function removeBook(book, { drop = false } = {}) {
 
 async function restoreBook(book) {
   if (books.some((b) => b.id === book.id)) return;
+  guarded(book);
   if (sync.drops[book.id]) { delete sync.drops[book.id]; store.set('syncDrops', sync.drops); }
   books.push(book);
   sortBooks();
@@ -273,13 +305,33 @@ const listName = (l) => (FIXED.has(l.id) ? t(FIXED.get(l.id).name) : show(l.name
 const sortLists = () => lists.sort((a, b) => ((a.order ?? 0) - (b.order ?? 0)) || String(a.name).localeCompare(b.name));
 const listById = (id) => lists.find((l) => l.id === id);
 
-/** {listId: {at, note}} for a book. Books from before lists existed count as in the Library. */
-const shelves = (book) => book.lists || { library: { at: book.added } };
+/** {listId: {at, note}}: the lists a book is on, its own and its editions'. A book you have read
+    and now plan or do another read of is under Read too (works.js: `shelves`). */
+const shelves = (book) => W.shelves(book);
 
-/** The lists a book is on, in list order: [{list, at, note}]. */
-function listsOf(book) {
-  const on = shelves(book);
-  return lists.filter((l) => on[l.id]).map((l) => ({ list: l, at: on[l.id].at || book.added, note: on[l.id].note || '' }));
+/** The lists a book (or, given `ed`, that edition of it with the book's reading status) is on, in list order: [{list, at, note}]. */
+function listsOf(book, ed) {
+  const on = ed ? { ...book.lists, ...ed.lists } : shelves(book);
+  return lists.filter((l) => on[l.id] && !on[l.id].again).map((l) => ({ list: l, at: on[l.id].at || book.added, note: on[l.id].note || '' }));
+}
+
+/** A {listId: {at, note}} map as a form edited it, put where each list belongs: reading status on
+    the book, the rest on edition `ed` (with no `ed`, only the reading status is set). */
+function putLists(book, ed, on) {
+  const status = {}, rest = {};
+  for (const [id, entry] of Object.entries(on)) (isStatus(id) ? status : rest)[id] = entry;
+  book.lists = status;
+  if (!ed) return;
+  if (Object.keys(rest).length) ed.lists = rest; else delete ed.lists;
+}
+
+/** Puts a book (or, for a list of where a copy is, its edition `ed`) on list `id`, off the others of its set. */
+function putOn(book, ed, id, at) {
+  const own = isStatus(id);
+  const map = own ? (book.lists ||= {}) : ((ed || W.mainEdition(book)).lists ||= {});
+  place(map, id, at);
+  // A read planned of a particular edition: that is the one being read.
+  if (own && W.OPEN.includes(id) && ed && several(book)) book.main = ed.id;
 }
 
 /** Puts list `id` in a {listId: …} map, taking the book off the other lists of its group. */
@@ -377,8 +429,15 @@ function contributorsIn(people) {
   if (people.some(isWriter)) for (const person of people) if (!isWriter(person)) (by.get(person.role) || by.set(person.role, []).get(person.role)).push(person.name);
   return [...by];
 }
-/** Everyone named on a book or on any edition of it that was read, folded for comparing. */
-const everyoneIn = (b) => new Set([b, ...(b.reviews || []).map((r) => r.edition || {})].flatMap((x) => peopleOf(x).map((person) => fold(person.name))).concat(authorsOf(b).map(fold)));
+/** Everyone named on a book or on any edition of it, folded for comparing. */
+const everyoneIn = (b) => new Set(editionsOf(b).flatMap((e) => (e.people || []).map((person) => fold(person.name))).concat(authorsOf(b).map(fold)));
+/** Those on every edition (the writers, a comic's artist), and those on some only (a voice, a translator). */
+function peopleSplit(b) {
+  const all = editionsOf(b).map((e) => peopleOf({ author: b.author, people: e.people }));
+  const key = (person) => `${fold(person.name)}|${person.role || ''}`;
+  const common = all[0].filter((person) => all.every((people) => people.some((other) => key(other) === key(person))));
+  return { common, own: (e) => peopleOf({ author: b.author, people: e.people }).filter((person) => !common.some((c) => key(c) === key(person))) };
+}
 
 /** A name that leads to all of that person's books. */
 const personLink = (name) => h('a', {
@@ -393,7 +452,7 @@ const personLink = (name) => h('a', {
 /** The people editor of a form: a row of name and role each. → { el, first, value() } */
 function peopleEditor(people) {
   const known = new Set(), roles = new Set(['tekst', 'beeld', 'kleur', 'inkt', 'letters', 'stem', 'vertaling', 'redactie', 'illustraties', 'voorwoord']);
-  for (const b of books) for (const x of [b, ...(b.reviews || []).map((r) => r.edition || {})]) for (const person of peopleOf(x)) { known.add(person.name); if (person.role) roles.add(person.role); }
+  for (const b of books) for (const x of [{ author: b.author }, ...editionsOf(b)]) for (const person of x.people || peopleOf(x)) { known.add(person.name); if (person.role) roles.add(person.role); }
   const rows = h('div', { class: 'people-rows' });
   const add = (person = {}) => {
     const name = h('input', { name: 'person', value: person.name || '', placeholder: t('Name'), list: 'peopleNames', autocomplete: 'off', autocapitalize: 'words' });
@@ -591,6 +650,7 @@ async function runSync({ loud = false } = {}) {
           });
         };
         const res = await api('sync', {
+          schema: 2,   // books with editions (works.js); a server that has them refuses copies of the app from before
           since: sync.cursor, changes: pack(sent, books, 'book'),
           listsSince: sync.listsCursor, lists: pack(sentLists, lists, 'list'),
         });
@@ -645,7 +705,8 @@ async function applyRemote(changes) {
       books = books.filter((b) => b !== local);
       await DB.del(c.id).catch(storageFailed);
     } else {
-      const book = { ...c.book, id: c.id, modified: c.modified };
+      // A server that has not converted the shelf yet sends books in the old shape: made new here.
+      const book = guarded(W.upgrade({ ...c.book, id: c.id, modified: c.modified }, statusIds()));
       if (local) {
         // Keep the same object: an open edit form may hold it.
         for (const k of Object.keys(local)) delete local[k];
@@ -868,7 +929,7 @@ function formatPicker(initial) {
 const LANGUAGE_NAMES = { nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' };
 const languageName = (code) => LANGUAGE_NAMES[code] || String(code || '').toUpperCase();
 /** The languages to choose from: the four the booklog mostly has, and any other a book is in. */
-const languageCodes = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.map((b) => b.language).filter((code) => /^[a-z]{2}$/.test(code || ''))])];
+const languageCodes = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.flatMap((b) => editionsOf(b).map((e) => e.language)).filter((code) => /^[a-z]{2}$/.test(code || ''))])];
 /** Categories to choose from: the booklog's, most used first, then any other a book has. */
 function categoryNames() {
   const all = booklogCategories();
@@ -900,11 +961,13 @@ function someChips(options, initial) {
 /** Every tag on the shelf, for suggesting. */
 const tagNames = () => [...new Set(books.flatMap((b) => b.tags || []))].sort((a, b) => a.localeCompare(b, LOCALE));
 
-function metaLine(b) {
+/** The line under a book's title: of `b` as one edition (look), and, given the book itself, how many editions it has. */
+function metaLine(b, book) {
   // Rating (0–10) and how far along come with books from the booklog at boeken.tsuk.org.
   const { percent } = progressOf(b);
   const progress = percent ? t('{n}% read', { n: percent }) : '';
-  return [b.publisher, yearOf(b.date) || b.date, extentOf(b), progress, b.rating != null && `★ ${b.rating}`]
+  return [b.publisher, yearOf(b.date) || b.date, extentOf(b), progress, b.rating != null && `★ ${b.rating}`,
+    book && several(book) && t('{n} editions', { n: editionsOf(book).length })]
     .filter(Boolean).join(' · ');
 }
 
@@ -972,6 +1035,7 @@ function fromOpenLibrarySearch(d) {
     pages: d.number_of_pages_median > 0 ? d.number_of_pages_median : null,
     cover: d.cover_i ? `https://covers.openlibrary.org/b/id/${d.cover_i}-M.jpg` : '',
     isbn,
+    ...(/^\/works\/OL\d+W$/.test(d.key || '') && { olid: d.key.split('/').pop() }),
   };
 }
 
@@ -984,16 +1048,23 @@ async function sourceGoogleIsbn(isbn) {
 }
 
 async function sourceOpenLibraryIsbn(isbn) {
+  // Which work the edition is of (`olid`: what tells editions of one book apart) comes from another
+  // call. It is asked at the same time and not waited for long: a scan is never held up for it.
+  const work = getJSON(`https://openlibrary.org/isbn/${isbn}.json`, 6000).then((d) => String(d.works?.[0]?.key || '').split('/').pop()).catch(() => '');
   try {
     const data = await getJSON(`https://openlibrary.org/api/books?bibkeys=ISBN:${isbn}&format=json&jscmd=data`);
     const hit = data['ISBN:' + isbn];
-    return { ok: true, book: hit ? fromOpenLibraryEdition(hit) : null };
+    if (!hit) return { ok: true, book: null };
+    const olid = await Promise.race([work, new Promise((resolve) => setTimeout(() => resolve(''), 1500))]);
+    return { ok: true, book: { ...fromOpenLibraryEdition(hit), ...(/^OL\d+W$/.test(olid) && { olid }) } };
   } catch { return { ok: false }; }
 }
 
 function mergeBooks(list) {
   const out = {};
   for (const key of FIELDS) out[key] = list.map((b) => b[key]).find(Boolean) || (key === 'pages' ? null : '');
+  const olid = list.map((b) => b.olid).find(Boolean);
+  if (olid) out.olid = olid;
   return out;
 }
 
@@ -1178,15 +1249,17 @@ function sheetHead(title, sub, extra) {
 }
 
 let toastTimer;
-function toast(message, { action, onAction, ms = 3200 } = {}) {
+/** `action`/`onAction`: a button; `actions`: [[label, onAction], …] for more than one. */
+function toast(message, { action, onAction, actions = [], ms = 3200 } = {}) {
   const el = $('toast');
   el.replaceChildren(h('span', { text: message }));
-  if (action) el.append(h('button', { type: 'button', text: action, onclick: () => { hide(); onAction?.(); } }));
+  const all = [...(action ? [[action, onAction]] : []), ...actions];
+  for (const [label, run] of all) el.append(h('button', { type: 'button', text: label, onclick: () => { hide(); run?.(); } }));
   el.hidden = false;
   void el.offsetHeight;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(hide, action ? Math.max(ms, 5000) : ms);
+  toastTimer = setTimeout(hide, all.length ? Math.max(ms, all.length > 1 ? 8000 : 5000) : ms);
   function hide() {
     el.classList.remove('show');
     clearTimeout(toastTimer);
@@ -1235,7 +1308,7 @@ function coverEl(book, large, titled) {
 
 function displayTitle(b) {
   if (b.title) return b.title;
-  return b.pending ? `ISBN ${b.isbn}` : t('Unknown book');
+  return b.pending ? `ISBN ${(b.editions ? W.mainEdition(b)?.isbn : b.isbn) || ''}` : t('Unknown book');
 }
 
 /** Small labels for the lists a book is on; in a list's own view only its note ("Lent to: …"). */
@@ -1247,12 +1320,14 @@ function listTags(book, current) {
   return tags.length ? h('div', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text }))) : null;
 }
 
-function bookRow(b, onPick, extra, tags) {
+/** A book in the list view, as its edition `face` (its main one unless said). */
+function bookRow(book, onPick, extra, tags, face) {
+  const b = look(book, face);
   let meta;
   if (b.pending) meta = h('div', { class: 'book-meta flag' }, icon('cloud-off'), t('Will be looked up when you’re online'));
   else if (b.unresolved) meta = h('div', { class: 'book-meta flag', text: t('No match found — tap to fill in') });
-  else meta = h('div', { class: 'book-meta', text: metaLine(b) });
-  return h('button', { class: 'book', type: 'button', onclick: (e) => onPick(b, e) },
+  else meta = h('div', { class: 'book-meta', text: metaLine(b, book) });
+  return h('button', { class: 'book', type: 'button', onclick: (e) => onPick(book, e) },
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title' }, extra, displayTitle(b)),
@@ -1260,35 +1335,28 @@ function bookRow(b, onPick, extra, tags) {
       meta, tags));
 }
 
-/** A book in the covers view: its cover and its rating. */
-/* Editions: a read is of an edition (the paperback first, the audiobook the next time), and
-   each review says which in `edition`: publisher, date, pages or duration, ISBN, language, cover. */
+/* Editions: the paperback, the audiobook, the translation of one book (works.js). Each has its
+   own facts (format, publisher, year, length, ISBN, language, cover, people), the lists of
+   where it is, and the reads that were of it. */
 
-/** The book's own edition (the copy on the shelf, or the one read last), for a read that doesn't say. */
-function mainEdition(b) {
-  const edition = {};
-  for (const key of ['publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'coverRatio', 'thumb', 'format']) {
-    if (b[key] != null && b[key] !== '') edition[key] = b[key];
-  }
-  if (formatOf(b) === 'audiobook') delete edition.pages; else if (formatOf(b)) delete edition.duration;
-  if (Array.isArray(b.people) && b.people.length) edition.people = b.people;
-  return edition;
+/** The covers of a book's editions for the covers view: the face in front, at most three; just the book when it has one. */
+function editionCovers(book, face) {
+  const front = face || W.mainEdition(book);
+  const others = editionsOf(book).filter((e) => e !== front && (e.cover || e.thumb));
+  const seen = new Set([front.cover || front.thumb]);
+  const covers = [];
+  for (const e of others) { const key = e.cover || e.thumb; if (!seen.has(key)) { seen.add(key); covers.push(e); } }
+  return covers.length ? [...covers.slice(-2), front].map((e) => look(book, e)) : [look(book, front)];
 }
 
-/** The different covers the book was read in, oldest read first; just the book itself when there is one. */
-function editionCovers(b) {
-  const seen = new Set(), covers = [];
-  const reads = (b.reviews || []).filter((r) => r.edition && (r.edition.cover || r.edition.thumb));
-  for (const r of reads.sort((x, y) => (!x.date - !y.date) || (x.date < y.date ? -1 : x.date > y.date ? 1 : 0))) {
-    const key = r.edition.cover || r.edition.thumb;
-    if (!seen.has(key)) { seen.add(key); covers.push({ title: b.title, ...r.edition }); }
-  }
-  return covers.length > 1 ? covers.slice(-3) : [b];
-}
-
-function editionLine(e) {
-  return [extentOf(e), e.publisher, yearOf(e.date) || e.date,
-    ...contributorsIn(e.people || []).map(([role, names]) => `${role}: ${names.join(', ')}`)]
+/** One line about an edition: "Audiobook · 11u 36m · Audible · 2018 · stem: Roy Dotrice", its own title and language first when it has another title. */
+function editionLine(e, book) {
+  return [e.title, e.title && e.language && e.language.toUpperCase(), extentOf(book ? { ...e, boeken: book.boeken } : e), e.publisher, yearOf(e.date) || e.date,
+    ...(book ? peopleSplit(book).own(e).filter((person) => !isWriter(person)).reduce((by, person) => {
+      const row = by.find(([role]) => role === person.role);
+      if (row) row[1].push(person.name); else by.push([person.role, [person.name]]);
+      return by;
+    }, []) : contributorsIn(e.people || [])).map(([role, names]) => `${role}: ${names.join(', ')}`)]
     .filter(Boolean).join(' · ');
 }
 
@@ -1306,13 +1374,14 @@ function readDates(b) {
  * cover, the latest in front), its rating in stars and, on a series' page, its number and
  * when it was read.
  */
-function bookTile(b, onPick, numbered) {
-  const covers = editionCovers(b);
+function bookTile(book, onPick, numbered, face) {
+  const b = look(book, face);
+  const covers = editionCovers(book, face);
   const front = covers.length > 1
     ? h('div', { class: 'cover-stack', style: `--n:${covers.length}` }, covers.map((c, i) => { const el = coverEl(c); el.style.setProperty('--i', i); return el; }))
     : coverEl(b, false, true);
   const dates = numbered ? readDates(b) : '';
-  return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: (e) => onPick(b, e) },
+  return h('button', { class: 'tile', type: 'button', title: [displayTitle(b), b.author].filter(Boolean).join(' — '), onclick: (e) => onPick(book, e) },
     front,
     h('div', { class: 'tile-foot' },
       b.rating != null ? stars(b.rating) : h('span'),
@@ -1328,14 +1397,15 @@ function excerpt(b) {
 }
 
 /** A book in the cards view: a larger cover, the details, the lists and the start of the review. */
-function bookCard(b, onPick, tags) {
+function bookCard(book, onPick, tags, face) {
+  const b = look(book, face);
   const text = excerpt(b);
-  return h('button', { class: 'bcard', type: 'button', onclick: (e) => onPick(b, e) },
+  return h('button', { class: 'bcard', type: 'button', onclick: (e) => onPick(book, e) },
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title', text: displayTitle(b) }),
       h('div', { class: 'book-author', text: [b.author, inOpenSeries(b) ? '' : seriesLine(b)].filter(Boolean).join(' · ') }),
-      h('div', { class: 'book-meta', text: metaLine(b) }),
+      h('div', { class: 'book-meta', text: metaLine(b, book) }),
       text && h('p', { class: 'card-excerpt', text }),
       tags));
 }
@@ -1443,8 +1513,8 @@ const SORTS = {
   author: { name: () => t('Author'), dir: 1, value: (b) => surnameFirst(authorsOf(b)[0]), heading: (v) => (v ? v[0].toUpperCase() : t('No author')) },
   title: { name: () => t('Title'), dir: 1, value: (b) => titleKey(b), heading: (v) => (v ? v[0].toUpperCase() : '') },
   rating: { name: () => t('Rating'), dir: -1, value: (b) => b.rating ?? null, heading: (v) => (v == null ? t('Not rated') : `★ ${v}`) },
-  year: { name: () => t('Year published'), dir: -1, value: (b) => yearOf(b.date) || null, heading: (v) => v || t('No year') },
-  length: { name: () => t('Length'), dir: 1, value: (b) => lengthOf(b), heading: () => '' },
+  year: { name: () => t('Year published'), dir: -1, value: (b) => yearOf(W.mainEdition(b).date) || null, heading: (v) => v || t('No year') },
+  length: { name: () => t('Length'), dir: 1, value: (b) => lengthOf(look(b)), heading: () => '' },
   series: { name: () => t('Series'), dir: 1, value: (b) => (b.series ? `${sortKey(b.series)} ${String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0')}` : null), heading: (v, b) => b.series || t('Not in a series') },
 };
 
@@ -1488,47 +1558,63 @@ const RATINGS = [['9', '★ 9–10', (r) => r >= 9], ['7', '★ 7–8', (r) => r
 function facetsOf() {
   const facets = [];
   const status = FIXED.has(view.list);
+  // A value says something of the book (`test(b)`), or, with `edition` set, of an edition of it
+  // (`test(b, e)`): where a copy is, its format, its language, its cover.
+  const ofCopy = (test) => ({ edition: true, test });
   if (!status) {
     facets.push({ key: 'status', name: t('Reading status'),
       values: [...FIXED.keys()].map((id) => ({ value: id, name: listName(listById(id) || FIXED.get(id)), test: (b) => !!shelves(b)[id] })) });
   }
+  const on = (e, id) => !!e.lists?.[id];
   for (const section of listSections().filter((sec) => sec.label && sec.label !== READING)) {
     facets.push({ key: `in:${section.label}`, name: show(section.label),
-      values: [...section.members.map((l) => ({ value: l.id, name: listName(l), test: (b) => !!shelves(b)[l.id] })),
-        { value: 'none', name: t('None'), test: (b) => !section.members.some((l) => shelves(b)[l.id]) }] });
+      values: [...section.members.map((l) => ({ value: l.id, name: listName(l), ...ofCopy((b, e) => on(e, l.id)) })),
+        { value: 'none', name: t('None'), ...ofCopy((b, e) => !section.members.some((l) => on(e, l.id))) }] });
   }
   const kept = lists.filter((l) => !FIXED.has(l.id) && !l.group && l.id !== view.list);
-  if (kept.length) facets.push({ key: 'on', name: t('Lists'), values: kept.map((l) => ({ value: l.id, name: listName(l), test: (b) => !!shelves(b)[l.id] })) });
+  if (kept.length) facets.push({ key: 'on', name: t('Lists'), values: kept.map((l) => ({ value: l.id, name: listName(l), ...ofCopy((b, e) => on(e, l.id)) })) });
+  const formatIn = (b, e) => formatOf({ ...e, boeken: b.boeken });
   facets.push({ key: 'format', name: t('Format'),
-    values: [...FORMATS.map((format) => ({ value: format, name: formatName(format), test: (b) => formatOf(b) === format })),
-      { value: 'none', name: t('Not said'), test: (b) => !formatOf(b) }] });
+    values: [...FORMATS.map((format) => ({ value: format, name: formatName(format), ...ofCopy((b, e) => formatIn(b, e) === format) })),
+      { value: 'none', name: t('Not said'), ...ofCopy((b, e) => !formatIn(b, e)) }] });
   const having = (key, pick, name = (v) => v, order = (a, b) => a.localeCompare(b)) => {
     const all = [...new Set(books.flatMap(pick))].filter(Boolean).sort(order);
     return { key, values: all.map((value) => ({ value: String(value), name: name(value), test: (b) => pick(b).includes(value) })) };
   };
   facets.push({ ...having('category', (b) => b.categories || []), name: t('Category') });
-  facets.push({ ...having('language', (b) => [b.language].filter(Boolean), languageName), name: t('Language') });
+  const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
+  facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
   if (view.list !== 'to-read' && view.list !== 'reading') {
     facets.push({ ...having('year', (b) => [lastRead(b).slice(0, 4)].filter(Boolean), (v) => v, (a, b) => b.localeCompare(a)), name: t('Year read') });
     facets.push({ key: 'rating', name: t('Rating'), values: RATINGS.map(([value, name, fits]) => ({ value, name: typeof name === 'function' ? name() : name, test: (b) => fits(b.rating ?? null) })) });
   }
   const host = booklogHost();
+  const alike = W.twins(books);
   facets.push({ key: 'other', name: t('Other'), values: [
-    { value: 'nocover', name: t('No cover'), test: (b) => !b.cover && !b.thumb },
-    { value: 'photo', name: t('Own photo as cover'), test: (b) => !b.cover && !!b.thumb },
+    { value: 'nocover', name: t('No cover'), ...ofCopy((b, e) => !e.cover && !e.thumb) },
+    { value: 'photo', name: t('Own photo as cover'), ...ofCopy((b, e) => !e.cover && !!e.thumb) },
     host && { value: 'local', name: t('Not on {host}', { host }), test: (b) => !b.boeken },
+    alike.size > 0 && { value: 'twins', name: t('Possibly the same book'), test: (b) => alike.has(b.id) },
   ].filter(Boolean) });
+  for (const facet of facets) facet.edition = facet.values.some((v) => v.edition);
   return facets;
 }
 
-/** Does a book pass every filter (but the one on `except`)? Within a facet any chosen value will do. */
-function passes(b, facets, except, filters = view.filters) {
-  return facets.every((facet) => {
-    const chosen = filters[facet.key];
-    if (!chosen?.length || facet.key === except) return true;
-    return facet.values.some((v) => chosen.includes(v.value) && v.test(b));
-  });
+/**
+ * The edition a book shows where you are (view.list) with the filters on (all but the one on
+ * `except`), or null when it doesn't pass them. Filters on the book (status, category, year
+ * read, rating) test the book; filters on where a copy is, format, language and cover test its
+ * editions, and the book passes when one edition that is where you are passes all of them:
+ * that edition is the face of the row (works.js: faceEdition). Within a facet any chosen value will do.
+ */
+function faceOf(b, facets, except, filters = view.filters) {
+  const active = (facets || []).filter((facet) => facet.key !== except && filters[facet.key]?.length);
+  const fits = (facet, e) => facet.values.some((v) => filters[facet.key].includes(v.value) && (v.edition ? v.test(b, e) : v.test(b)));
+  if (!active.filter((facet) => !facet.edition).every((facet) => fits(facet))) return null;
+  const copies = active.filter((facet) => facet.edition);
+  return W.faceEdition(b, { list: view.list, status: statusIds(), test: copies.length ? (e) => copies.every((facet) => fits(facet, e)) : null });
 }
+const passes = (b, facets, except, filters) => !!faceOf(b, facets, except, filters);
 
 function openFilterSheet(inScope) {
   const facets = facetsOf();
@@ -1543,7 +1629,8 @@ function openFilterSheet(inScope) {
         // What each value would give, with the other filters as they are.
         const others = inScope.filter((b) => passes(b, facets, facet.key, draft));
         const chosen = draft[facet.key] || [];
-        const values = facet.values.map((v) => ({ ...v, count: others.filter(v.test).length })).filter((v) => v.count > 0 || chosen.includes(v.value));
+        const values = facet.values.map((v) => ({ ...v, count: others.filter((b) => passes(b, facets, null, { ...draft, [facet.key]: [v.value] })).length }))
+          .filter((v) => v.count > 0 || chosen.includes(v.value));
         // A facet that can't tell the books apart is not worth showing.
         if (values.length < 2 && !chosen.length) return null;
         return h('div', { class: 'sheet-section facet' },
@@ -1590,7 +1677,7 @@ function renderSeriesIndex(query) {
       class: 'series-row', href: `#/series/${encodeURIComponent(name)}`,
       onclick: (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setView({ series: name }); },
     },
-    h('div', { class: 'series-covers' }, members.slice(0, 4).map((b) => coverEl(b))),
+    h('div', { class: 'series-covers' }, members.slice(0, 4).map((b) => coverEl(look(b)))),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title', text: name }),
       h('div', { class: 'book-author', text: authors.length > 2 ? `${authors[0]}, …` : authors.join(', ') }),
@@ -1605,8 +1692,8 @@ const searchCache = new WeakMap();
 function searchText(b) {
   const cached = searchCache.get(b);
   if (cached?.modified === b.modified) return cached.text;
-  const text = fold([b.title, b.author, ...peopleOf(b).map((person) => person.name), b.series, b.publisher, b.isbn, b.date,
-    ...listsOf(b).map((m) => m.note), ...(b.reviews || []).map((r) => r.text)].join(' '));
+  const text = fold([b.title, b.author, b.series, ...listsOf(b).map((m) => m.note), ...(b.reviews || []).map((r) => r.text),
+    ...editionsOf(b).flatMap((e) => [e.title, e.publisher, e.isbn, e.date, ...(e.people || []).map((person) => person.name)])].join(' '));
   searchCache.set(b, { modified: b.modified, text });
   return text;
 }
@@ -1673,9 +1760,10 @@ function appendRows(upTo = shown.next + PAGE) {
       else if (e?.ctrlKey || e?.metaKey) startPicking(book);
       else openBook(book, shown.rows);
     };
-    const el = view.mode === 'covers' ? bookTile(b, open, !!shown.series)
-      : view.mode === 'cards' ? bookCard(b, open, listTags(b, shown.current))
-        : bookRow(b, open, number, listTags(b, shown.current));
+    const face = shown.faces?.get(b) || undefined;
+    const el = view.mode === 'covers' ? bookTile(b, open, !!shown.series, face)
+      : view.mode === 'cards' ? bookCard(b, open, listTags(b, shown.current), face)
+        : bookRow(b, open, number, listTags(b, shown.current), face);
     // The mark that says it is selected: beside the book in the list, on its cover elsewhere.
     el.dataset.id = b.id;
     const mark = h('span', { class: 'pick-mark', 'aria-hidden': 'true' }, icon('check'));
@@ -1717,8 +1805,10 @@ function renderLibrary() {
     : writer ? books.filter((b) => everyoneIn(b).has(writer))
     : current ? books.filter((b) => shelves(b)[current.id]) : books;
   // 2. Narrowed by the filters, and by what is searched for.
+  // Each book as the edition that is there and passes the filters (its face); without one, it isn't shown.
   const facets = facetsOf();
-  const filtered = Object.keys(view.filters).length ? inScope.filter((b) => passes(b, facets)) : inScope;
+  const faces = new Map(inScope.map((b) => [b, faceOf(b, facets)]));
+  const filtered = inScope.filter((b) => faces.get(b));
   drawActiveFilters(facets);
   $('filterBtn').onclick = () => openFilterSheet(inScope);
   $('searchWrap').hidden = inScope.length < 8 && !query;
@@ -1741,7 +1831,7 @@ function renderLibrary() {
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
   const key = `${addressOf()}|${sort.key}${sort.dir}|${view.mode}|${query}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
-  shown = { rows: rowsInOrder, next: 0, lastDay: '', key, current, query, series: view.series, heading: (b) => by.heading(by.value(b, since), b) };
+  shown = { rows: rowsInOrder, faces, next: 0, lastDay: '', key, current, query, series: view.series, heading: (b) => by.heading(by.value(b, since), b) };
   $('library').replaceChildren();
   if (view.series) {
     const read = inScope.filter((b) => shelves(b).read).length;
@@ -1879,6 +1969,9 @@ function initPicking() {
  */
 function openBulkEdit(chosen) {
   const n = chosen.length;
+  // Reading status, series, authors, categories and tags are the book's; lists of where a copy is,
+  // publisher, format and language are of the edition each selected row shows.
+  const faceIn = (b) => shown.faces?.get(b) || W.mainEdition(b);
   const count = (test) => chosen.filter(test).length;
   /** How many of the books have each value: Map(value → n), most first. */
   const tally = (valuesOf) => {
@@ -1921,9 +2014,10 @@ function openBulkEdit(chosen) {
   const setOfLists = (label, members, none) => oneOf(label, members.map((l) => l.id), {
     name: (id) => listName(listById(id)), has: (b, id) => !!shelves(b)[id], none,
     set: (book, id) => {
-      const on = { ...shelves(book) };
+      const target = isStatus(members[0].id) ? book : faceIn(book);
+      const on = { ...target.lists };
       if (id) place(on, id); else for (const l of members) delete on[l.id];
-      book.lists = on;
+      target.lists = on;
     },
   });
 
@@ -1969,13 +2063,13 @@ function openBulkEdit(chosen) {
   };
 
   /** One text for all of them: what they share is filled in; ⊘ empties it for all. */
-  const oneText = (label, key, { suggest, extra } = {}) => () => {
+  const oneText = (label, key, { suggest, extra, get = (b) => b[key], set = (b, value) => { b[key] = value; } } = {}) => () => {
     const p = part(label);
-    const values = new Set(chosen.map((b) => b[key] || ''));
+    const values = new Set(chosen.map((b) => get(b) || ''));
     const shared = values.size === 1 ? [...values][0] : null;
     // Where they differ, the field says how: "Earthsea, on 2 of them", or "3 different".
     const said = [...values].filter(Boolean);
-    const mixed = said.length === 1 ? t('{value}, on {n} of them', { value: said[0], n: count((b) => b[key] === said[0]) }) : t('{n} different', { n: said.length });
+    const mixed = said.length === 1 ? t('{value}, on {n} of them', { value: said[0], n: count((b) => get(b) === said[0]) }) : t('{n} different', { n: said.length });
     let cleared = false;
     const input = h('input', { value: shared || '', autocomplete: 'off', autocapitalize: 'words', list: suggest?.id, placeholder: shared === null ? mixed : '' });
     // Only where any of them has one is there anything to empty.
@@ -1994,8 +2088,8 @@ function openBulkEdit(chosen) {
     // Emptied where they all had the same: none for all of them. Left empty where they differ: as they are.
     p.changed = () => cleared || (shared !== null ? typed() !== shared : typed() !== '') || !!extras?.changed();
     p.apply = (book, i) => {
-      const value = cleared ? '' : (shared !== null || typed()) ? typed() : book[key] || '';
-      book[key] = value;
+      const value = cleared ? '' : (shared !== null || typed()) ? typed() : get(book) || '';
+      set(book, value);
       extras?.apply(book, i, value);
     };
     return p;
@@ -2020,13 +2114,14 @@ function openBulkEdit(chosen) {
         return h('label', { class: 'field bulk-note' }, h('span', { text: show(l.noteLabel) }), input);
       }),
       apply: (book, mode, picked) => {
-        const on = { ...shelves(book) };
+        const copy = faceIn(book);
+        const on = { ...copy.lists };
         for (const l of loose) {
           const wanted = picked.has(l.id);
           if (mode === 'remove' ? wanted : mode === 'replace' && !wanted) delete on[l.id];
           else if (wanted) { place(on, l.id); if (notes[l.id]) on[l.id] = { ...on[l.id], note: notes[l.id] }; }
         }
-        book.lists = on;
+        copy.lists = on;
       },
     }),
     ...sets.map((s) => setOfLists(show(s.label), s.members, true)),
@@ -2055,23 +2150,30 @@ function openBulkEdit(chosen) {
       note: (mode) => (mode === 'replace' ? t('Others with a role (translation, voice…) stay.') : ''),
       apply: (book, mode, names) => {
         const named = (person) => names.some((name) => fold(name) === fold(person.name));
-        let people = peopleOf(book).map((person) => ({ ...person }));
-        if (mode === 'add') people.push(...names.filter((name) => !people.some((person) => fold(person.name) === fold(name))).map((name) => ({ name, role: '' })));
-        else if (mode === 'remove') people = people.filter((person) => !named(person));
-        else people = [...names.map((name) => ({ name, role: '' })), ...people.filter((person) => !isWriter(person) && !named(person))];
-        if (!people.length && book.boeken) return;   // a booklog book always has someone
-        const asPeople = people.length > 0 && (people.some((person) => person.role) || Array.isArray(book.people));
-        book.author = writersIn(people).join(', ');
-        if (asPeople) book.people = people; else delete book.people;
+        const change = (before) => {
+          let people = before.map((person) => ({ ...person }));
+          if (mode === 'add') people.push(...names.filter((name) => !people.some((person) => fold(person.name) === fold(name))).map((name) => ({ name, role: '' })));
+          else if (mode === 'remove') people = people.filter((person) => !named(person));
+          else people = [...names.map((name) => ({ name, role: '' })), ...people.filter((person) => !isWriter(person) && !named(person))];
+          return people;
+        };
+        // The writers are the book's; everyone on an edition changes with them there.
+        const writers = change(peopleOf({ author: book.author }));
+        if (!writers.length && book.boeken) return;   // a booklog book always has someone
+        for (const e of editionsOf(book)) {
+          const people = change(peopleOf({ author: book.author, people: e.people }));
+          if (people.length > 0 && (people.some((person) => person.role) || Array.isArray(e.people))) e.people = people; else delete e.people;
+        }
+        book.author = writersIn(writers).join(', ');
       },
     }),
-    oneText(t('Publisher'), 'publisher'),
+    oneText(t('Publisher'), 'publisher', { get: (b) => faceIn(b).publisher, set: (b, value) => { if (value) faceIn(b).publisher = value; else delete faceIn(b).publisher; } }),
     oneOf(t('Format'), FORMATS, {
-      name: formatName, has: (b, format) => formatOf(b) === format,
+      name: formatName, has: (b, format) => formatOf({ ...faceIn(b), boeken: b.boeken }) === format,
       // As in a book's details: an audiobook has a length and no pages, the others pages.
-      set: (book, format) => { book.format = format; if (format === 'audiobook') book.pages = null; else book.duration = ''; },
+      set: (book, format) => { const e = faceIn(book); e.format = format; if (format === 'audiobook') delete e.pages; else delete e.duration; },
     }),
-    oneOf(t('Language'), languageCodes(), { name: languageName, has: (b, code) => b.language === code, set: (book, code) => { book.language = code; } }),
+    oneOf(t('Language'), languageCodes(), { name: languageName, has: (b, code) => faceIn(b).language === code, set: (book, code) => { faceIn(book).language = code; } }),
     categoryNames().length > 0 && someOf(t('Categories'), categoryNames(), {
       has: (b, c) => (b.categories || []).includes(c),
       apply: (book, mode, picked) => {
@@ -2166,8 +2268,9 @@ function tidyCase(s) {
  * Chips for choosing lists, editing the {listId: {at, note}} map `on` in place. Either-or
  * groups behave like radio buttons that can also be switched off.
  */
-function listPicker(on, { notes = true } = {}) {
+function listPicker(on, { notes = true, only = null } = {}) {
   const box = h('div', { class: 'list-picker' });
+  const sections = () => listSections().map((s) => ({ ...s, members: s.members.filter((l) => !only || only(l)) })).filter((s) => s.members.length);
   const chip = (l) => h('button', {
     class: 'chip', type: 'button', text: listName(l), 'aria-pressed': String(!!on[l.id]),
     onclick: () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); },
@@ -2179,10 +2282,10 @@ function listPicker(on, { notes = true } = {}) {
   };
   function draw() {
     box.replaceChildren(
-      ...listSections().map((section) => h('div', { class: 'pick-row' },
+      ...sections().map((section) => h('div', { class: 'pick-row' },
         section.label && h('span', { class: 'pick-label', text: show(section.label) }),
         h('div', { class: 'chips' }, section.members.map(chip)))),
-      ...(notes ? lists.filter((l) => on[l.id] && l.noteLabel).map(noteField) : []));
+      ...(notes ? lists.filter((l) => on[l.id] && l.noteLabel && (!only || only(l))).map(noteField) : []));
   }
   draw();
   return box;
@@ -2632,71 +2735,121 @@ function coverControl(subject, host, query) {
   return control;
 }
 
-/** A book's cover on its page: tap it to see it large, and to change it there. */
-function coverViewer(book, again) {
+/** A book's cover on its page (that of edition `ed`, its main one unless said): tap it to see it large, and to change it there. */
+function coverViewer(book, again, ed = W.mainEdition(book)) {
   const open = () => openCoverRoom({
-    subject: () => book,
-    query: { isbn: book.isbn, title: book.title, author: book.author },
+    subject: () => look(book, ed),
+    query: { isbn: ed.isbn, title: ed.title || book.title, author: book.author },
     onChoose: (choice) => {
       const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull'];
-      const before = Object.fromEntries(keys.map((key) => [key, book[key]]));
-      Object.assign(book, coverFields(choice));
+      const before = Object.fromEntries(keys.map((key) => [key, ed[key]]));
+      Object.assign(ed, coverFields(choice));
       saveBook(book);
-      keepCover(book, choice, book);
+      keepCover(ed, choice, book);
       if (openedBook === book && bookPageOpen()) again();
       toast(t('Cover replaced'), {
         action: t('Undo'),
-        onAction: () => { Object.assign(book, before); saveBook(book); if (openedBook === book && bookPageOpen()) again(); },
+        onAction: () => { Object.assign(ed, before); saveBook(book); if (openedBook === book && bookPageOpen()) again(); },
       });
     },
   });
-  const el = h('button', { class: 'cover-view', type: 'button', title: t('The cover, large'), 'aria-label': t('The cover, large'), onclick: open }, coverEl(book, true));
+  const el = h('button', { class: 'cover-view', type: 'button', title: t('The cover, large'), 'aria-label': t('The cover, large'), onclick: open }, coverEl(look(book, ed), true));
   el.open = open;
   return el;
 }
 
-/**
- * Add or edit a book.
- *  book      existing record, or a draft when `isNew`
- *  ocrLines  text read from the cover, offered as tap-to-fill chips
- */
-function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading, onSaved, onClose, back }) {
-  // `back` is where Cancel and Save go instead of closing the sheet (the book's page).
-  const leave = () => (back ? back() : sheet.close());
-  let saved = false;
-  const input = (name, attrs = {}) => h('input', { name, value: book[name] ?? '', autocomplete: 'off', ...attrs });
+/** The facts of an edition as a form has them: publisher, year, pages or length, ISBN, format. → { el(rows), read(), fail } */
+function editionFields(src, { format: initialFormat } = {}) {
+  const input = (name, attrs = {}) => h('input', { name, value: src[name] ?? '', autocomplete: 'off', ...attrs });
   const f = {
-    title: h('textarea', { name: 'title', rows: 2, class: 'serif', autocomplete: 'off', enterkeyhint: 'next' }),
-    author: input('author', { autocapitalize: 'words' }),
     publisher: input('publisher', { autocapitalize: 'words' }),
     date: input('date', { placeholder: t('e.g. 1998'), inputmode: 'numeric' }),
     pages: input('pages', { inputmode: 'numeric', pattern: '[0-9]*' }),
     duration: input('duration', { placeholder: '11u 36m' }),
     isbn: input('isbn', { inputmode: 'numeric' }),
-    series: input('series', { autocapitalize: 'words', list: 'seriesNames' }),
+  };
+  const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
+  // Paper, e-book or audiobook; an audiobook has a length where the others have pages.
+  const format = formatPicker(initialFormat ?? formatOf(src));
+  const extent = { pages: field(t('Pages'), f.pages), duration: field(t('Length'), f.duration) };
+  const showExtent = () => { extent.duration.hidden = format.value !== 'audiobook'; extent.pages.hidden = format.value === 'audiobook'; };
+  format.onChange = showExtent;
+  showExtent();
+  const v = (k) => f[k].value.replace(/\s+/g, ' ').trim();
+  return {
+    f, format, field,
+    publisherRow: field(t('Publisher'), f.publisher),
+    formatRow: h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
+    extentRow: h('div', { class: 'field-row' }, field(t('Published'), f.date), extent.pages, extent.duration),
+    isbnRow: field('ISBN', f.isbn),
+    /** → the facts as typed, or a sentence saying what is wrong (and the field is focused) */
+    read() {
+      const data = {
+        publisher: v('publisher'), date: normDate(v('date')),
+        pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
+        isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
+        format: format.value,
+      };
+      // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
+      if (format.value === 'audiobook') Object.assign(data, { pages: null, duration: v('duration').toLowerCase().replace(/h/g, 'u') });
+      else data.duration = format.value ? '' : v('duration');
+      if (format.value === 'audiobook' && data.duration && minutesOf(data.duration) == null) { f.duration.focus(); return t('Give the length like 11u 36m.'); }
+      return data;
+    },
+  };
+}
+
+/** Facts given to an edition: what is said is set, what is empty is taken off. */
+function setFacts(ed, data) {
+  for (const [key, value] of Object.entries(data)) {
+    if (value == null || value === '' || (Array.isArray(value) && !value.length)) delete ed[key];
+    else ed[key] = value;
+  }
+}
+
+/**
+ * Add or edit a book.
+ *  book      existing record, or a draft when `isNew` (as a lookup has it: title, author, isbn, lists…)
+ *  ocrLines  text read from the cover, offered as tap-to-fill chips
+ * A book with one edition, or a new one, is edited field for field: what is the book's goes to the
+ * book, the rest to its edition, and nobody can tell there are two levels. With more than one
+ * edition the form holds what is the book's (title, writers, series, categories, tags, reading
+ * status); the rest is on each edition's own sheet.
+ */
+function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading, onSaved, onClose, back }) {
+  // `back` is where Cancel and Save go instead of closing the sheet (the book's page).
+  const leave = () => (back ? back() : sheet.close());
+  let saved = false;
+  const whole = isNew || !several(book);
+  const ed = isNew ? null : W.mainEdition(book);
+  const src = isNew ? book : look(book, ed);
+  const facts = editionFields(src);
+  const f = {
+    ...facts.f,
+    title: h('textarea', { name: 'title', rows: 2, class: 'serif', autocomplete: 'off', enterkeyhint: 'next' }),
+    series: h('input', { name: 'series', value: book.series ?? '', autocomplete: 'off', autocapitalize: 'words', list: 'seriesNames' }),
     seriesNumber: h('input', { name: 'seriesNumber', value: seriesNo(book), inputmode: 'decimal', autocomplete: 'off', placeholder: '1' }),
   };
   const seriesNames = h('datalist', { id: 'seriesNames' }, [...seriesMap().keys()].sort().map((value) => h('option', { value })));
   f.title.value = book.title || '';
   // Who made it: a row each. `f.author` is the first name, which the cover's text and Swap fill.
-  const who = peopleEditor(peopleOf(book));
+  // With several editions: the writers and whoever is on every edition (a comic's artist); a
+  // voice or a translator of one edition is on that edition's sheet.
+  const split = !whole && peopleSplit(book);
+  const who = peopleEditor(whole ? peopleOf(src) : split.common);
   Object.defineProperty(f, 'author', { get: () => who.first });
   f.title.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); f.author.focus(); } });
-  const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
-  // Paper, e-book or audiobook; an audiobook has a length where the others have pages.
-  const format = formatPicker(formatOf(book));
-  const extent = { pages: field(t('Pages'), f.pages), duration: field(t('Length'), f.duration) };
-  const showExtent = () => { extent.duration.hidden = format.value !== 'audiobook'; extent.pages.hidden = format.value === 'audiobook'; };
-  format.onChange = showExtent;
-  showExtent();
+  const field = facts.field;
   // What it is in and about. A booklog book always says its language (its post does).
-  const language = oneChip(languageCodes(), book.language, languageName);
+  const language = oneChip(languageCodes(), src.language, languageName);
   const categories = someChips(categoryNames(), book.categories || []);
   const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off', list: 'tagNames' });
   const error = h('p', { class: 'field-error', hidden: true });
-  // The lists the book is on, edited as a copy until the form is saved.
+  // The lists the book is on, edited as a copy until the form is saved. With several editions,
+  // only its reading status: where each copy is, is on its own sheet.
   const on = {};
-  for (const { list, at, note } of listsOf(book)) on[list.id] = note ? { at, note } : { at };
+  const listed = isNew ? Object.entries(book.lists || {}).map(([id, entry]) => ({ list: { id }, ...entry })) : listsOf(book, whole ? ed : {});
+  for (const { list, at, note } of listed) on[list.id] = note ? { at, note } : { at };
 
   // Tap-to-fill chips for text read off the cover.
   let ocrBox = null;
@@ -2733,31 +2886,36 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
   const source = sourceNote(book, true);
 
   // The cover: tap it to choose a picture; or paste or drop one while no text field has the cursor.
-  const cover = coverControl(() => book, () => form, () => ({ isbn: f.isbn.value.replace(/[^0-9Xx]/g, '') || book.isbn, title: f.title.value.trim() || book.title, author: writersIn(who.value()).join(', ') || book.author }));
+  // With several editions each has its own, changed on its sheet.
+  const cover = whole && coverControl(() => src, () => form, () => ({ isbn: f.isbn.value.replace(/[^0-9Xx]/g, '') || src.isbn, title: f.title.value.trim() || book.title, author: writersIn(who.value()).join(', ') || book.author }));
+  const again = () => openBookForm({ book, isNew, ocrLines, heading, subheading, onSaved, onClose, back });
 
   const form = h('form', {
     novalidate: true, onsubmit: submit,
-    ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
-    ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
+    ondragover: (e) => { if (cover && [...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
+    ondrop: (e) => { const file = cover && cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
   },
-    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || null, cover.button),
+    sheetHead(heading || (isNew ? t('New book') : t('Edit book')), subheading || (!whole && t('Each edition has its own details, under Editions.')) || null,
+      cover ? cover.button : h('div', { class: 'cover-pick' }, coverEl(src, true))),
     source,
     ocrBox,
     field(t('Title'), f.title),
-    h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
-    h('p', { class: 'sheet-note people-hint', text: t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') }),
+    h('div', { class: 'field' }, h('span', { text: whole ? t('Authors and others') : t('Authors') }), who.el),
+    h('p', { class: 'sheet-note people-hint', text: whole ? t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') : t('No role for an author. Someone on only one edition (a voice, a translator) is on that edition.') }),
     swap,
-    field(t('Publisher'), f.publisher),
-    h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
-    h('div', { class: 'field-row' }, field(t('Published'), f.date), extent.pages, extent.duration),
-    field('ISBN', f.isbn),
+    whole && facts.publisherRow,
+    whole && facts.formatRow,
+    whole && facts.extentRow,
+    whole && facts.isbnRow,
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
     seriesNames,
-    h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
+    whole && h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
     (categories.value.size > 0 || categoryNames().length > 0) && h('div', { class: 'field' }, h('span', { text: t('Categories') }), categories.el),
     field(t('Tags'), tags),
     h('datalist', { id: 'tagNames' }, tagNames().map((value) => h('option', { value }))),
-    lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: t('Lists') }), listPicker(on)),
+    lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: whole ? t('Lists') : show(READING) }),
+      listPicker(on, { only: whole ? null : (l) => isStatus(l.id) })),
+    !isNew && h('button', { class: 'link-btn form-combine', type: 'button', onclick: () => openCombine(book, again) }, icon('merge'), t('Combine with another book…')),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
@@ -2766,67 +2924,175 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
 
   async function submit(e) {
     e.preventDefault();
+    const fail = (message, input) => { error.textContent = message; error.hidden = false; input?.focus(); };
     const v = (k) => f[k].value.replace(/\s+/g, ' ').trim();
     // A book from the booklog always has someone; emptied here, it keeps who it had.
-    const people = who.value().length || !book.boeken ? who.value() : peopleOf(book);
-    // Said as people where someone has a role (or it was already said so); a book of writers alone just names them.
-    const asPeople = people.length > 0 && (people.some((person) => person.role) || Array.isArray(book.people));
-    const data = {
-      title: v('title'), author: writersIn(people).join(', '), publisher: v('publisher'), date: normDate(v('date')),
-      pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
-      isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
-      format: format.value,
-      language: language.value || (book.boeken ? book.language || '' : ''),
+    const people = who.value().length || !book.boeken ? who.value() : (whole ? peopleOf(src) : split.common);
+    const work = {
+      title: v('title'), author: writersIn(people).join(', '),
       categories: [...categories.value], tags: commaList(tags.value),
-      lists: {},
       series: v('series'), seriesNumber: null, seriesLabel: '',
-      // A new cover: the small copy is the cover until the server has kept the larger one.
-      ...(cover.choice && coverFields(cover.choice)),
     };
     // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
-    const typed = data.series ? v('seriesNumber') : '';
-    if (typed && typed === seriesNo(book)) Object.assign(data, { seriesNumber: book.seriesNumber ?? null, seriesLabel: book.seriesLabel || '' });
-    else if (/^\d+(?:[.,]\d+)?$/.test(typed)) data.seriesNumber = Number(typed.replace(',', '.'));
-    else if (typed) Object.assign(data, { seriesLabel: typed, seriesNumber: Number.isFinite(parseFloat(typed)) ? parseFloat(typed) : null });
+    const typed = work.series ? v('seriesNumber') : '';
+    if (typed && typed === seriesNo(book)) Object.assign(work, { seriesNumber: book.seriesNumber ?? null, seriesLabel: book.seriesLabel || '' });
+    else if (/^\d+(?:[.,]\d+)?$/.test(typed)) work.seriesNumber = Number(typed.replace(',', '.'));
+    else if (typed) Object.assign(work, { seriesLabel: typed, seriesNumber: Number.isFinite(parseFloat(typed)) ? parseFloat(typed) : null });
+    const listed = {};
     for (const [id, entry] of Object.entries(on)) {
       const note = String(entry.note || '').replace(/\s+/g, ' ').trim();
-      data.lists[id] = { at: entry.at || new Date().toISOString(), ...(note && { note }) };
+      listed[id] = { at: entry.at || new Date().toISOString(), ...(note && { note }) };
     }
-    // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
-    if (format.value === 'audiobook') Object.assign(data, { pages: null, duration: v('duration').toLowerCase().replace(/h/g, 'u') });
-    else if (format.value) data.duration = '';
-    if (format.value === 'audiobook' && data.duration && minutesOf(data.duration) == null) {
-      error.textContent = t('Give the length like 11u 36m.');
-      error.hidden = false;
-      f.duration.focus();
-      return;
+    const copy = whole ? facts.read() : null;
+    if (typeof copy === 'string') return fail(copy);
+    if (!work.title) return fail(t('A book needs at least a title.'), f.title);
+    if (copy) {
+      copy.language = language.value || (book.boeken ? src.language || '' : '');
+      // A new cover: the small copy is the cover until the server has kept the larger one.
+      if (cover.choice) Object.assign(copy, coverFields(cover.choice));
+      // Said as people where someone has a role (or it was already said so); a book of writers alone just names them.
+      if (people.length > 0 && (people.some((person) => person.role) || Array.isArray(src.people))) copy.people = people;
     }
-    if (!data.title) {
-      error.textContent = t('A book needs at least a title.');
-      error.hidden = false;
-      f.title.focus();
-      return;
-    }
-    let result = book;
+    let result = book, target = ed;
     if (isNew) {
-      result = await addBook({ ...book, ...data, ...(asPeople && { people }) });
-      rememberTarget(Object.keys(data.lists));
+      result = await addFound({ ...book, ...work, ...copy, lists: listed }, { by: 'hand' });
+      target = W.mainEdition(result);
+      rememberTarget(Object.keys(listed));
     } else {
-      Object.assign(book, data, { pending: false, unresolved: false });
-      if (asPeople) book.people = people; else delete book.people;
+      Object.assign(book, work, { pending: false, unresolved: false });
+      if (copy) {
+        setFacts(ed, copy);
+        if (!copy.people) delete ed.people;
+        putLists(book, ed, listed);
+      } else {
+        // The writers, and those on every edition, change on every edition; who is on only one stays.
+        for (const e of editionsOf(book)) {
+          const all = [...people, ...split.own(e)];
+          if (all.some((person) => person.role) || Array.isArray(e.people)) e.people = all; else delete e.people;
+        }
+        putLists(book, null, listed);
+      }
       await saveBook(book);
     }
     saved = true;
-    if (cover.choice) keepCover(result, cover.choice, result);
+    if (cover && cover.choice && target) keepCover(target, cover.choice, result);
     leave();
     onSaved?.(result);
   }
 
   function remove() {
-    confirmDelete(book, () => openBookForm({ book, isNew, ocrLines, heading, subheading, onSaved, onClose, back }));
+    confirmDelete(book, again);
   }
 
   sheet.open(form, () => onClose?.(saved));
+}
+
+/**
+ * One edition of a book: its facts, its cover, everyone on it and the lists of where it is.
+ * With `ed` null, a new edition of the book, starting from the facts `from` (another edition's,
+ * format first), which `onSaved(edition)` gets once it is there.
+ */
+function openEditionForm(book, ed, { back, from, onSaved } = {}) {
+  const isNew = !ed;
+  // A new edition starts from the facts of the one it is next to, but not its cover, nor whoever is on that one alone (a voice).
+  const src = isNew ? Object.fromEntries(Object.entries(W.factsOf(from || {})).filter(([key]) => !['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'people'].includes(key))) : ed;
+  const view = look(book, isNew ? src : ed);
+  const facts = editionFields(view);
+  const title = h('input', { name: 'edtitle', value: ed?.title || '', placeholder: book.title, autocomplete: 'off', autocapitalize: 'sentences' });
+  const language = oneChip(languageCodes(), src.language, languageName);
+  const who = peopleEditor(peopleOf({ author: book.author, people: src.people }));
+  const error = h('p', { class: 'field-error', hidden: true });
+  const on = {};
+  for (const [id, entry] of Object.entries(src.lists || {})) on[id] = { ...entry };
+  const cover = coverControl(() => view, () => form, () => ({ isbn: facts.f.isbn.value.replace(/[^0-9Xx]/g, '') || src.isbn, title: title.value.trim() || book.title, author: book.author }));
+  const again = () => openEditionForm(book, ed, { back, from, onSaved });
+  const reads = isNew ? [] : (book.reviews || []).filter((r) => r.ed === ed.id);
+  const open = W.OPEN.some((id) => book.lists?.[id]);
+  const quiet = (name, text, onclick) => h('button', { class: 'link-btn', type: 'button', onclick }, icon(name), text);
+
+  const form = h('form', {
+    novalidate: true, onsubmit: submit,
+    ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
+    ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
+  },
+    sheetHead(isNew ? t('Another edition') : t('Edition'), displayTitle(book), cover.button),
+    facts.formatRow,
+    facts.publisherRow,
+    facts.extentRow,
+    facts.isbnRow,
+    h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
+    facts.field(t('Title of this edition'), title),
+    h('p', { class: 'sheet-note', text: t('Only when it differs from the book’s: a translation, say.') }),
+    h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
+    h('p', { class: 'sheet-note people-hint', text: t('Who made this edition: an audiobook has a voice (stem), a translation a translator (vertaling).') }),
+    lists.some((l) => !isStatus(l.id)) && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: t('Lists') }), listPicker(on, { only: (l) => !isStatus(l.id) })),
+    !isNew && h('div', { class: 'edition-actions' },
+      open && W.mainEdition(book) !== ed && quiet('book-open', t('I’m reading this one'), async () => {
+        book.main = ed.id;
+        await saveBook(book);
+        back();
+        toast(t('Reading this edition'));
+      }),
+      several(book) && quiet('split', t('Make it a book of its own'), () => splitOff(book, ed, back))),
+    error,
+    h('div', { class: 'btn-row sheet-actions' },
+      !isNew && several(book) && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete edition'), onclick: remove }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add') : t('Save'))));
+
+  async function submit(e) {
+    e.preventDefault();
+    const data = facts.read();
+    if (typeof data === 'string') { error.textContent = data; error.hidden = false; return; }
+    data.language = language.value;
+    data.title = fold(title.value) === fold(book.title) ? '' : title.value.replace(/\s+/g, ' ').trim();
+    if (cover.choice) Object.assign(data, coverFields(cover.choice));
+    // Everyone on it: said as people when someone has a role, or it was already said so, or they aren't the book's writers.
+    const people = who.value();
+    const same = (a, b) => a.length === b.length && a.every((person, i) => fold(person.name) === fold(b[i].name) && (person.role || '') === (b[i].role || ''));
+    data.people = people.length && (Array.isArray(src.people) || people.some((person) => person.role) || !same(people, peopleOf({ author: book.author }))) ? people : null;
+    const before = structuredClone(book);
+    let target = ed;
+    if (isNew) target = W.addEdition(book, {}, { status: statusIds(), added: new Date().toISOString() });
+    setFacts(target, data);
+    const rest = Object.fromEntries(Object.entries(on).map(([id, entry]) => [id, { at: entry.at || new Date().toISOString(), ...(String(entry.note || '').trim() && { note: String(entry.note).replace(/\s+/g, ' ').trim() }) }]));
+    if (Object.keys(rest).length) target.lists = rest; else delete target.lists;
+    await saveBook(book);
+    if (cover.choice) keepCover(target, cover.choice, book);
+    if (onSaved) onSaved(target);
+    else back();
+    if (isNew) toast(t('Edition added'), { action: t('Undo'), onAction: () => putBack(book, before) });
+  }
+
+  function remove() {
+    const gone = async () => {
+      const before = structuredClone(book);
+      const host = booklogHost();
+      book.editions = book.editions.filter((e) => e.id !== ed.id);
+      book.reviews = (book.reviews || []).filter((r) => r.ed !== ed.id);
+      // Its reads in the booklog are pages there, which go too (shelf/publish.py).
+      const posts = reads.map((r) => r.boeken).filter(Boolean);
+      if (posts.length) book.dropReads = [...new Set([...(book.dropReads || []), ...posts])];
+      if (!book.reviews.length) delete book.reviews;
+      if (book.main === ed.id) delete book.main;
+      settleRating(book);
+      await saveBook(book);
+      back();
+      toast(posts.length && host ? t('Edition removed, also from {host}', { host }) : t('Edition removed'), { action: t('Undo'), onAction: () => putBack(book, before) });
+    };
+    if (!reads.length) { gone(); return; }
+    const host = reads.some((r) => r.boeken) && booklogHost();
+    sheet.open(h('div', null,
+      sheetHead(t('Delete this edition?'), editionLine(ed, book) || displayTitle(book)),
+      h('p', { class: 'sheet-note drop-note', text: host
+        ? t('What was read of it goes too: {n}, and their pages on {host}. The booklog’s history keeps them.', { n: plural(reads.length, 'read'), host })
+        : t('What was read of it goes too: {n}.', { n: plural(reads.length, 'read') }) }),
+      h('div', { class: 'btn-row sheet-actions' },
+        h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: again }),
+        h('button', { class: 'btn btn-primary', type: 'button', onclick: gone }, icon('trash'), t('Delete')))));
+  }
+
+  sheet.open(form);
 }
 
 /* ───────────────────────── Markdown (reviews) ───────────────────────── */
@@ -2943,39 +3209,167 @@ function rememberTarget(ids) {
   if (scanner.open) { scanner.target = target; renderScanTarget(); }
 }
 
-function openAdd(inScanner = false) {
+/** `into`: "Add another edition" on a book's page: whatever is found becomes an edition of that
+    book, without matching (the way in for a translation). `back` returns to its page. */
+function openAdd(inScanner = false, { into = null, back = null } = {}) {
   const way = (name, title, about, go) => h('button', { class: 'way', type: 'button', onclick: go },
     icon(name), h('span', { class: 'way-text' }, h('span', { text: title }), h('small', { text: about })), icon('chevron'));
   const assistant = sync.user && sync.assistant;
+  const go = (then) => () => { adding.into = into; then(); };
+  const home = back || (() => openBook(into));
   sheet.open(h('div', null,
-    inScanner ? sheetHead(t('No barcode?'), t('Other ways to add this book.')) : sheetHead(t('Add a book')),
+    into ? sheetHead(t('Add another edition'), t('Of “{title}”: whatever is found becomes an edition of it.', { title: displayTitle(into) }))
+      : inScanner ? sheetHead(t('No barcode?'), t('Other ways to add this book.')) : sheetHead(t('Add a book')),
     h('div', { class: 'ways' },
       !inScanner && way('barcode', t('Scan the barcode'), t('On the back cover. The quickest way.'),
-        () => closeLayersThen(() => openScanner())),
+        go(() => closeLayersThen(() => openScanner()))),
       way('camera', t('Photograph the cover'), t('Its front cover is read and looked up.'),
-        inScanner ? () => { sheet.close(); setMode('cover'); } : () => closeLayersThen(() => openScanner('cover'))),
+        inScanner ? () => { sheet.close(); setMode('cover'); } : go(() => closeLayersThen(() => openScanner('cover')))),
       assistant && way('sparkles', t('Describe it'), t('A title, an author, a series, in your own words: the assistant finds the book.'),
-        () => closeLayersThen(() => openDescribe())),
+        go(() => closeLayersThen(() => openDescribe()))),
       !inScanner && way('keyboard', t('Type the ISBN'), t('The digits above the barcode or on the copyright page.'),
-        () => closeLayersThen(() => { openScanner(); openIsbnSheet(); })),
-      way('pencil', t('Fill it in by hand'), t('For a book no catalogue knows.'),
-        () => { if (!inScanner) scanner.target = addTarget(); manualEntry(inScanner ? scanner.pendingIsbn : ''); }))));
+        go(() => closeLayersThen(() => { openScanner(); openIsbnSheet(); }))),
+      way('pencil', t('Fill it in by hand'), t('For a book no catalogue knows.'), into
+        ? () => openEditionForm(into, null, { back: home, from: W.mainEdition(into), onSaved: home })
+        : () => { if (!inScanner) scanner.target = addTarget(); manualEntry(inScanner ? scanner.pendingIsbn : ''); }))));
+}
+
+/* Adding: what is found (by a barcode, a photo, a description, a link, by hand) becomes a book,
+   or another edition of a book on the shelf (plan 5.5). The same ISBN is the same edition, and
+   is "already on your shelf". The same work (the same Open Library work, or the same title by
+   the same first writer: works.js findWork) gets it as another edition, without asking: what
+   is said about it has Keep separate, which makes it a book of its own after all. */
+
+const adding = { into: null, last: null };   // into: a book whatever is found now becomes an edition of (openAdd); last: what addFound did last
+
+/** "Added to your shelf", unless what was added became another edition of a book: that was said already, with Keep separate. */
+function addedToast() {
+  if (!adding.last?.attached) toast(t('Added to your shelf'));
+  adding.last = null;
+}
+
+/** The book an ISBN is an edition of on the shelf, with that edition: {book, edition} or null. With more than one, the one already where you are scanning to answers. */
+function byIsbn(isbn, target = []) {
+  const found = books.flatMap((book) => editionsOf(book).filter((e) => e.isbn === isbn).map((edition) => ({ book, edition })));
+  return found.find(({ book, edition }) => target.every((id) => (isStatus(id) ? book.lists?.[id] : edition.lists?.[id]))) || found[0] || null;
+}
+
+/**
+ * A book that was found (`flat`: as a lookup or a form has it, with the lists it goes on): added
+ * as a book of its own, or as another edition of the one it is (adding.into, or findWork).
+ * → {book, edition, attached, keepSeparate(), undo()}: `attached` when it became an edition of a
+ * book that was there; then `keepSeparate` makes it a book of its own, `undo` takes it back.
+ */
+async function addFound(flat, { say = true } = {}) {
+  const into = adding.into && books.includes(adding.into) ? adding.into : null;
+  adding.into = null;
+  const same = into || W.findWork(flat, books);
+  if (!same) {
+    const book = await addBook(flat);
+    return (adding.last = { book, edition: book.editions[0], attached: false });
+  }
+  const before = structuredClone(same);
+  const edition = W.addEdition(same, flat, { status: statusIds(), added: new Date().toISOString() });
+  // Put on a reading list while adding: the book goes there, and a read planned is of this edition.
+  const status = Object.entries(flat.lists || {}).filter(([id]) => isStatus(id));
+  for (const [id, entry] of status) place(same.lists, id, entry.at);
+  if (status.length && W.OPEN.some((id) => same.lists[id])) same.main = edition.id;
+  for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel']) if (!same[key] && flat[key]) same[key] = flat[key];
+  await saveBook(same);
+  const undo = () => putBack(same, before);
+  const keepSeparate = async () => { await putBack(same, before); return addBook(flat); };
+  const done = adding.last = { book: same, edition, attached: true, undo, keepSeparate };
+  if (say) {
+    toast(t('Added to “{title}” as another edition', { title: displayTitle(same) }), {
+      ms: 10000,
+      actions: [[t('Undo'), undo], [t('Edit'), () => openEditionForm(same, edition, { back: () => openBook(same, null) })],
+        [t('Keep separate'), keepSeparate]],
+    });
+  }
+  return done;
+}
+
+/**
+ * Combining: another book's editions and reads move into this one, and that book goes (plan
+ * 5.6). The book in the booklog stays, if only one is; otherwise the one whose page was open.
+ * Both in the booklog is not possible yet.
+ */
+function openCombine(book, back) {
+  const search = h('input', { type: 'search', placeholder: t('Search your shelf'), autocomplete: 'off', enterkeyhint: 'search' });
+  const results = h('div', { class: 'cand-list' });
+  const alike = W.twins(books);
+  function draw() {
+    const query = fold(search.value.trim());
+    const rank = (b) => (W.findWork(b, [book]) ? 0 : fold(b.title).includes(query) ? 1 : 2);
+    const found = books.filter((b) => b !== book && (query ? searchText(b).includes(query) : alike.has(b.id) && W.twins([b, book]).size))
+      .sort((a, b) => rank(a) - rank(b)).slice(0, 30);
+    fill(results, ...found.map((b) => { const row = bookRow(b, () => combineWith(book, b, back)); row.classList.add('cand'); return row; }),
+      !found.length && h('p', { class: 'no-results', text: query ? t('No books match that search.') : t('Search for the book that is this one in another edition.') }));
+  }
+  search.addEventListener('input', draw);
+  draw();
+  sheet.open(h('div', null,
+    sheetHead(t('Combine with another book'), t('Its editions and reads come to “{title}”, and it goes.', { title: displayTitle(book) })),
+    h('label', { class: 'field' }, search),
+    results,
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }))));
+  search.focus();
+}
+
+async function combineWith(book, other, back) {
+  if (book.boeken && other.boeken) {
+    toast(t('Both are in the booklog: combining them there is not possible yet.'), { ms: 6000 });
+    return;
+  }
+  const [survivor, absorbed] = other.boeken && !book.boeken ? [other, book] : [book, other];
+  const before = [structuredClone(survivor), structuredClone(absorbed)];
+  W.combine(survivor, absorbed);
+  settleRating(survivor);
+  await saveBook(survivor);
+  await removeBook(absorbed);
+  openBook(survivor, null);
+  toast(t('Combined: “{title}” has {n} editions', { title: displayTitle(survivor), n: editionsOf(survivor).length }), {
+    action: t('Undo'), ms: 8000,
+    onAction: async () => { await putBack(survivor, before[0]); await putBack(absorbed, before[1]); if (sheet.isOpen) openBook(survivor, null); },
+  });
+}
+
+/** An edition, with its reads, as a book of its own (plan 5.3). Not possible yet for reads that are in the booklog. */
+async function splitOff(book, edition, back) {
+  if ((book.reviews || []).some((r) => r.ed === edition.id && r.boeken)) {
+    toast(t('Its reads are in the booklog: making it a book of its own there is not possible yet.'), { ms: 6000 });
+    return;
+  }
+  const before = structuredClone(book);
+  const { piece } = W.split(book, edition.id, { id: newId(), added: new Date().toISOString() });
+  settleRating(book);
+  await saveBook(book);
+  books.unshift(guarded(piece));
+  touch(piece.id, piece);
+  await DB.put(piece).catch(storageFailed);
+  renderLibrary();
+  openBook(piece, null);
+  toast(t('“{title}” is a book of its own now', { title: displayTitle(piece) }), {
+    action: t('Undo'), ms: 8000,
+    onAction: async () => { await removeBook(piece); await putBack(book, before); if (sheet.isOpen) openBook(book, null); },
+  });
 }
 
 /* The assistant: a few words about a book → proposals to add */
 
-/** The books on the shelf that are this one (as the assistant proposed it): the same ISBN, or title and first author. */
-const sameBooks = (p) => books.filter((b) => (p.isbn && b.isbn === p.isbn)
-  || (fold(b.title) === fold(p.title) && fold(b.author).split(',')[0].trim() === fold(p.author || '').split(',')[0].trim()));
-
-/** Is this book (as the assistant proposed it) on the shelf already? Not when what you have is
-    another version of it: the e-book, where this is the audiobook. */
+/** The book on the shelf that this one (as the assistant proposed it) already is: the same ISBN; or
+    the same book with an edition of the same format that can't be told apart from it (one of the
+    two says no ISBN). Not when what you have is another edition: the e-book, where this is the audiobook. */
 function onShelfAlready(p) {
-  return sameBooks(p).find((b) => !formatOf(p) || !formatOf(b) || formatOf(b) === formatOf(p));
+  if (p.isbn && byIsbn(p.isbn)) return byIsbn(p.isbn).book;
+  const work = W.findWork(p, books);
+  const format = (e) => formatOf({ ...e, boeken: work.boeken });
+  return work && editionsOf(work).some((e) => (!formatOf(p) || !format(e) || format(e) === formatOf(p)) && (!e.isbn || !p.isbn)) ? work : undefined;
 }
 
-/** The book on the shelf that this one is another version of (you have the e-book; this is the audiobook), or undefined. */
-const versionOfShelf = (p) => !onShelfAlready(p) && sameBooks(p).find((b) => formatOf(b) && formatOf(p) && formatOf(b) !== formatOf(p));
+/** The book on the shelf that this one is another edition of (you have the e-book; this is the audiobook), or undefined. */
+const editionOfShelf = (p) => (!onShelfAlready(p) && W.findWork(p, books)) || undefined;
 
 /**
  * `shared`: {text, url} from another app; the search then starts by itself.
@@ -2999,7 +3393,7 @@ function openDescribe(shared, found) {
   function drawResults() {
     const picked = proposals.filter((p) => p.picked);
     const row = (p) => {
-      const there = onShelfAlready(p), other = !there && versionOfShelf(p);
+      const there = onShelfAlready(p), other = !there && (adding.into || editionOfShelf(p));
       const box = h('input', { type: 'checkbox', checked: p.picked, disabled: !!there, onchange: () => { p.picked = box.checked; drawResults(); } });
       return h('label', { class: 'proposal' + (there ? ' is-there' : '') },
         box, coverEl(p),
@@ -3007,7 +3401,7 @@ function openDescribe(shared, found) {
           h('div', { class: 'book-title', text: p.title }),
           h('div', { class: 'book-author', text: [p.author, seriesLine(p)].filter(Boolean).join(' · ') }),
           h('div', { class: 'book-meta', text: there ? t('Already on your shelf') : metaLine(p) }),
-          other && h('div', { class: 'book-meta', text: t('Another version: you have it as {format}', { format: formatName(formatOf(other)).toLowerCase() }) }),
+          other && h('div', { class: 'book-meta', text: t('Another edition of “{title}” on your shelf', { title: displayTitle(other) }) }),
           p.note && h('p', { class: 'card-excerpt', text: p.note }),
           h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text })))));
     };
@@ -3056,38 +3450,31 @@ function openDescribe(shared, found) {
 
   async function add() {
     const picked = proposals.filter((p) => p.picked && !onShelfAlready(p));
+    let attached = false;
     for (const { picked: _, note, ...p } of picked) {
       const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
       // From a photograph of one book: that photograph is its cover until a better one is found,
       // and a barcode that was scanned first but found nowhere is its ISBN.
       if (found && picked.length === 1) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
       if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
-      // Another version of a book you have (its audiobook): a book of its own, which in the booklog
-      // is a reread of that one. Its series is the one you know it by, not the store's name for
-      // it; what else the find left out, the book you have says.
-      const other = versionOfShelf(book);
-      if (other) {
-        book.versionOf = other.id;
-        if (other.series) Object.assign(book, { series: other.series, seriesNumber: other.seriesNumber ?? null, seriesLabel: other.seriesLabel || '' });
-        for (const key of ['language', 'categories', 'tags']) {
-          const missing = book[key] == null || book[key] === '' || (Array.isArray(book[key]) && !book[key].length);
-          if (missing && other[key] != null && other[key] !== '') book[key] = structuredClone(other[key]);
-        }
-      }
+      // Another edition of a book you have (its audiobook) becomes an edition of it: what the
+      // find said of the book itself (its series as a store names it, its note) is not needed.
+      const other = adding.into || editionOfShelf(book);
       // The one dry sentence is the book's note: the text of its page in the booklog until it is reviewed.
-      if (note) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
+      if (note && !other) book.reviews = [{ id: newId(), date: '', rating: null, text: note }];
       // The booklog takes a book that has a reading status, a language and a category; the rest waits on its page.
-      if (host && toBooklog && hasStatus() && p.language && p.categories?.length) book.boekenWanted = true;
-      const added = await addBook(book);
+      if (!other && host && toBooklog && hasStatus() && p.language && p.categories?.length) book.boekenWanted = true;
+      const added = await addFound(book, { say: picked.length === 1 });
+      attached = added.attached;
       // The photograph, larger, for the server to keep: it can be straightened later.
-      if (!added.cover && added.thumb && found?.canvas && found.thumb === added.thumb) {
-        found.canvas.toBlob((large) => large && uploadCover(added, { thumb: added.thumb, large }, added), 'image/jpeg', 0.9);
+      if (!added.edition.cover && added.edition.thumb && found?.canvas && found.thumb === added.edition.thumb) {
+        found.canvas.toBlob((large) => large && uploadCover(added.edition, { thumb: added.edition.thumb, large }, added.book), 'image/jpeg', 0.9);
       }
     }
     saved = picked.length > 0;
     if (saved) rememberTarget(Object.keys(on));
     sheet.close();
-    toast(t('{n} added', { n: plural(picked.length, 'book') }));
+    if (!(picked.length === 1 && attached)) toast(t('{n} added', { n: plural(picked.length, 'book') }));
   }
 
   const head = found ? sheetHead(t('Is this the book?'), t('This is what the assistant makes of the cover.'))
@@ -3100,7 +3487,7 @@ function openDescribe(shared, found) {
     !found && onLists,
     find);
   // From a photograph the answer comes first; from words, the question.
-  sheet.open(h('div', null, head, found ? [results, onLists, form] : [form, results]), found && (() => found.onClose(saved)));
+  sheet.open(h('div', null, head, found ? [results, onLists, form] : [form, results]), () => { adding.into = null; found?.onClose(saved); });
   if (found) drawResults();
   else if (shared) form.requestSubmit();
   else words.focus();
@@ -3181,23 +3568,20 @@ async function openCoverFor(blob) {
   const search = h('input', { type: 'search', placeholder: t('Search your shelf'), autocomplete: 'off', enterkeyhint: 'search' });
   const results = h('div', { class: 'cand-list' });
 
-  async function put(book, review) {
-    const fields = { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '' };
-    if (review) review.edition = { ...(review.edition || {}), ...fields };
-    else Object.assign(book, fields, { coverSource: '' });
+  async function put(book, edition) {
+    Object.assign(edition, { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '', coverSource: '' });
     await saveBook(book);
-    uploadCover(review ? review.edition : book, picture, book);
+    uploadCover(edition, picture, book);
     sheet.close();
     toast(t('Cover replaced'));
   }
   function choose(book) {
-    const reads = sortedReviews(book).filter((r) => r.date);
-    if (reads.length < 2) { put(book, null); return; }
-    // Read in more than one edition: whose cover is it?
+    if (!several(book)) { put(book, W.mainEdition(book)); return; }
+    // More than one edition: whose cover is it?
     results.replaceChildren(
-      h('p', { class: 'sheet-note', text: t('This book was read more than once. Which edition is this the cover of?') }),
-      ...reads.map((r) => h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => put(book, r) },
-        [longDate(r.date), r.edition && editionLine(r.edition)].filter(Boolean).join(' — '))));
+      h('p', { class: 'sheet-note', text: t('This book has more than one edition. Which one is this the cover of?') }),
+      h('div', { class: 'edition-choice' }, editionsOf(book).map((e) => h('button', { class: 'edition-pick', type: 'button', onclick: () => put(book, e) },
+        coverEl(look(book, e)), h('span', { class: 'review-what' }, h('span', { text: editionLine(e, book) || t('Edition') }))))));
     search.hidden = true;
   }
   function draw() {
@@ -3254,9 +3638,9 @@ function addToBooklog(book, again) {
 function openBooklogForm(book, back) {
   const host = booklogHost();
   const status = lists.filter((l) => l.group === READING);
-  const on = {};
-  for (const { list, at, note } of listsOf(book)) on[list.id] = note ? { at, note } : { at };
-  let language = book.language || '';
+  const on = { ...book.lists };   // its reading status
+  const main = W.mainEdition(book);
+  let language = main.language || '';
   const chosen = new Set(book.categories || []);
   const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off' });
   // A book without a review can get a sentence about it: the text of its page until it is reviewed.
@@ -3269,7 +3653,7 @@ function openBooklogForm(book, back) {
       suggest.disabled = true;
       error.hidden = true;
       try {
-        const res = await api('suggest', { text: `${book.title} — ${book.author || ''}${book.isbn ? ` (ISBN ${book.isbn})` : ''}` });
+        const res = await api('suggest', { text: `${book.title} — ${book.author || ''}${main.isbn ? ` (ISBN ${main.isbn})` : ''}` });
         const p = (res.books || [])[0];
         if (!p) throw Object.assign(new Error(t('No books recognised in that.')), { status: 1 });
         language ||= p.language || '';
@@ -3302,8 +3686,9 @@ function openBooklogForm(book, back) {
     if (!status.some((l) => on[l.id])) return fail(t('Choose a reading status.'));
     if (!language) return fail(t('Choose a language.'));
     if (!chosen.size) return fail(t('Choose at least one category.'));
+    main.language = language;
     Object.assign(book, {
-      lists: on, language, categories: [...chosen],
+      lists: on, categories: [...chosen],
       tags: tags.value.split(',').map((tag) => tag.replace(/\s+/g, ' ').trim()).filter(Boolean),
       boekenWanted: true, boekenError: '',
     });
@@ -3339,16 +3724,19 @@ function openBooklogForm(book, back) {
  * read (or drop it), finish or give up one you are reading.
  */
 function bookActions(book, again) {
-  const on = shelves(book);
-  const move = async (id, message) => {
-    const before = book.lists, said = { progressUnit: book.progressUnit, percentRead: book.percentRead };
-    book.lists = place({ ...shelves(book) }, id);
+  const on = book.lists || {};
+  const move = async (id, message, at) => {
+    const before = book.lists, main = book.main, said = { progressUnit: book.progressUnit, percentRead: book.percentRead };
+    book.lists = place({ ...book.lists }, id, at);
+    // The read begun is of the edition it was meant to be of.
+    if (id === 'reading' && several(book)) book.main = W.mainEdition({ ...book, main }).id;
     await saveBook(book);
     again();
     toast(message, {
       action: t('Undo'),
       onAction: async () => {
-        if (before) book.lists = before; else delete book.lists;
+        book.lists = before || {};
+        if (main) book.main = main; else delete book.main;
         for (const key in said) if (said[key] != null) book[key] = said[key];
         await saveBook(book);
         if (sheet.isOpen) again();
@@ -3361,9 +3749,13 @@ function bookActions(book, again) {
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Did not finish'), onclick: () => move('abandoned', t('Marked as not finished')) }));
   }
   if (on['to-read']) {
+    // Dropping a book you meant to read takes it off the shelf; one you have read before just goes back to Read.
+    const before = (book.reviews || []).some((r) => r.date && !r.dnf);
     return h('div', { class: 'btn-row book-actions' },
       h('button', { class: 'btn btn-primary', type: 'button', onclick: () => move('reading', t('Started reading')) }, icon('book'), t('Start reading')),
-      h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: t('Drop'), onclick: () => confirmDrop(book) }));
+      before
+        ? h('button', { class: 'btn btn-outline', type: 'button', text: t('Not after all'), onclick: () => move('read', t('Back on Read'), shelves(book).read?.at) })
+        : h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: t('Drop'), onclick: () => confirmDrop(book) }));
   }
   return null;
 }
@@ -3428,7 +3820,9 @@ const spanOf = (minutes) => { const hours = Math.floor(minutes / 60), rest = min
 const doneAt = (percent, total) => Math.round((total * percent) / 100);
 
 /** → { audio, total, done, percent, byPercent }: pages (audiobook: minutes) in all and so far; null where unknown. */
-function progressOf(book) {
+function progressOf(x) {
+  // Of a book's read under way: its own progress, the totals of the edition being read.
+  const book = x.editions ? look(x) : x;
   const audio = formatOf(book) === 'audiobook' && !!book.duration;
   const total = audio ? minutesOf(book.duration) : (book.pages > 0 ? book.pages : null);
   const left = audio ? minutesOf(book.durationLeft) : null;
@@ -3443,8 +3837,13 @@ function progressOf(book) {
 }
 
 function progressBox(book, again) {
-  if (!shelves(book).reading) return null;
+  if (!book.lists?.reading) return null;
   const { audio, total, percent, byPercent } = progressOf(book);
+  const reading = W.mainEdition(book);
+  // With more than one edition: which one is being read, and a way to say it is another.
+  const which = several(book) && h('p', { class: 'sheet-note progress-which' },
+    t('Reading: {edition}', { edition: editionLine(reading, book) || formatName(formatOf({ ...reading, boeken: book.boeken })) || t('this edition') }), ' ',
+    h('button', { class: 'link-btn', type: 'button', text: t('Another one'), onclick: () => chooseEdition(book, reading, async (e) => { book.main = e.id; await saveBook(book); again(); }, again) }));
   const amount = audio
     ? h('input', { name: 'left', value: book.durationLeft || '', placeholder: '3u 12m', autocomplete: 'off' })
     : h('input', { name: 'page', type: 'number', min: 0, max: total, inputmode: 'numeric', value: book.pagesRead ?? '' });
@@ -3494,7 +3893,7 @@ function progressBox(book, again) {
         if (audio) {
           const left = minutesOf(amount.value);
           if (left == null) return fail(amount, t('Give the time left like 3u 12m.'));
-          if (total && left > total) return fail(amount, t('That is more than the whole book ({n}).', { n: book.duration }));
+          if (total && left > total) return fail(amount, t('That is more than the whole book ({n}).', { n: reading.duration }));
           book.durationLeft = spanOf(left);
         } else {
           const page = pageOf();
@@ -3512,7 +3911,7 @@ function progressBox(book, again) {
   },
   ...(byPercent ? fields.reverse() : fields),   // what this read goes by comes first
   h('button', { class: 'btn btn-outline', type: 'submit' }, icon('check'), t('Save')),
-  error);
+  error, which);
 }
 
 /* A book's page takes a little of its cover's colour, as its page in the booklog does: the
@@ -3556,7 +3955,8 @@ function coverTint(src) {
 }
 
 async function tintSheet(book) {
-  const src = [book.cover, book.thumb].find(Boolean);
+  const main = W.mainEdition(book);
+  const src = [main.cover, main.thumb].find(Boolean);
   const colour = src ? await coverTint(src) : '';
   if (openedBook !== book || !bookPageOpen()) return;   // another book, or another sheet, by now
   if (colour) $('sheet').style.setProperty('--cover', colour);
@@ -3565,10 +3965,10 @@ async function tintSheet(book) {
 
 /** For a book that has no cover, or only the photograph taken of it when it was added: a way
  *  to the cover's own page (coverViewer), where better ones are found. */
-function coverSearch(book, viewer) {
-  if (book.cover || !book.title) return null;   // `thumb` alone is your own photograph
+function coverSearch(book, viewer, ed = W.mainEdition(book)) {
+  if (ed.cover || !book.title) return null;   // `thumb` alone is your own photograph
   return h('button', { class: 'link-btn cover-search', type: 'button', onclick: () => viewer.open() },
-    icon('search'), book.thumb ? t('Find a better cover') : t('Find a cover'));
+    icon('search'), ed.thumb ? t('Find a better cover') : t('Find a cover'));
 }
 
 /* From a book to the one before or after it in the list it was opened from: swipe right or
@@ -3620,124 +4020,133 @@ function openBook(book, rows) {
   const again = () => { if (books.includes(book)) openBook(book); else sheet.close(); };
   const before = neighbour(book, -1), after = neighbour(book, 1);
   const turn = (other, name, label) => h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, disabled: !other, onclick: () => openBook(other) }, icon(name));
-  // With more than one read, each says which edition it was: its cover and a line about it.
-  const several = (book.reviews || []).filter((r) => r.date).length > 1;
+  const main = W.mainEdition(book);
+  const b = look(book, main);
+  const multi = several(book);
+  // With more than one read, or more than one edition, each read says which edition it was: its cover and a line about it.
+  const shownEditions = multi || (book.reviews || []).filter((r) => r.date).length > 1;
   const reviewEl = (review) => {
-    const e = several && review.edition;
+    const e = shownEditions && W.editionOf(book, review.ed);
+    const line = e && editionLine(e, multi ? book : undefined);
     return h('article', { class: 'review' },
       h('div', { class: 'review-head' },
-        e && (e.cover || e.thumb) && coverEl({ title: book.title, ...e }),
+        e && (e.cover || e.thumb) && coverEl(look(book, e)),
         h('div', { class: 'review-what' },
-          h('span', { text: [review.date && longDate(review.date), review.rating != null && `★ ${review.rating}`].filter(Boolean).join(' · ') || t('Note') }),
-          e && editionLine(e) && h('small', { text: editionLine(e) })),
+          h('span', { text: [review.date && longDate(review.date), review.rating != null && `★ ${review.rating}`, review.dnf && t('Did not finish')].filter(Boolean).join(' · ') || t('Note') }),
+          line && h('small', { text: line })),
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Edit review'), onclick: () => openReviewForm(book, review, again) }, icon('pencil'))),
       review.text && h('div', { class: 'prose' }, renderMarkdown(review.text)));
   };
   const reviews = sortedReviews(book);
+  // Who made it: the writers, then the others by what they did. With several editions, those on
+  // every edition; a voice or a translator is named with their edition.
+  const others = contributorsIn(multi ? peopleSplit(book).common : peopleOf(b));
+  const addEdition = () => openAdd(false, { into: book, back: again });
 
-  const viewer = coverViewer(book, again);
+  const viewer = coverViewer(book, again, main);
   sheet.open(h('div', { class: 'book-page' },
     h('div', { class: 'page-head' },
       viewer,
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
-        // Each name leads to all of that person's books: the writers, then the others by what they did.
+        // Each name leads to all of that person's books.
         book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', personLink(name)])),
-        contributorsIn(peopleOf(book)).length > 0 && h('p', { class: 'page-people' },
-          contributorsIn(peopleOf(book)).flatMap(([role, names], i) => [i > 0 && ' · ', `${role}: `, ...names.flatMap((name, j) => [j > 0 && ', ', personLink(name)])])),
+        others.length > 0 && h('p', { class: 'page-people' },
+          others.flatMap(([role, names], i) => [i > 0 && ' · ', `${role}: `, ...names.flatMap((name, j) => [j > 0 && ', ', personLink(name)])])),
         seriesLine(book) && h('button', {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
           onclick: () => closeLayersThen(() => setView({ series: book.series })),
         }),
-        metaLine(book) && h('p', { class: 'book-meta', text: metaLine(book) }),
+        metaLine(b) && h('p', { class: 'book-meta', text: metaLine(b) }),
         // What it is in and about, quietly: the language and categories, then the tags.
-        (book.language || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
-          [book.language && languageName(book.language), ...(book.categories || [])].filter(Boolean).join(' · '),
-          book.tags?.length > 0 && h('span', { text: (book.language || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
+        (b.language || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
+          [b.language && languageName(b.language), ...(book.categories || [])].filter(Boolean).join(' · '),
+          book.tags?.length > 0 && h('span', { text: (b.language || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
         listTags(book, null),
-        coverSearch(book, viewer)),
+        coverSearch(book, viewer, main)),
       h('div', { class: 'page-corner' },
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')),
         (before || after) && h('div', { class: 'page-turn' }, turn(before, 'back', t('Previous book')), turn(after, 'forward', t('Next book'))))),
     sourceNote(book, false, again),
     progressBox(book, again),
     bookActions(book, again),
+    multi && h('div', { class: 'sheet-section editions' },
+      h('div', { class: 'section-head' },
+        h('h3', { text: t('Editions') }),
+        h('button', { class: 'link-btn', type: 'button', onclick: addEdition }, icon('plus'), t('Add another edition'))),
+      editionsOf(book).map((e) => editionRow(book, e, again))),
     h('div', { class: 'sheet-section' },
       h('div', { class: 'section-head' },
         h('h3', { text: t('Reviews') }),
         // A read that has only its date yet (marked as read, nothing said) is the one a review is for.
         h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, sortedReviews(book).find((r) => r.date && !r.text && r.rating == null) || null, again) }, icon('plus'), t('Add review'))),
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
-    h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
+    multi
+      ? h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))
+      : h('div', { class: 'page-edit-row' },
+        h('button', { class: 'btn btn-outline page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details')),
+        h('button', { class: 'link-btn page-add-edition', type: 'button', onclick: addEdition }, icon('plus'), t('Add another edition')))));
   tintSheet(book);
+}
+
+/** An edition in the Editions section of its book's page: its cover, a line about it, the lists it is on, when it was read. Tapping it opens its sheet. */
+function editionRow(book, e, again) {
+  const reads = (book.reviews || []).filter((r) => r.ed === e.id && r.date).sort((x, y) => (x.date < y.date ? -1 : 1))
+    .map((r) => new Date(`${r.date}T12:00:00`).toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' }));
+  const reading = W.OPEN.some((id) => book.lists?.[id]) && W.mainEdition(book) === e;
+  const tags = listsOf({ ...book, lists: {} }, e).map(({ list, note }) => (note ? `${listName(list)}: ${note}` : listName(list)));
+  return h('button', { class: 'edition-row', type: 'button', onclick: () => openEditionForm(book, e, { back: again }) },
+    coverEl(look(book, e)),
+    h('span', { class: 'review-what' },
+      h('span', { text: editionLine(e, book) || formatName(formatOf({ ...e, boeken: book.boeken })) || t('Edition') }),
+      (reading || reads.length > 0) && h('small', { text: [reading && t('reading this one'), reads.join(' · ')].filter(Boolean).join(' · ') }),
+      tags.length > 0 && h('span', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text })))),
+    icon('chevron'));
 }
 
 /** Write a review, or change one. `back` shows the book's page again. */
 /** `finish`: this review is of the read just finished; saving it also puts the book on Read. */
-function openReviewForm(book, review, back, { finish = false } = {}) {
+function openReviewForm(book, review, back, { finish = false, draft = null } = {}) {
   const isNew = !review;
   const today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
   const text = h('textarea', { name: 'text', rows: 9, class: 'review-text', autocapitalize: 'sentences' });
-  text.value = review?.text || '';
+  text.value = draft ? draft.text : review?.text || '';
   // Reading date and rating are both optional; a book that was just read most likely was read today.
-  const date = h('input', { name: 'date', type: 'date', max: today, value: review ? review.date || '' : (finish || shelves(book).read ? today : '') });
-  const rating = h('input', { name: 'rating', type: 'number', min: 0, max: 10, step: 1, inputmode: 'numeric', placeholder: '–', value: review?.rating ?? '' });
+  const date = h('input', { name: 'date', type: 'date', max: today, value: draft ? draft.date : review ? review.date || '' : (finish || book.lists?.read ? today : '') });
+  const rating = h('input', { name: 'rating', type: 'number', min: 0, max: 10, step: 1, inputmode: 'numeric', placeholder: '–', value: draft ? draft.rating : review?.rating ?? '' });
   const error = h('p', { class: 'field-error', hidden: true });
 
-  // The edition read this time. A new read starts from the book's own, so only what differs needs saying.
-  const edition = { ...(review?.edition || mainEdition(book)) };
-  const cover = coverControl(() => ({ title: book.title, ...edition }), () => form, () => ({ isbn: ed.isbn.value.replace(/[^0-9Xx]/g, '') || edition.isbn || '', title: book.title, author: book.author }));
-  const ed = {
-    publisher: h('input', { name: 'publisher', value: edition.publisher || '', autocomplete: 'off', autocapitalize: 'words' }),
-    date: h('input', { name: 'published', value: edition.date || '', inputmode: 'numeric', autocomplete: 'off' }),
-    pages: h('input', { name: 'pages', value: edition.pages ?? '', inputmode: 'numeric', autocomplete: 'off' }),
-    duration: h('input', { name: 'duration', value: edition.duration || '', placeholder: '11u 36m', autocomplete: 'off' }),
-    isbn: h('input', { name: 'isbn', value: edition.isbn || '', inputmode: 'numeric', autocomplete: 'off' }),
-  };
-  const who = peopleEditor(edition.people || peopleOf(book));
-  const format = formatPicker(formatOf(edition));
-  let language = edition.language || '';
-  const languages = h('div', { class: 'chips' });
-  const drawLanguages = () => languages.replaceChildren(...['nl', 'en', 'fr', 'de'].map((code) => h('button', {
-    class: 'chip', type: 'button', text: code.toUpperCase(), 'aria-pressed': String(language === code),
-    onclick: () => { language = language === code ? '' : code; drawLanguages(); },
-  })));
-  drawLanguages();
+  // The edition read: one of the book's (a new read is of its main one), or another one, added on the way.
+  let chosen = W.editionOf(book, draft?.ed ?? review?.ed) || W.mainEdition(book);
+  const again = (ed, open = true) => openReviewForm(book, review, back, { finish, draft: { text: text.value, date: date.value, rating: rating.value, ed: (ed || chosen).id, open } });
+  const box = h('details', { class: 'edition-box', open: !!draft?.open });
+  const drawBox = () => fill(box,
+    h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(chosen, several(book) ? book : undefined) || t('Not said') })),
+    h('div', { class: 'edition-choice' },
+      editionsOf(book).map((e) => h('button', {
+        class: 'edition-pick', type: 'button', 'aria-pressed': String(e === chosen),
+        onclick: () => { chosen = e; drawBox(); },
+      }, coverEl(look(book, e)), h('span', { class: 'review-what' },
+        h('span', { text: editionLine(e, book) || formatName(formatOf({ ...e, boeken: book.boeken })) || t('Edition') }),
+        e === W.mainEdition(book) && several(book) && h('small', { text: t('the main one') }))))),
+    h('div', { class: 'edition-links' },
+      h('button', { class: 'link-btn', type: 'button', onclick: () => openEditionForm(book, null, { back: () => again(), from: chosen, onSaved: (e) => again(e) }) }, icon('plus'), t('Another edition…')),
+      h('button', { class: 'link-btn', type: 'button', onclick: () => openEditionForm(book, chosen, { back: () => again() }) }, icon('pencil'), t('Edit this edition'))));
+  drawBox();
 
   async function submit(e) {
     e.preventDefault();
     const stars = rating.value.trim() === '' ? null : Math.round(Number(rating.value));
-    const data = { date: date.value || '', rating: stars, text: text.value.replace(/\r\n?/g, '\n').trim() };
-    const said = (input) => input.value.replace(/\s+/g, ' ').trim();
-    const read = {
-      ...edition,
-      publisher: said(ed.publisher), date: normDate(said(ed.date)),
-      pages: parseInt(said(ed.pages), 10) > 0 ? parseInt(said(ed.pages), 10) : null,
-      duration: said(ed.duration).toLowerCase().replace(/h/g, 'u'),
-      isbn: toIsbn13(said(ed.isbn)) || said(ed.isbn).replace(/[^0-9Xx]/g, ''),
-      language, format: format.value,
-      ...(cover.choice && coverFields(cover.choice)),
-    };
-    // Who made this edition, where that was said before, someone has a role, or it isn't the book's writers.
-    const people = who.value();
-    const same = (a, b) => a.length === b.length && a.every((person, i) => fold(person.name) === fold(b[i].name) && (person.role || '') === (b[i].role || ''));
-    if (people.length && (Array.isArray(edition.people) || people.some((person) => person.role) || !same(people, peopleOf(book)))) read.people = people;
-    else delete read.people;
-    // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
-    if (format.value === 'audiobook') read.pages = null; else if (format.value) read.duration = '';
-    for (const key of Object.keys(read)) if (read[key] == null || read[key] === '') delete read[key];
-    if (Object.keys(read).length) data.edition = read;
+    const data = { date: date.value || '', rating: stars, text: text.value.replace(/\r\n?/g, '\n').trim(), ed: chosen.id };
     const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
     if (stars != null && !(stars >= 0 && stars <= 10)) return fail(t('A rating goes from 0 to 10.'), rating);
     const blank = !data.text && !data.date && stars == null;
     if (blank && !finish) return fail(t('Write something, or give a reading date or a rating.'), text);
-    if (finish) book.lists = place({ ...shelves(book) }, 'read');
-    if (review && !data.edition) delete review.edition;
+    if (finish) book.lists = place({ ...book.lists }, 'read');
     if (review) Object.assign(review, data);
     else if (!blank) (book.reviews ||= []).push({ id: newId(), ...data });
     settleRating(book);
     await saveBook(book);
-    if (cover.choice && data.edition) keepCover(data.edition, cover.choice, book);
     back();
   }
 
@@ -3761,43 +4170,32 @@ function openReviewForm(book, review, back, { finish = false } = {}) {
     });
   }
 
-  const edPages = h('label', { class: 'field' }, h('span', { text: t('Pages') }), ed.pages);
-  const edLength = h('label', { class: 'field' }, h('span', { text: t('Length') }), ed.duration);
-  const showExtent = () => { edLength.hidden = format.value !== 'audiobook'; edPages.hidden = format.value === 'audiobook'; };
-  format.onChange = showExtent;
-  showExtent();
-
-  const form = h('form', {
-    novalidate: true, onsubmit: submit,
-    ondragover: (e) => { if ([...(e.dataTransfer?.types || [])].includes('Files')) e.preventDefault(); },
-    ondrop: (e) => { const file = cover.pictureIn(e.dataTransfer); if (file) { e.preventDefault(); cover.pick(file); } },
-  },
+  const form = h('form', { novalidate: true, onsubmit: submit },
     sheetHead(finish ? t('Finished it') : isNew ? t('New review') : t('Edit review'), displayTitle(book)),
     h('label', { class: 'field' }, h('span', { text: t('Review') }), text),
     h('p', { class: 'sheet-note md-hint', text: t('Markdown works: *italic*, **bold**, > quote, [link](https://…).') }),
     h('div', { class: 'field-row' },
       h('label', { class: 'field' }, h('span', { text: t('Read on') }), date),
       h('label', { class: 'field' }, h('span', { text: t('Rating (0–10)') }), rating)),
-    h('details', { class: 'edition-box', open: !!(review?.edition && Object.keys(review.edition).length && !isNew) && false },
-      h('summary', null, h('span', { text: t('Edition read') }), h('small', { text: editionLine(edition) })),
-      h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
-      h('div', { class: 'edition-cover' }, cover.button,
-        h('p', { class: 'sheet-note', text: t('The cover of this edition. Tap it to see it large, or to change it.') })),
-      h('label', { class: 'field' }, h('span', { text: t('Publisher') }), ed.publisher),
-      h('div', { class: 'field-row' },
-        h('label', { class: 'field' }, h('span', { text: t('Published') }), ed.date),
-        h('label', { class: 'field' }, h('span', { text: 'ISBN' }), ed.isbn)),
-      h('div', { class: 'field-row' }, edPages, edLength),
-      h('div', { class: 'field' }, h('span', { text: t('Language') }), languages),
-      h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
-      h('p', { class: 'sheet-note people-hint', text: t('Who made this edition: an audiobook has a voice (stem), a translation a translator (vertaling).') })),
+    box,
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save'))));
   sheet.open(form);
-  if (isNew) text.focus();
+  if (isNew && !draft) text.focus();
+}
+
+/** Choose one of a book's editions (the one being read, say). `onPick(edition)`; `back` for Cancel. */
+function chooseEdition(book, current, onPick, back) {
+  sheet.open(h('div', null,
+    sheetHead(t('Which edition?'), displayTitle(book)),
+    h('div', { class: 'edition-choice' }, editionsOf(book).map((e) => h('button', {
+      class: 'edition-pick', type: 'button', 'aria-pressed': String(e === current), onclick: () => onPick(e),
+    }, coverEl(look(book, e)), h('span', { class: 'review-what' }, h('span', { text: editionLine(e, book) || t('Edition') }))))),
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }))));
 }
 
 /* ───────────────────────── Managing lists ───────────────────────── */
@@ -3902,22 +4300,27 @@ function openListForm(list) {
 /* ───────────────────────── Export ───────────────────────── */
 
 function exportJson() {
+  const named = (on) => lists.filter((l) => on?.[l.id]).map((l) => ({ list: listName(l), since: on[l.id].at || '', ...(on[l.id].note && { note: on[l.id].note }) }));
   const rows = [...books].reverse().map((b) => ({
-    title: b.title, author: b.author, date: b.date, publisher: b.publisher, pages: b.pages ?? null,
-    isbn: b.isbn || '', cover: b.cover ? abs(b.cover) : '', added: b.added,
-    lists: listsOf(b).map(({ list, at, note }) => ({ list: listName(list), since: at, ...(note && { note }) })),
+    title: b.title, author: b.author, added: b.added,
+    lists: named(b.lists),
     ...(b.series && { series: b.series, seriesNumber: seriesNo(b) }),
     ...(b.rating != null && { rating: b.rating }),
-    ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '' })) }),
+    // Each edition: its own facts, and the lists of where it is.
+    editions: editionsOf(b).map((e) => Object.fromEntries(Object.entries({
+      id: e.id, title: e.title, format: e.format, publisher: e.publisher, date: e.date, pages: e.pages, duration: e.duration,
+      isbn: e.isbn, language: e.language, cover: e.cover ? abs(e.cover) : '', people: e.people, lists: named(e.lists),
+    }).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)))),
+    ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '', edition: r.ed, ...(r.dnf && { dnf: true }) })) }),
   }));
   return JSON.stringify(rows, null, 2);
 }
 
 /* The CSV layout of a Goodreads export, which other reading sites import too: StoryGraph,
-   BookWyrm, Hardcover, LibraryThing and Goodreads itself. One row per book, so a book read
-   more than once comes with its latest read; ratings go from 0–10 to 1–5 stars, and the series
-   goes in the title, "A Wizard of Earthsea (Earthsea, #1)", as Goodreads has it. Books with
-   no reading status are put on to-read, as Goodreads does with every book it is given. */
+   BookWyrm, Hardcover, LibraryThing and Goodreads itself. One row per read, with the edition
+   that was read (a book not read yet: one row, its main edition); ratings go from 0–10 to 1–5
+   stars, and the series goes in the title, "A Wizard of Earthsea (Earthsea, #1)", as Goodreads
+   has it. Books with no reading status are put on to-read, as Goodreads does with every book it is given. */
 const GOODREADS_COLUMNS = ['Book Id', 'Title', 'Author', 'Author l-f', 'Additional Authors', 'ISBN', 'ISBN13',
   'My Rating', 'Average Rating', 'Publisher', 'Binding', 'Number of Pages', 'Year Published',
   'Original Publication Year', 'Date Read', 'Date Added', 'Bookshelves', 'Bookshelves with positions',
@@ -3948,33 +4351,42 @@ function exportGoodreads() {
   const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso || '') ? iso.slice(0, 10).replace(/-/g, '/') : '');
   const quoted = (isbn) => (isbn ? `="${isbn}"` : '');   // as Goodreads writes them, so a spreadsheet keeps the zeros
   const slug = (text) => fold(text).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const rows = [...books].reverse().map((b) => {
-    const people = peopleOf(b);
-    const writers = writersIn(people);
-    const others = [...writers.slice(1), ...people.map((person) => person.name).filter((name) => !writers.includes(name))];
-    const on = listsOf(b);
-    const status = on.find(({ list }) => FIXED.has(list.id))?.list.id;
+  const rows = [...books].reverse().flatMap((book) => {
+    const status = Object.keys(book.lists || {}).find((id) => FIXED.has(id));
     const shelf = GOODREADS_SHELF[status] || 'to-read';
-    const reads = (b.reviews || []).filter((r) => r.date).length;
-    const isbn13 = toIsbn13(b.isbn) || '';
-    const format = formatOf(b);
-    return [
-      '', b.series ? `${b.title} (${b.series}${seriesNo(b) ? `, #${seriesNo(b)}` : ''})` : b.title, writers[0] || '', lastFirst(writers[0]), others.join(', '), quoted(toIsbn10(isbn13)), quoted(isbn13),
-      b.rating != null ? Math.max(1, Math.round(b.rating / 2)) : 0, '', b.publisher || '',
-      { ebook: 'ebook', audiobook: 'Audiobook' }[format] || '', b.pages || '', yearOf(b.date), '',
-      day(lastRead(b)), day(b.added),
-      on.filter(({ list }) => !FIXED.has(list.id)).map(({ list }) => slug(listName(list))).filter(Boolean).join(', '), '',
-      shelf, sortedReviews(b).find((r) => r.text?.trim())?.text.trim() || '', '',
-      on.filter(({ note }) => note).map(({ list, note }) => `${listName(list)}: ${note}`).join('; '),
-      shelf === 'read' ? Math.max(reads, 1) : reads, shelves(b).library ? 1 : 0,
-    ];
+    /** One row: the book as edition `ed`, for `read` (a review with a reading date) or for where it stands now. */
+    const row = (ed, read) => {
+      const b = look(book, ed);
+      const people = peopleOf(b);
+      const writers = writersIn(people);
+      const others = [...writers.slice(1), ...people.map((person) => person.name).filter((name) => !writers.includes(name))];
+      const on = listsOf(book, ed).filter(({ list }) => !FIXED.has(list.id));
+      const isbn13 = toIsbn13(b.isbn) || '';
+      const rating = read ? read.rating : b.rating;
+      const text = read ? read.text : sortedReviews(book).find((r) => !r.date && r.text?.trim())?.text;
+      return [
+        '', b.series ? `${b.title} (${b.series}${seriesNo(b) ? `, #${seriesNo(b)}` : ''})` : b.title, writers[0] || '', lastFirst(writers[0]), others.join(', '), quoted(toIsbn10(isbn13)), quoted(isbn13),
+        rating != null ? Math.max(1, Math.round(rating / 2)) : 0, '', b.publisher || '',
+        { ebook: 'ebook', audiobook: 'Audiobook' }[formatOf(b)] || '', b.pages || '', yearOf(b.date), '',
+        day(read?.date), day(book.added),
+        on.map(({ list }) => slug(listName(list))).filter(Boolean).join(', '), '',
+        read ? (read.dnf ? 'did-not-finish' : 'read') : shelf, text?.trim() || '', '',
+        on.filter(({ note }) => note).map(({ list, note }) => `${listName(list)}: ${note}`).join('; '),
+        read ? 1 : 0, ed.lists?.library ? 1 : 0,
+      ];
+    };
+    const reads = (book.reviews || []).filter((r) => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const out = reads.map((r) => row(W.editionOf(book, r.ed) || W.mainEdition(book), r));
+    // Not read yet, or being read (again): a row for where it stands.
+    if (!reads.length || (shelf !== 'read' && shelf !== 'did-not-finish')) out.push(row(W.mainEdition(book), null));
+    return out;
   });
   return [GOODREADS_COLUMNS, ...rows].map((row) => row.map(cell).join(',')).join('\n') + '\n';
 }
 
 const EXPORTS = {
   json: { make: exportJson, type: 'application/json', ext: 'json', about: (n) => t('{n} as JSON, oldest first.', { n }), copied: () => t('JSON copied to clipboard') },
-  goodreads: { make: exportGoodreads, type: 'text/csv', ext: 'csv', about: (n) => t('{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per book, with its latest read; ratings become 1 to 5 stars.', { n }), copied: () => t('CSV copied to clipboard') },
+  goodreads: { make: exportGoodreads, type: 'text/csv', ext: 'csv', about: (n) => t('{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per read, with the edition that was read; ratings become 1 to 5 stars.', { n }), copied: () => t('CSV copied to clipboard') },
 };
 
 function openExport(kind = 'json') {
@@ -4125,6 +4537,7 @@ function openScanner(mode = 'barcode') {
 
 function closeScannerNow() {
   scanner.open = false;
+  adding.into = null;
   scanner.session++;
   stopCamera();
   showCard(null);
@@ -4431,14 +4844,16 @@ function showCard(node) {
   scannerEl.classList.toggle('busy', scanner.busy);
 }
 
-function card({ status, tone, statusIcon, book, title, sub, actions = [], onDismiss }) {
+/** A result card. `book`: a book on the shelf, shown as its edition `edition` (its main one unless said), or a flat proposal. */
+function card({ status, tone, statusIcon, book, edition, title, sub, actions = [], onDismiss }) {
+  const b = book && (book.editions ? look(book, edition) : book);
   const text = h('div', null,
     status && h('div', { class: 'card-status ' + (tone || '') }, statusIcon && icon(statusIcon), status),
-    h('div', { class: 'card-title', text: book ? displayTitle(book) : title }),
-    (book?.author || sub) && h('div', { class: 'card-sub', text: book ? book.author : sub }),
-    book && metaLine(book) && h('div', { class: 'card-meta', text: metaLine(book) }));
+    h('div', { class: 'card-title', text: b ? displayTitle(b) : title }),
+    (b?.author || sub) && h('div', { class: 'card-sub', text: b ? b.author : sub }),
+    b && metaLine(b) && h('div', { class: 'card-meta', text: metaLine(b) }));
   return h('div', { class: 'card' },
-    h('div', { class: 'card-main' + (book ? '' : ' solo') }, book && coverEl(book, true), text),
+    h('div', { class: 'card-main' + (b ? '' : ' solo') }, b && coverEl(b, true), text),
     actions.length > 0 && h('div', { class: 'card-actions' }, actions),
     h('button', { class: 'card-x', type: 'button', 'aria-label': t('Dismiss'), onclick: () => { onDismiss?.(); showCard(null); } }, icon('x')));
 }
@@ -4453,29 +4868,47 @@ function busyCard(text, withProgress) {
   return node;
 }
 
-function addedCard(book) {
+/** What was found, as addFound left it: a book of its own, or another edition of one (with Keep separate). */
+function addedCard(found) {
+  const { book, edition } = found;
+  const counted = (n) => { scanner.added = Math.max(0, scanner.added + n); updateScanCount(); };
+  const again = () => { if (scanner.open && books.includes(book)) showCard(addedCard(found)); else showCard(null); };
+  if (found.attached) {
+    return card({
+      status: found.copy ? t('Another copy of it added to “{title}”', { title: displayTitle(book) }) : t('Added to “{title}” as another edition', { title: displayTitle(book) }),
+      tone: 'ok', statusIcon: 'check', book, edition,
+      actions: [
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: async () => { await found.undo(); counted(-1); showCard(null); } }, icon('undo'), t('Undo')),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openEditionForm(book, edition, { back: () => { sheet.close(); again(); } }) }, icon('pencil'), t('Edit')),
+        h('button', { class: 'btn btn-outline btn-whole', type: 'button', onclick: async () => {
+          const own = await found.keepSeparate();
+          showCard(addedCard({ book: own, edition: own.editions[0], attached: false }));
+        } }, icon('split'), t('Keep separate')),
+      ],
+    });
+  }
   return card({
     status: t('Added'), tone: 'ok', statusIcon: 'check', book,
     actions: [
-      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { removeBook(book); scanner.added = Math.max(0, scanner.added - 1); updateScanCount(); showCard(null); } }, icon('undo'), t('Undo')),
-      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book, onClose: () => { if (scanner.open && books.includes(book)) showCard(addedCard(book)); else showCard(null); } }) }, icon('pencil'), t('Edit')),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { removeBook(book); counted(-1); showCard(null); } }, icon('undo'), t('Undo')),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book, onClose: again }) }, icon('pencil'), t('Edit')),
     ],
   });
 }
 
-// What is yours about one copy and not the other: where it is, what you thought of it, how far
-// you got, and its page in the booklog. A second copy starts without them.
-const OF_ONE_COPY = ['id', 'added', 'modified', 'lists', 'reviews', 'reads', 'reviewed', 'rating', 'pagesRead', 'percentRead',
-  'progressUnit', 'progressLog', 'durationLeft', 'boeken', 'boekenWanted', 'boekenError', 'url'];
-
-/** Another copy of a book you have, on lists `on`: the same edition, a book of its own. */
-function addCopy(book, on) {
-  const copy = structuredClone(book);
-  for (const key of OF_ONE_COPY) delete copy[key];
-  copy.lists = on;
+/** Another copy of an edition you have, on lists `on` (those of where a copy is): a second entry of that edition, in the same book. */
+async function addCopy(book, edition, on) {
+  const before = structuredClone(book);
+  const copy = W.addEdition(book, { ...W.factsOf(edition), title: edition.title || book.title, lists: on }, { status: statusIds(), added: new Date().toISOString() });
+  delete copy.coverFull;
+  await saveBook(book);
   scanner.added++;
   updateScanCount();
-  return addBook(copy);
+  // Kept separate, it is a book of its own: what the book is, with this edition and nothing of yours about the other copy.
+  const own = { ...Object.fromEntries(['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'categories', 'tags', 'olid'].filter((key) => book[key] != null).map((key) => [key, structuredClone(book[key])])),
+    ...W.factsOf(edition), lists: on };
+  delete own.coverFull;
+  return { book, edition: copy, attached: true, copy: true, undo: () => putBack(book, before), keepSeparate: async () => { await putBack(book, before); return addBook(own); } };
 }
 
 function pulse() {
@@ -4489,40 +4922,39 @@ async function onIsbn(isbn) {
   buzz();
   pulse();
 
-  // With more than one copy, the one that is already where you are scanning to answers.
-  const copies = books.filter((b) => b.isbn === isbn);
-  const existing = copies.find((b) => scanner.target.every((id) => shelves(b)[id])) || copies[0];
-  if (existing) {
+  // The same ISBN is the same edition. With more than one copy, the one that is already where you are scanning to answers.
+  const known = byIsbn(isbn, scanner.target);
+  if (known) {
+    const { book: existing, edition } = known;
     scanner.busy = false;
-    // The copy in your hand may be another one: then it becomes a book of its own, on the
-    // lists you are scanning to, and the one you had stays where it was.
+    adding.into = null;
+    // The copy in your hand may be another one: then it is a second entry of that edition, on the
+    // lists of where a copy is that you are scanning to, and the one you had stays where it was.
     const another = (then) => h('button', { class: 'btn btn-outline btn-whole', type: 'button', onclick: async (e) => {
       e.currentTarget.disabled = true;
-      then?.();
-      showCard(addedCard(await addCopy(existing, targetLists())));
+      await then?.();
+      showCard(addedCard(await addCopy(existing, edition, Object.fromEntries(Object.entries(targetLists()).filter(([id]) => !isStatus(id))))));
     } }, icon('plus'), t('Another copy'));
-    // Scanning onto "Lent out" or "Read" is also how a book you already have gets there.
-    const before = existing.lists;
-    const missing = scanner.target.filter((id) => !shelves(existing)[id]);
+    // Scanning onto "Lent out" or "Read" is also how a book you already have gets there: the
+    // reading status is the book's, the rest is that edition's.
+    const before = structuredClone(existing);
+    const missing = scanner.target.filter((id) => !(isStatus(id) ? existing.lists?.[id] : edition.lists?.[id]));
     if (!missing.length) {
       showCard(card({
-        status: listNames(scanner.target) ? t('Already on {lists}', { lists: listNames(scanner.target) }) : t('Already on your shelf'), tone: 'warn', book: existing,
+        status: listNames(scanner.target) ? t('Already on {lists}', { lists: listNames(scanner.target) }) : t('Already on your shelf'), tone: 'warn', book: existing, edition,
         actions: [another()],
       }));
       return;
     }
-    existing.lists = missing.reduce((on, id) => place(on, id), { ...shelves(existing) });
+    for (const id of missing) putOn(existing, edition, id);
     saveBook(existing);
-    const putBack = () => {
-      if (before) existing.lists = before; else delete existing.lists;
-      saveBook(existing);
-    };
+    const undo = () => putBack(existing, before);
     showCard(card({
-      status: t('Put on {lists}', { lists: listNames(missing) }), tone: 'ok', statusIcon: 'check', book: existing,
+      status: t('Put on {lists}', { lists: listNames(missing) }), tone: 'ok', statusIcon: 'check', book: existing, edition,
       actions: [
-        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { putBack(); showCard(null); } }, icon('undo'), t('Undo')),
-        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => openBookForm({ book: existing }) }, icon('pencil'), t('Edit')),
-        another(putBack),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => { undo(); showCard(null); } }, icon('undo'), t('Undo')),
+        h('button', { class: 'btn btn-outline', type: 'button', onclick: () => (several(existing) ? openEditionForm(existing, edition, { back: () => sheet.close() }) : openBookForm({ book: existing })) }, icon('pencil'), t('Edit')),
+        another(undo),
       ],
     }));
     return;
@@ -4532,13 +4964,14 @@ async function onIsbn(isbn) {
   const result = await lookupIsbn(isbn);
 
   if (result.status === 'found') {
-    const book = await addBook({ ...result.book, isbn, format: 'paper', lists: targetLists() });   // a barcode is on a paper book
-    if (!alive(session)) { toast(t('Added “{title}”', { title: book.title })); return; }
+    // A book of its own, or, when it is another edition of a book on the shelf, an edition of that one.
+    const done = await addFound({ ...result.book, isbn, format: 'paper', lists: targetLists() }, { say: !alive(session) });   // a barcode is on a paper book
+    if (!alive(session)) { if (!done.attached) toast(t('Added “{title}”', { title: done.book.title })); return; }
     scanner.added++;
     updateScanCount();
     scanner.busy = false;
     buzz(20);
-    showCard(addedCard(book));
+    showCard(addedCard(done));
   } else if (result.status === 'notfound') {
     if (!alive(session)) { toast(t('No match found for ISBN {isbn}', { isbn })); return; }
     warmOcr();
@@ -4566,7 +4999,7 @@ function manualEntry(isbn = '') {
   openBookForm({
     book: { isbn, lists: targetLists() }, isNew: true,
     onSaved: () => { scanner.added++; updateScanCount(); },
-    onClose: (saved) => { if (saved && scanner.open) { setMode('barcode'); toast(t('Added to your shelf')); } },
+    onClose: (saved) => { if (saved && scanner.open) { setMode('barcode'); addedToast(); } },
   });
 }
 
@@ -4763,7 +5196,7 @@ async function processCover({ canvas, thumb }) {
     $('shutterBtn').disabled = false;
     if (!scanner.open) return;
     video.play().catch(() => {});
-    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); toast(t('Added to your shelf')); }
+    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); addedToast(); }
     else setHint();
   };
 
@@ -4841,7 +5274,7 @@ async function processCover({ canvas, thumb }) {
   const rows = candidates.map((c, i) => bookRow(c.book, async (b) => {
     if (picked) return;
     picked = true;
-    await addBook({ ...b, isbn: isbn || b.isbn, thumb, format: 'paper', lists: targetLists() });
+    await addFound({ ...b, isbn: isbn || b.isbn, thumb, format: 'paper', lists: targetLists() });
     sheet.close();
   }, i === 0 && c.score >= 0.75 ? h('span', { class: 'badge', text: t('Best match') }) : null));
   rows.forEach((r) => r.classList.add('cand'));
@@ -4906,11 +5339,25 @@ async function retryPending() {
   retrying = true;
   try {
     for (const book of books.filter((b) => b.pending)) {
-      const result = await lookupIsbn(book.isbn);
+      const ed = W.mainEdition(book);
+      const result = await lookupIsbn(ed.isbn);
       if (result.status === 'unreachable') break;
-      if (result.status === 'found') Object.assign(book, result.book, { pending: false });
-      else Object.assign(book, { pending: false, unresolved: true });
-      await saveBook(book);
+      if (result.status !== 'found') {
+        Object.assign(book, { pending: false, unresolved: true });
+        await saveBook(book);
+        continue;
+      }
+      const { title, author, olid, isbn, ...facts } = result.book;
+      Object.assign(book, { title, author, ...(olid && { olid }), pending: false });
+      setFacts(ed, W.factsOf(facts));
+      // Another edition of a book on the shelf: it becomes one of its editions, as when it was scanned
+      // online (addFound says so, with Keep separate).
+      const flat = { ...W.flatView(book, ed), lists: { ...book.lists, ...ed.lists } };
+      for (const key of ['id', 'modified', 'pending', 'unresolved', 'v', 'main']) delete flat[key];
+      if (W.findWork(flat, books.filter((b) => b !== book && !b.pending))) {
+        await removeBook(book);
+        await addFound(flat);
+      } else await saveBook(book);
     }
   } finally {
     retrying = false;
@@ -4952,6 +5399,8 @@ function initUpdates() {
 }
 
 async function init() {
+  // While developing (?guard=1): a way in from the console.
+  if (GUARD) window.folio = { get books() { return books; }, exportJson, exportGoodreads, look, W };
   // Reloaded with a sheet open, the page is on that sheet's step in history, but nothing is open
   // now: it is a plain step again, or closing what opens next would stop there.
   if (history.state?.layer) history.replaceState(null, '', location.href);
@@ -4960,9 +5409,16 @@ async function init() {
   bindEvents();
   showMoved();
   try {
-    books = await DB.all();
-    sortBooks();
     await loadLists();
+    // Books kept here in the shape from before editions are made new (works.js), and written back
+    // as they are now without counting as a change: the server makes them new the same way.
+    books = (await DB.all()).map((b) => {
+      if (b.v === 2 && Array.isArray(b.editions) && b.editions.length) return guarded(b);
+      const up = W.upgrade(b, statusIds());
+      DB.put(up).catch(storageFailed);
+      return guarded(up);
+    });
+    sortBooks();
   } catch (err) {
     storageFailed(err);
   }

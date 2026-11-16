@@ -22,6 +22,24 @@ Photographing a back cover or copyright page that shows an ISBN works the same w
 You can also type an ISBN or enter a book entirely by hand. Books scanned without a connection
 are saved by ISBN and completed automatically once you are back online.
 
+Adding never asks whether it is a book you already have:
+
+- **The same ISBN is the same edition.** The card says it is already on your shelf (and puts
+  it on the lists you are scanning to), with *Another copy* for a second copy of that edition
+  in the same book.
+- **Another edition of a book you have** (the same Open Library work, or the same title by the
+  same first author, unless both say where they stand in a series and that differs) becomes an
+  edition of that book: *Added to “Equal Rites” as another edition*, with *Undo*, *Edit* and
+  **Keep separate**, which makes it a book of its own after all. A title with a subtitle is
+  the same as the title without (*Ash* and *Ash: A Secret History*). Put on *To read* or
+  *Reading* while adding, the book goes there and that edition is the one to be read.
+- **Anything else** is a new book.
+
+A translation is never recognised by its title: add it from its book's page with *Add another
+edition* (every way of adding then puts what is found into that book, without matching), or
+join two books afterwards (*Combine with another book…*, see [Books and their
+editions](#books-and-their-editions)).
+
 ## Lists
 
 Every book can be on any number of lists. The app starts with *Library*, *To read*, *Reading*,
@@ -32,7 +50,8 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   moved). That is what lets a book offer what comes next, on its page:
   - on *To read*: **Start reading**, or **Drop** it. Dropping removes the book for good and is
     asked first; for a book in the booklog its page there is deleted too (any book can be
-    deleted from the booklog: see *Deleting from the booklog*);
+    deleted from the booklog: see *Deleting from the booklog*). A book you have read before
+    and mean to read again offers **Not after all** instead, which puts it back on *Read*;
   - on *Reading*: how far along you are, **Mark as read** (which asks for the reading date, a
     rating and a review, all optional) or **Did not finish**. Progress is the page reached (for
     an audiobook: the time left) or a percentage. The two fields follow each other through the
@@ -43,6 +62,13 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
 - **Either-or sets.** Lists in the same set exclude each other: putting a book on *Read* takes
   it off *To read* and *Reading*. A list on its own (*Library*, *Lent out*) can hold any book,
   whatever else it is on. Which set a list belongs to, if any, is chosen when editing the list.
+- **Reading status is the book's; every other list is an edition's.** *To read*, *Reading*,
+  *Read*, *Did not finish* (and any list of yours in that set) say where you are with the book.
+  *Library*, *Lent out* and your own lists say where a copy is, so with more than one edition
+  each edition has its own (the paperback in the library, the e-book nowhere). A book shows on
+  a list when it, or one of its editions, is on it.
+- **A book you have read stays under *Read*** while you plan or do another read of it: it is on
+  *To read* (or *Reading*) and still under *Read*, shown there as the edition you read.
 - **Notes.** A list can ask for a note per book. *Lent out* asks who it was lent to; the note
   shows on the book and is searchable.
 - **Putting books on lists.** Open a book and tap its lists. Or scan: the pill at the top of
@@ -79,7 +105,16 @@ What you see is decided in three steps.
    share what they are ordered by share a heading (a month, a letter, a rating), and books
    without it come last.
 
-Books scanned before lists existed count as being in the *Library*.
+Books scanned before lists existed count as being in the *Library* (their edition is).
+
+**A row is always a book**, shown as the edition that fits where you are: in *Library* the
+edition that is in the library, under a filter on format the edition in that format, on *Read*
+the edition you read last, elsewhere the edition the book is about (see *main edition* below).
+Filters on where a copy is, its format, its language and its cover test the editions: a book
+passes when one edition is there and passes all of them. Filters on reading status, category,
+year read and rating test the book. Counts are always books. *Filter → Other → Possibly the
+same book* shows books that share an Open Library work or a title and first author with
+another: the way to find books that should be one (*Combine with another book…*).
 
 ## Changing many books at once
 
@@ -94,6 +129,8 @@ be picked from all over the shelf. Back, Escape or the × end it, and so does go
 
 - **Reading status**, and every set of lists of your own (*Bureau*, *Bibliotheek*): choose one
   and they all go on it (and off the others of that set); a set of your own also has *None*.
+  Reading status, series, authors, categories and tags change the book; lists of where a copy
+  is, publisher, format and language change the edition each selected row shows.
 - **Lists** you keep by hand, **authors**, **categories** and **tags** can be *added* to what
   each book has, *removed* from it, or *replace* it. *Replace* leaves translators, voices and
   others with a role where they are. Authors and tags are typed, a comma between them; those
@@ -120,32 +157,18 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 - **A book's page takes a little of its cover's colour**, as its page in the booklog does: the
   first of the cover's main colours that is neither nearly white nor nearly black. Only that
   sheet is tinted.
-- **Paper, e-book or audiobook.** A book says what format it is in, and each read's edition for
-  itself: *Format* in a book's details (what you have, read or not) and under *Edition read* in a review. An audiobook is
-  measured in time (a length such as `11u 36m`, and its progress in time left); the others in
-  pages. A book scanned or photographed is a paper book. In the booklog a post says so under
-  `format`; a post that doesn't is an audiobook if it has a length, and otherwise isn't said
-  to be anything. (The booklog's audiobook and kindle categories, which said this before, are
-  gone.)
-- **Another version of a book you have** (its audiobook, where you have the e-book) is a book
-  of its own: its own format, lists, progress and reads. Adding it from a description or a
-  shared link, when the shelf has the book in another format, offers it as *Another version*.
-  It takes the series of the book you have (not the store's name for it), and what the find
-  leaves out (language, categories, tags) comes from that book too. In the booklog it is a
-  reread of that book (`rereadOf`) in its own format; the book remembers which one it is
-  another version of (`versionOf`), so publishing changes only its own posts and the import
-  gives it back only its own reads. (A device that changes a book before it has heard the book
-  was published sends it back without its post; the server keeps what publishing added, so it
-  isn't published a second time.) A book added some other way that the booklog already has in
-  another format is taken for another version when it is published.
-- **Authors and others.** A book has people: those who wrote it, and those who drew, coloured,
-  lettered, translated or read it, each with what they did (*beeld*, *kleur*, *stem*,
-  *vertaling*: the booklog's own free words). No role means an author. A book shows its
-  writers, then the others by role; each read's edition has its own people, so the audiobook
-  has a voice and the paperback read before it has not. They are edited as rows of name and
-  role, in a book's details (for the book, which is its latest read) and under *Edition read*
-  in a review (for that read). Any name leads to all of that person's books
-  (`#/author/<name>`), whatever they did on them.
+- **Paper, e-book or audiobook.** Each edition says what format it is in: *Format* in a book's
+  details, or on an edition's sheet. An audiobook is measured in time (a length such as
+  `11u 36m`, and its progress in time left); the others in pages. A book scanned or
+  photographed is a paper book. In the booklog a post says so under `format`; a post that
+  doesn't is an audiobook if it has a length, and otherwise isn't said to be anything.
+- **Authors and others.** A book's writers are the book's own; everyone else (who drew,
+  coloured, lettered, translated or read it, each with what they did: *beeld*, *kleur*,
+  *stem*, *vertaling*, the booklog's own free words) is on an edition. No role means an author.
+  A book's page shows its writers, then those who are on every edition by role (a comic's
+  artist); a voice or a translator of one edition is named with that edition. They are edited
+  as rows of name and role, in a book's details and on an edition's sheet. Any name leads to
+  all of that person's books (`#/author/<name>`), whatever they did on them.
 - **Language, categories and tags.** A book's details say what language its edition is in,
   which of the booklog's categories it belongs to, and its tags (a comma between them). Its
   page shows them quietly under the other details. For a book in the booklog they are
@@ -159,18 +182,11 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 - **Reviews.** A book can have any number, each with an optional reading date and an optional
   rating from 0 to 10, written in Markdown (emphasis, links, quotes, lists, images). The rating
   shown in lists is that of the latest review that gives one. Reviews are searched too.
-- **Editions.** A read is of an edition: the paperback the first time, the audiobook the
-  next. Each review carries the edition that was read (publisher, year, pages or length, ISBN,
-  language and its own cover), under *Edition read* in the review's form; a new read starts
-  from the book's own edition, so only what differs needs saying. A book's page shows each
-  read with its cover and edition. In the covers view a book read in several editions shows
-  their covers standing together, the latest in front, with its rating in stars; on a series'
-  page also its number and when it was read.
 - **Series.** Books that share a series name form a series: *Series* in the navigation lists
   them all, and a series page shows its books in order. Set the series and its number in a
   book's details; a number such as 4.5 sorts between 4 and 5.
-- **The cover, large.** Tap a cover (on a book's page, in its details, or an edition's in a
-  review) and it opens over everything at the best size there is: the picture you supplied,
+- **The cover, large.** Tap a cover (on a book's page, in its details, or on an edition's
+  sheet) and it opens over everything at the best size there is: the picture you supplied,
   the booklog's own original, or the catalogue's large size. Tap it again for its real size.
   Everything to replace it with is right there: the covers Open Library and Google Books have
   of its ISBN and of its other editions (by title and author), *Take a photo*, *Choose a
@@ -192,6 +208,48 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py
   fetch_covers` does a whole shelf at once. Covers you photographed yourself already travel
   with the book.
+
+## Books and their editions
+
+A book is the work you know by its title and writers; its **editions** are the copies of it you
+have or read: the hardcover, two softcovers, the audiobook with its voice, the e-book, the
+translation. Almost every book has one edition, and then there is nothing to see of this: the
+book looks and works as it always did, and its details hold everything, field for field. The
+only addition is *Add another edition*, quietly beside *Edit details*.
+
+With more than one edition:
+
+- **The book's page** shows the book (its title, writers, series, reading status, progress)
+  with the cover and details of its **main edition**, and a section **Editions**: a row per
+  edition with its cover, a line about it (*Audiobook · 11u 36m · Audible · 2018 · stem: Roy
+  Dotrice*; its own title and language first when it has another title), the lists it is on
+  and when it was read. While the book is on *To read* or *Reading*, the edition being read
+  says *reading this one*. Each read on the page shows its edition's cover and line.
+- **The main edition** is the one the book is about: the edition you are reading or mean to
+  read while the book is on *To read* or *Reading*; otherwise the one you read last. *Start
+  reading* reads it; the progress box names it, with *Another one* to say you are reading
+  another; an edition's sheet has *I'm reading this one*.
+- **Edit details** holds what is the book's: title, writers (and whoever is on every
+  edition), series, categories, tags and reading status. Changing the writers changes them on
+  every edition; a voice or translator of one edition stays.
+- **An edition's sheet** (tap its row) has its facts: format, publisher, year, pages or
+  length, ISBN, language, cover, everyone on it, a title of its own when it has one (a
+  translation), and the lists of where that copy is. At the bottom, quietly: *Make it a book of
+  its own* (it goes with its reads; *Undo* in the message), and the bin, when the book has
+  another edition. An edition that was read says first that its reads go with it, and for
+  reads in the booklog their pages there too.
+- **A read is of one edition.** In a review, *Edition read* chooses among the book's editions
+  (a new read starts with the main one), or *Another edition…* adds one and comes back to the
+  read with it chosen. Its facts are changed on its sheet (*Edit this edition*), so correcting a
+  publisher changes it for every read of that edition.
+- **Combine with another book…** at the bottom of a book's details moves another book's
+  editions and reads into this one, and that book goes (*Undo* in the message). The one in the
+  booklog stays, if only one of them is.
+- **Not possible yet:** combining two books that are both in the booklog, and making an
+  edition whose reads are in the booklog a book of its own. The app says so and does nothing.
+  (In the booklog a book is one group of posts, one per read: a book's reads in other editions
+  are rereads of its first post, each with its own edition's facts. Splitting and joining those
+  groups there is for later.)
 
 ## The assistant
 
@@ -227,8 +285,8 @@ or published until you say so. This is boeggn's intake, with its prompt.
 
 Installed, the app is in the phone's share menu:
 
-- **A picture** becomes a cover: you pick the book it belongs to, and for a book read in
-  several editions which read.
+- **A picture** becomes a cover: you pick the book it belongs to, and for a book with more
+  than one edition which edition.
 - **A page of the booklog** opens that book.
 - **An Audible page** (from the Audible app's share menu, or its address pasted into *Describe
   it*) is that audiobook: Audible's catalogue is asked for it by the number in the address (the
@@ -258,8 +316,9 @@ which other reading sites import: [StoryGraph](https://app.thestorygraph.com),
 [Hardcover](https://hardcover.app), [LibraryThing](https://www.librarything.com) and Goodreads
 itself, all free. It is the way to give your reading a public page without running a server.
 
-- One row per book. A book read more than once comes with its latest read: the date read, the
-  number of reads, and the latest review that has text.
+- One row per read, with the edition that was read: its format, publisher, pages, ISBN, the
+  date read, that read's rating and review. A book not read yet (or being read again) has a
+  row for where it stands, as its main edition.
 - *To read*, *Reading*, *Read* and *Did not finish* become the shelves `to-read`,
   `currently-reading`, `read` and `did-not-finish`. A book on none of them goes on `to-read`,
   as every book on Goodreads is on one of its shelves. The other lists become shelves of their
@@ -269,26 +328,31 @@ itself, all free. It is the way to give your reading a public page without runni
   others go under *Additional Authors*, without their role.
 - Reviews go as they were written, in Markdown.
 
-**Export as JSON** saves the whole shelf as JSON:
+**Export as JSON** saves the whole shelf as JSON: each book with its reading status, its
+editions (each with its facts and the lists it is on) and its reviews (each saying which
+edition it was of):
 
 ```json
 [
   {
     "title": "The Name of the Rose",
     "author": "Umberto Eco",
-    "date": "1994-09-28",
-    "publisher": "Harcourt Brace",
-    "pages": 536,
-    "isbn": "9780156001311",
-    "cover": "https://covers.openlibrary.org/b/id/…-M.jpg",
     "added": "2026-11-14T12:27:54.748Z",
-    "lists": [
-      { "list": "Library", "since": "2026-11-14T12:27:54.748Z" },
-      { "list": "Lent out", "since": "2026-11-20T18:02:11.000Z", "note": "Jan" }
-    ],
+    "lists": [{ "list": "Read", "since": "2026-11-30T20:00:00.000Z" }],
     "rating": 9,
+    "editions": [
+      {
+        "id": "e1", "format": "paper", "publisher": "Harcourt Brace", "date": "1994",
+        "pages": 536, "isbn": "9780156001311", "language": "en",
+        "cover": "https://folio.example.org/covers/web/….webp",
+        "lists": [
+          { "list": "Library", "since": "2026-11-14T12:27:54.748Z" },
+          { "list": "Lent out", "since": "2026-11-20T18:02:11.000Z", "note": "Jan" }
+        ]
+      }
+    ],
     "reviews": [
-      { "date": "2026-11-30", "rating": 9, "text": "Markdown, *as written*." }
+      { "date": "2026-11-30", "rating": 9, "text": "Markdown, *as written*.", "edition": "e1" }
     ]
   }
 ]
@@ -304,7 +368,9 @@ rename them.
 
 - Your shelf is stored on the device (IndexedDB: one database for books, one for lists), and
   on the server while you're signed in. The server keeps each book and each list as the app
-  sent it; the lists a book is on travel inside the book.
+  sent it; a book's editions, and the lists it and its editions are on, travel inside the book.
+  A copy of the app from before editions (before 2.0) can no longer sync: it says it is out of
+  date under Settings, and updates itself the next time it is opened.
   Export now and then to keep a copy of your own.
 - Google Books' keyless quota is shared and often exhausted. Open Library still answers, but
   for the best hit rate add a free Google Books API key under the settings icon.

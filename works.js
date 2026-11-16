@@ -156,7 +156,7 @@ export function settle(work, status) {
   // Moved fields at the top level belong to the main edition.
   const main = mainEdition(work);
   for (const key of MOVED) {
-    if (!(key in work)) continue;
+    if (!Object.hasOwn(work, key)) continue;   // own fields only (a guard may watch the rest: app.js)
     if (!empty(work[key])) main[key] = work[key]; else delete main[key];
     delete work[key];
   }
@@ -334,20 +334,27 @@ export function findWork(candidate, books) {
 /** Books that may be the same book as another on the shelf (the same olid, or title and first writer). → Set of ids */
 export function twins(books) {
   const out = new Set();
-  const groups = new Map();
-  const put = (key, b) => { if (key) (groups.get(key) || groups.set(key, []).get(key)).push(b); };
+  const index = new Map();
+  const put = (key, b) => { if (key) (index.get(key) || index.set(key, []).get(key)).push(b); };
+  const titles = (b) => [b.title, ...(b.editions || []).map((e) => e.title)].filter(Boolean);
+  // Each book under its olid and under each of its titles, whole; then each title is looked up
+  // whole and without its subtitle (one may be the other with a subtitle after it).
   for (const b of books) {
     put(b.olid && `olid:${b.olid}`, b);
     const writer = firstWriter(b.author);
-    if (writer) for (const title of new Set([b.title, ...(b.editions || []).map((e) => e.title)].filter(Boolean).map(mainTitle))) put(title && `t:${title}|${writer}`, b);
+    if (writer) for (const title of titles(b)) put(fold(title) && `t:${fold(title)}|${writer}`, b);
   }
-  for (const members of groups.values()) {
-    for (const a of members) for (const b of members) {
-      if (a === b) continue;
-      const n = number(a.seriesNumber), m = number(b.seriesNumber);
-      if (n != null && m != null && n !== m) continue;
-      out.add(a.id); out.add(b.id);
-    }
+  const pair = (a, b) => {
+    if (a === b) return;
+    const n = number(a.seriesNumber), m = number(b.seriesNumber);
+    if (n != null && m != null && n !== m) return;
+    out.add(a.id); out.add(b.id);
+  };
+  for (const b of books) {
+    for (const other of index.get(b.olid && `olid:${b.olid}`) || []) pair(b, other);
+    const writer = firstWriter(b.author);
+    if (!writer) continue;
+    for (const title of titles(b)) for (const key of new Set([fold(title), mainTitle(title)])) for (const other of index.get(key && `t:${key}|${writer}`) || []) pair(b, other);
   }
   return out;
 }

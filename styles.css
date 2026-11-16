@@ -610,6 +610,26 @@ a.link-btn { text-decoration: none; }
 .edition-cover { display: flex; align-items: center; gap: 18px; margin: 4px 0 18px; }
 .edition-cover .sheet-note { margin: 0; }
 .edition-box .chips { margin-top: 2px; }
+
+/* Editions: rows on a book's page, choices in a read's "Edition read" box and in pickers. Built
+   like a review's head: a small cover and a line about it; nothing new to learn. */
+.edition-row, .edition-pick { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 0; border-top: 1px solid var(--border); color: var(--text); font-size: .9rem; }
+.edition-row:first-of-type { border-top: none; }
+.edition-row:active, .edition-pick:active { opacity: .6; }
+.edition-row .cover, .edition-pick .cover { width: 34px; border-radius: 3px; flex: none; }
+.edition-row .cover span, .edition-pick .cover span { font-size: 1rem; }
+.edition-row > .icon { width: 18px; height: 18px; color: var(--faint); flex: none; }
+.edition-row .book-tags { margin-top: 5px; }
+.edition-choice { margin: 0 0 6px; }
+.edition-pick { border-top: none; border-radius: var(--radius-sm); padding: 8px 10px; margin: 0 -10px; width: calc(100% + 20px); }
+.edition-pick[aria-pressed="true"] { background: var(--surface-2); }
+.edition-pick[aria-pressed="true"] .review-what > span:first-child { font-weight: 600; }
+.edition-links, .edition-actions { display: flex; flex-wrap: wrap; gap: 0 18px; }
+.edition-actions { margin: 4px 0 10px; }
+.page-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
+.page-edit-row .page-edit { margin-top: 0; flex: 1 1 auto; }
+.form-combine { margin: 4px 0 6px; }
+.progress-form .progress-which { flex-basis: 100%; margin: 10px 0 0; }
 .review-head .icon { width: 16px; height: 16px; }
 .prose { font-family: var(--serif); font-size: 1.06rem; line-height: 1.62; overflow-wrap: anywhere; }
 .prose > * + * { margin-top: .85em; }
