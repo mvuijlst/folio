@@ -570,6 +570,18 @@ class AddToBooklogTests(BooklogCase):
         self.assertEqual(Book.objects.filter(user=self.user, deleted=False).count(), 4)
         self.assertEqual(self.publish()[0], {'published': 0, 'settled': 0, 'failed': 0, 'waiting': 0})
 
+    def test_a_book_with_one_edition_and_no_main_keeps_one_edition(self):
+        # As the app adds a book (works.js newWork): with one edition it names no main one.
+        row = self.scan()
+        row.data = {k: v for k, v in row.data.items() if k != 'main'}
+        row.save()
+        self.publish()
+        self.import_booklog()
+        data = Book.objects.get(uid='s1').data
+        self.assertEqual([e['id'] for e in data['editions']], ['e1'])
+        self.assertEqual(works.edition_of(data, 'e1')['people'], [{'name': 'Frank Herbert', 'role': ''}])
+        self.assertEqual(self.publish()[0]['published'], 0)
+
     def test_a_read_book_is_added_with_its_review_and_cover(self):
         own = Path(self.tmp.name, 'covers', 'own')
         own.mkdir(parents=True)

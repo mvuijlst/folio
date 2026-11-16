@@ -240,8 +240,10 @@ class Command(BaseCommand):
             said = booklog_facts(post['edition'])
             known = previous.get(post['slug'])
             ed = known.get('ed') if known and works.edition_of(data, known.get('ed')) else None
-            if ed is None and post['slug'] == book['open'] and not post['review'] and old and works.edition_of(data, old.get('main')):
-                ed = old['main']
+            # The read planned or running is of the main edition, whether the book names it (with
+            # several editions) or not (one edition: the app leaves `main` out).
+            if ed is None and post['slug'] == book['open'] and not post['review'] and main and works.edition_of(data, main['id']):
+                ed = main['id']
             if ed is not None and ed in claims and claims[ed] != said:
                 ed = None   # one edition, two different sets of facts: two editions
             if ed is None:
