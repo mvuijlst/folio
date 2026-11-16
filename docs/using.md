@@ -35,8 +35,8 @@ Adding never asks whether it is a book you already have:
   *Reading* while adding, the book goes there and that edition is the one to be read.
 - **Anything else** is a new book.
 
-A translation is never recognised by its title: add it from its book's page with *Add another
-edition* (every way of adding then puts what is found into that book, without matching), or
+A translation is never recognised by its title: add it with *Add another edition*, at the
+bottom of its book's details or in its *Editions* (every way of adding then puts what is found into that book, without matching), or
 join two books afterwards (*Combine with another book…*, see [Books and their
 editions](#books-and-their-editions)).
 
@@ -215,7 +215,7 @@ A book is the work you know by its title and writers; its **editions** are the c
 have or read: the hardcover, two softcovers, the audiobook with its voice, the e-book, the
 translation. Almost every book has one edition, and then there is nothing to see of this: the
 book looks and works as it always did, and its details hold everything, field for field. The
-only addition is *Add another edition*, quietly beside *Edit details*.
+only addition is *Add another edition*, quietly at the bottom of its details.
 
 With more than one edition:
 

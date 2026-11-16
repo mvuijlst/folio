@@ -2926,7 +2926,10 @@ function openBookForm({ book, isNew = false, ocrLines = [], heading, subheading,
     h('datalist', { id: 'tagNames' }, tagNames().map((value) => h('option', { value }))),
     lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: whole ? t('Lists') : show(READING) }),
       listPicker(on, { only: whole ? null : (l) => isStatus(l.id) })),
-    !isNew && h('button', { class: 'link-btn form-combine', type: 'button', onclick: () => openCombine(book, again) }, icon('merge'), t('Combine with another book…')),
+    !isNew && h('div', { class: 'form-combine' },
+      // Another edition of this book (a translation, say), and another book that is this one.
+      whole && h('button', { class: 'link-btn', type: 'button', onclick: () => openAdd(false, { into: book, back: back || (() => openBook(book)) }) }, icon('plus'), t('Add another edition')),
+      h('button', { class: 'link-btn', type: 'button', onclick: () => openCombine(book, again) }, icon('merge'), t('Combine with another book…'))),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
@@ -4140,11 +4143,7 @@ function openBook(book, rows) {
         // A read that has only its date yet (marked as read, nothing said) is the one a review is for.
         h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, sortedReviews(book).find((r) => r.date && !r.text && r.rating == null) || null, again) }, icon('plus'), t('Add review'))),
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
-    multi
-      ? h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))
-      : h('div', { class: 'page-edit-row' },
-        h('button', { class: 'btn btn-outline page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details')),
-        h('button', { class: 'link-btn page-add-edition', type: 'button', onclick: addEdition }, icon('plus'), t('Add another edition')))));
+    h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
   tintSheet(book);
 }
 

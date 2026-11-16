@@ -626,9 +626,7 @@ a.link-btn { text-decoration: none; }
 .edition-pick[aria-pressed="true"] .review-what > span:first-child { font-weight: 600; }
 .edition-links, .edition-actions { display: flex; flex-wrap: wrap; gap: 0 18px; }
 .edition-actions { margin: 4px 0 10px; }
-.page-edit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-.page-edit-row .page-edit { margin-top: 0; flex: 1 1 auto; }
-.form-combine { margin: 4px 0 6px; }
+.form-combine { display: flex; flex-wrap: wrap; gap: 0 18px; margin: 4px 0 6px; }
 .progress-form .progress-which { flex-basis: 100%; margin: 10px 0 0; }
 .review-head .icon { width: 16px; height: 16px; }
 .prose { font-family: var(--serif); font-size: 1.06rem; line-height: 1.62; overflow-wrap: anywhere; }
