@@ -94,7 +94,7 @@ jobs:
           # installed app think it had been updated. Nothing is deleted on the server, and the sync
           # server's own files (.env, venv, database, collected static) are never touched.
           rsync --recursive --links --compress --checksum --chmod=D755,F644 --itemize-changes \
-            --exclude '.git*' --exclude '.claude' --exclude 'README.md' --exclude '.nojekyll' \
+            --exclude '.git*' --exclude '.claude' --exclude 'README.md' --exclude '/docs' --exclude '.nojekyll' \
             --exclude 'server/.env' --exclude 'server/venv' --exclude 'server/db.sqlite3*' \
             --exclude 'server/staticfiles' --exclude 'server/.dev-credentials' \
             -e "ssh -i ~/.ssh/deploy_key -p $DEPLOY_PORT -o BatchMode=yes" \
