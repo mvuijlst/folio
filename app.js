@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -5267,7 +5267,27 @@ function initUpdates() {
   });
 }
 
+/**
+ * The page and this script are of one version. A new version's service worker fills the cache
+ * the old one is serving from, so a page loaded just then can be the old page with this newer
+ * script, which may need what the old page lacks. The new page is in the cache by then: one
+ * reload brings it (not more than once in half a minute, whatever the page says after it).
+ * → false when the page is being reloaded
+ */
+function pageInStep() {
+  const page = document.querySelector('meta[name="folio-version"]')?.content;
+  if (page === APP_VERSION) return true;
+  try {
+    if (Date.now() - Number(sessionStorage.getItem('bookscan.restepped') || 0) < 30000) return true;
+    sessionStorage.setItem('bookscan.restepped', String(Date.now()));
+  } catch { return true; }
+  console.warn(`Folio: page ${page || 'from before 2.2.1'} with script ${APP_VERSION}; reloading`);
+  location.reload();
+  return false;
+}
+
 async function init() {
+  if (!pageInStep()) return;
   // While developing (?guard=1): a way in from the console.
   if (GUARD) window.folio = { get books() { return books; }, exportJson, exportGoodreads, look, W, lookupIsbn };
   // Reloaded with a sheet open, the page is on that sheet's step in history, but nothing is open

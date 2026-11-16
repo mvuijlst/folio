@@ -56,6 +56,9 @@ alone has a gradient: the mint to blue of the book's left-hand pages.
 
 ## Releasing
 
-Bump `APP_VERSION` in `app.js`: it is shown at the bottom of the settings sheet, so you can
-tell which build is running. How a push reaches the server, and installed copies, is under
+Bump `APP_VERSION` in `app.js`, and `folio-version` in `index.html` with it: the version is
+shown at the bottom of the settings sheet, so you can tell which build is running, and a page
+whose version is not the script's is reloaded once (an old page from the cache next to a new
+script, while a new version's service worker takes over). `tests/page.test.mjs` and the deploy
+both refuse the two apart. How a push reaches the server, and installed copies, is under
 [Updating](server.md#updating).
