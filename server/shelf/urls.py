@@ -11,4 +11,6 @@ urlpatterns = [
     path('suggest', views.suggest, name='suggest'),
     path('translate', views.translate, name='translate'),
     path('original', views.original_of, name='original'),
+    path('booklog-names', views.booklog_names, name='booklog-names'),
+    path('tag-merges', views.tag_merges, name='tag-merges'),
 ]

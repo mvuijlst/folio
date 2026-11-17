@@ -226,6 +226,10 @@ TRANSLATABLE = {
     'role': 'roles of people credited on a book: who wrote, drew, inked, coloured or lettered a comic, '
             'who translated a book, who read an audiobook aloud, who edited an anthology. A role can also be '
             'a part an actor voices in an audiobook (a character, the footnotes); keep such a name as it is.',
+    'category': 'the categories of a personal library (genres such as fantasy and crime, and kinds of non-fiction '
+                'such as history, biography, religion, design, art).',
+    'tag': 'tags on books in a personal library: subjects, places, periods, themes and sub-genres (vampieren, '
+           'space-opera, tweede-wereldoorlog, belgie). A name (a person, a series, a fictional world, a brand) stays as it is.',
 }
 LANGUAGE = {'en': 'English', 'nl': 'Dutch (as spoken in Flanders)'}
 STYLE = {
@@ -233,6 +237,10 @@ STYLE = {
                    'colourist, letterer, narrator, translator), British spelling',
              'nl': 'a short lowercase noun for the work, as Dutch comics credits have it (tekst, beeld, kleur, '
                    'inkt, letters, stem, vertaling, redactie)'},
+    'category': {'en': 'a short lowercase name, as a bookshop shelf would say it (history, science fiction)',
+                 'nl': 'a short lowercase Dutch name, as a Flemish bookshop shelf would say it (geschiedenis)'},
+    'tag': {'en': 'a short name as a tag in English, lowercase unless it is a name (vampires, Belgium, space opera)',
+            'nl': 'a short name as a tag in Dutch, lowercase unless it is a name (vampieren, België, ruimteopera)'},
 }
 TRANSLATION_SCHEMA = {
     'type': 'object', 'additionalProperties': False, 'required': ['words'],
@@ -240,6 +248,56 @@ TRANSLATION_SCHEMA = {
         'type': 'object', 'additionalProperties': False, 'required': ['word', 'translation'],
         'properties': {'word': {'type': 'string'}, 'translation': {'type': 'string'}}}}},
 }
+
+
+MERGE_SCHEMA = {
+    'type': 'object', 'additionalProperties': False, 'required': ['groups'],
+    'properties': {'groups': {'type': 'array', 'items': {
+        'type': 'object', 'additionalProperties': False, 'required': ['keep', 'merge', 'why'],
+        'properties': {'keep': {'type': 'string'}, 'merge': {'type': 'array', 'items': {'type': 'string'}},
+                       'why': {'type': 'string'}}}}},
+}
+MERGE_PROMPT = ('These are the tags of a personal library (mostly Dutch, some English), each with how many books have it. '
+                'Find tags that mean the same thing and should be one tag: the same word in Dutch and English (draken, '
+                'dragons), a synonym (misdaad, crime), or two spellings. Not a broader and a narrower tag (fantasy and '
+                'epic-fantasy stay apart), not related subjects. For each group: which tag to keep (the most used, unless '
+                'another is clearly the better word), which to merge into it, and a few words why, in English. Use the '
+                'slugs exactly as given. Few, sure groups are better than many doubtful ones.')
+
+
+def tag_merges(tags):
+    """[{slug, name, books}] → [{keep, merge: [slug], why}]: tags that say the same thing, in one language or
+    two (misdaad, crime-fiction), as the model sees it. Only proposals, for the user to take or leave."""
+    if not settings.OPENAI_API_KEY:
+        raise NotSetUp('The assistant is not set up on this server.')
+    lines = []
+    for t in tags:
+        line = f"{t['slug']} ({t.get('books', 0)})"
+        if t.get('name') and t['name'] != t['slug']:
+            line += f" = {t['name']}"
+        lines.append(line)
+    question = {
+        'model': settings.OPENAI_MODEL,
+        'messages': [{'role': 'system', 'content': MERGE_PROMPT}, {'role': 'user', 'content': '\n'.join(lines)}],
+        'response_format': {'type': 'json_schema', 'json_schema': {'name': 'groups', 'strict': True, 'schema': MERGE_SCHEMA}},
+    }
+    try:
+        answer = post_json('https://api.openai.com/v1/chat/completions', question, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
+        got = json.loads(answer['choices'][0]['message']['content'])['groups']
+    except urllib.error.HTTPError as err:
+        raise IntakeError(f'The assistant answered with an error ({err.code}).')
+    except (urllib.error.URLError, OSError) as err:
+        raise IntakeError(f'The assistant could not be reached: {err}')
+    except (ValueError, KeyError, IndexError, TypeError) as err:
+        raise IntakeError(f'The assistant gave an answer that could not be read: {err}')
+    known = {t['slug'] for t in tags}
+    out = []
+    for g in got if isinstance(got, list) else []:
+        keep = str(g.get('keep') or '')
+        merge = [s for s in dict.fromkeys(str(m) for m in g.get('merge') or []) if s in known and s != keep]
+        if keep in known and merge:
+            out.append({'keep': keep, 'merge': merge, 'why': ' '.join(str(g.get('why') or '').split())[:200]})
+    return out
 
 
 def translate(kind, to, words):

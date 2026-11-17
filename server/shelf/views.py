@@ -13,6 +13,10 @@
   POST /api/original {"title", "author", "language"} → {"language", "title"}: the language the
                      book was first written in and its title then, as far as the assistant knows
                      ({} when it doesn't); the app asks Wikidata and Open Library itself first
+  GET  /api/booklog-names → {"categories": {slug: title}, "tags": {slug: title}, "series": [name]}: how the
+                     booklog names its pages, for the app to show (nulls when there is no booklog here)
+  POST /api/tag-merges {"tags": [{"slug", "name", "books"}…]} → {"groups": [{"keep", "merge", "why"}…]}:
+                     tags the assistant sees as one, for the user to take or leave
   POST /api/translate {"kind": "role", "to": "en" | "nl", "words": [{"word", "books"}…]}
                      → {"words": [{"word", "translation"}…]}: the assistant's proposals, which
                      the app shows for the user to accept or not
@@ -202,6 +206,37 @@ def suggest(request):
     except intake.IntakeError as err:
         return error(str(err), 502)
     return JsonResponse({'books': books})
+
+
+@require_GET
+def booklog_names(request):
+    """The booklog's own names for its categories and tags (their pages' titles), and its series."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    if not settings.BOEKEN_REPO:
+        return JsonResponse({'categories': None, 'tags': None, 'series': None})
+    from . import boeken
+    return JsonResponse({'categories': boeken.term_titles(settings.BOEKEN_REPO, 'categories'),
+                         'tags': boeken.term_titles(settings.BOEKEN_REPO, 'tags'),
+                         'series': sorted(boeken.term_titles(settings.BOEKEN_REPO, 'series').values())})
+
+
+@require_POST
+def tag_merges(request):
+    """The shelf's tags → groups the assistant sees as one tag."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    tags = (body(request) or {}).get('tags')
+    if not isinstance(tags, list) or not 0 < len(tags) <= 2000:
+        return error('Bad request')
+    asked = [{'slug': str(t.get('slug'))[:100], 'name': str(t.get('name') or '')[:100], 'books': int(t.get('books') or 0)}
+             for t in tags if isinstance(t, dict) and t.get('slug')]
+    try:
+        return JsonResponse({'groups': intake.tag_merges(asked)})
+    except intake.NotSetUp as err:
+        return error(str(err), 503)
+    except intake.IntakeError as err:
+        return error(str(err), 502)
 
 
 @require_POST

@@ -51,6 +51,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
+import yaml
 from django.conf import settings
 from django.utils import timezone
 
@@ -1097,6 +1098,71 @@ def commit(repo, plan):
         raise
 
 
+# ───────────────────────── Names of categories and tags ─────────────────────────
+
+# What the app calls a category or a tag in Dutch is the title of its page here; a tag merged
+# into another in the app (its slug is among the other's `aliases`) loses its page once no post
+# has it any more, and its address goes to the other's page (Hugo `aliases`), as D-053 and D-055
+# did for categories by hand. All of it in one commit.
+TERM_DIRS = {'category': ('categories', '/category/'), 'tag': ('tags', '/tag/')}
+
+
+def plan_words(repo, terms, used_tags):
+    """Your names and merges (`terms`: the user's category and tag records) → a Plan, or None."""
+    plan = Plan(message='Woorden uit Folio')
+    renamed, merged, dropped = [], [], []
+    for term in terms:
+        kind, slug = term.get('kind'), str(term.get('value') or '')
+        if kind not in TERM_DIRS or not slug or slugify(slug) != slug:
+            continue
+        folder, base = TERM_DIRS[kind]
+        page = Path(repo, 'site', 'content', folder, slug, '_index.md')
+        text = plan.files.get(page) or (page.read_text(encoding='utf-8') if page.exists() else None)
+        front = {}
+        if text is not None:
+            match = FRONT.match(text)
+            front = (yaml.safe_load(match.group(1)) if match else None) or {}
+        if kind == 'tag' and term.get('gone'):
+            # Taken off every book in the app: its page goes once no post has it.
+            if slug not in used_tags and page.exists() and page not in plan.removals:
+                plan.removals.append(page)
+                dropped.append(slug)
+            continue
+        changes = {}
+        title = ' '.join(str(term.get('nl') or '').split())
+        if title and text is not None and str(front.get('title') or '') != title:
+            changes['title'] = title
+            renamed.append(slug)
+        if kind == 'tag':
+            aliases = list(front.get('aliases') or [])
+            for old in term.get('aliases') or []:
+                old = str(old)
+                gone = Path(repo, 'site', 'content', folder, old, '_index.md')
+                if old == slug or old in used_tags or not gone.exists():
+                    continue
+                match = FRONT.match(gone.read_text(encoding='utf-8'))
+                its = (yaml.safe_load(match.group(1)) if match else None) or {}
+                aliases = list(dict.fromkeys([*aliases, *(its.get('aliases') or []), f'{base}{old}/']))
+                plan.removals.append(gone)
+                merged.append(f'{old} → {slug}')
+            if aliases != list(front.get('aliases') or []):
+                if text is None:
+                    text = f'---\ntitle: {quote(title or slug.replace("-", " "))}\nslug: {quote(slug)}\n---\n'
+                changes['aliases'] = aliases
+        if changes:
+            plan.files[page] = apply_front_matter(text, changes)
+    if not plan.writes:
+        return None
+    if renamed:
+        plan.notes.append('namen: ' + ', '.join(renamed))
+    if merged:
+        plan.notes.append('samengevoegd: ' + ', '.join(merged))
+    if dropped:
+        plan.notes.append('weg: ' + ', '.join(dropped))
+    plan.message = 'Woorden uit Folio: ' + '; '.join(plan.notes)
+    return plan
+
+
 # ───────────────────────── All of a shelf ─────────────────────────
 
 def stamp(data, plan):
@@ -1332,4 +1398,23 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 row.save(update_fields=['data', 'changed'])
         except Exception as err:   # one book that can't be published doesn't stop the others
             failed(row, err)
+
+    # The names of categories and tags, and tags merged in the app (plan_words).
+    from .models import Term
+    terms = [t.data for t in Term.objects.filter(user=user, deleted=False) if t.data.get('kind') in TERM_DIRS]
+    if terms:
+        groups, taken = load()
+        used_tags = {str(tag) for group in groups.values() for post in group for tag in post.get('tags') or []}
+        try:
+            plan = plan_words(repo, terms, used_tags)
+            if plan:
+                say(plan.message)
+                for path in [*plan.files, *plan.removals]:
+                    say(f'    {path.relative_to(repo).as_posix()}')
+                if not dry_run:
+                    commit(repo, plan)
+                counts['published'] += 1
+        except Exception as err:
+            counts['failed'] += 1
+            say(f'NOT published: names of categories and tags: {str(err).strip()[:300]}')
     return counts

@@ -200,6 +200,25 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   it. What nobody knows stays empty; it is set under *Edit details* (*Written in*, *Original
   title*). These stay in Folio: the booklog doesn't have them. `manage.py fill_original` (see
   [server.md](server.md)) fills them in for books already on the shelf.
+- **Settings** is a short list: *Account*, *Language*, then *Words* (*Categories*, *Tags*,
+  *Roles*), then *Your shelf* (*Lookups*, *As a file*, *About*). Each row opens a page of its
+  own with Back (and Escape, and a phone's back gesture) to the list, and Close.
+- **Categories and tags, in two languages.** Both stay on books as the booklog writes them
+  (`geschiedenis`, `belgie`); what is shown is a name in the language of the app: in Dutch the
+  title of its page in the booklog (*België*), in English a name of its own (*Belgium*).
+  *Categories* lists the booklog's categories (D-055) with both names; they can be named, not
+  added or merged, which is the booklog's business. *Tags* lists every tag with how many books
+  have it, to search and order by use or name, and *To tidy*: tags spelled two ways
+  (*vampiers*, *vampieren*), tags that say what a category or a series says, and, with an
+  account and the assistant, tags that mean the same thing in two languages. Each group has
+  one button for the lot and the items folded inside, each to merge, remove or leave. A tag's
+  page has its names, *Merge into another tag*, its books, and the bin to take it off every
+  book. Every merge and removal says how many books it changes, how many of them are in the
+  booklog, and can be undone from its toast. Tags are typed by name, in either language, and
+  stored as the booklog writes them. In the booklog a merged tag's page goes and its address
+  leads to the one it was merged into, a tag taken off every book loses its page, and a Dutch
+  name changed here becomes its page's title: one commit, *Woorden uit Folio*, once no post
+  has the old tag any more.
 - **Roles, in two languages.** Settings → *Words* → *Roles* lists every role with its English
   and its Dutch name; a book shows a role in the language of the app, and a role can be typed
   in either (*narrator* or *stem*). Books keep the Dutch word, as the booklog has it, so

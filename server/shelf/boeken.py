@@ -253,6 +253,16 @@ def author_names(repo):
     return names
 
 
+def term_titles(repo, kind):
+    """Slug → title of the booklog's pages of `kind` ('categories', 'tags', 'series'): how it names them."""
+    titles = {}
+    for path in Path(repo, 'site', 'content', kind).glob('*/_index.md'):
+        match = FRONT_MATTER.match(path.read_text(encoding='utf-8'))
+        term = (yaml.safe_load(match.group(1)) if match else None) or {}
+        titles[path.parent.name] = str(term.get('title') or path.parent.name)
+    return titles
+
+
 def books(repo):
     """The booklog as Folio books, one per `rereadOf` group, oldest first: [{'key', 'list', 'at',
     'added', 'isbns', 'titles', 'open', 'posts', 'fields'}].

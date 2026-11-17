@@ -79,3 +79,32 @@ test('renaming a word leaves roles without it alone, however they are written', 
   assert.deepEqual(changed.map((c) => c.book.id), ['b']);
   assert.equal(books[0].editions[0].people[0].role, 'tekst en beeld');
 });
+
+test('categories and tags are named from the booklog, your records on top', () => {
+  const map = T.names([{ id: 'tag:belgie', kind: 'tag', value: 'belgie', en: 'Belgium', aliases: ['belgium'] }], 'tag',
+    { booklog: { belgie: 'België', 'b-p-r-d': 'B.P.R.D.' }, used: ['space-opera'] });
+  assert.equal(T.nameOf(map, 'belgie', 'en'), 'Belgium');
+  assert.equal(T.nameOf(map, 'belgie', 'nl'), 'België');
+  assert.equal(T.nameOf(map, 'b-p-r-d', 'en'), 'B.P.R.D.');
+  assert.equal(T.nameOf(map, 'space-opera', 'nl'), 'space opera');
+  assert.deepEqual(T.canonicalTags(['België', 'Belgium', 'Space Opera', 'Lanfeust des étoiles'], map), ['belgie', 'space-opera', 'lanfeust-des-etoiles']);
+  const cats = T.names([], 'category', { used: ['geschiedenis'] });
+  assert.equal(T.nameOf(cats, 'geschiedenis', 'en'), 'history');
+});
+
+test('tag suggestions: two spellings, a category, a series', () => {
+  const books = [{ tags: ['vampieren', 'fantasy'] }, { tags: ['vampieren'] }, { tags: ['vampiers', 'discworld'] }, { tags: ['robot'] }, { tags: ['robots'] }, { tags: ['robots'] }];
+  const s = T.tagSuggestions(books, { categories: ['fantasy'], series: ['Discworld'] });
+  assert.deepEqual(s.filter((x) => x.kind === 'alike').map((x) => [x.from, x.to]), [['vampiers', 'vampieren'], ['robot', 'robots']]);
+  assert.deepEqual(s.filter((x) => x.kind !== 'alike').map((x) => [x.kind, x.tag]), [['category', 'fantasy'], ['series', 'discworld']]);
+});
+
+test('merging and removing tags, with what was there', () => {
+  const books = [{ tags: ['vampiers', 'vampieren'] }, { tags: ['vampiers'] }, { tags: ['x'] }];
+  const merged = T.mergeTag(books, 'vampiers', 'vampieren');
+  assert.equal(merged.length, 2);
+  assert.deepEqual(books.map((b) => b.tags), [['vampieren'], ['vampieren'], ['x']]);
+  assert.deepEqual(merged[0].before, ['vampiers', 'vampieren']);
+  T.removeTag(books, 'x');
+  assert.equal('tags' in books[2], false);
+});

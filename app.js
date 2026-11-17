@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.8.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.9.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -82,8 +82,8 @@ function t(text, values) {
 }
 
 const COUNTED = {
-  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'] },
-  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'] },
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'], tag: ['tag', 'tags'], category: ['category', 'categories'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'], tag: ['tag', 'tags'], category: ['categorie', 'categorieën'] },
 };
 const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
 
@@ -437,7 +437,7 @@ const authorsOf = (b) => String(b.author || '').split(',').map((name) => name.tr
    language of the app. Your changes to the standard roles, and roles of your own, are `terms`. */
 let terms = [];
 let roleCache = null;
-function termsChanged() { roleCache = null; }
+function termsChanged() { roleCache = null; wordCache = {}; }
 /** The roles, and an index of every way of writing them. */
 function roleVocab() {
   if (!roleCache) { const all = T.vocabulary(terms, 'role'); roleCache = { all, by: T.index(all) }; }
@@ -707,7 +707,7 @@ async function runSync({ loud = false } = {}) {
           schema: 2,   // books with editions (works.js); a server that has them refuses copies of the app from before
           since: sync.cursor, changes: pack(sent, books, 'book'),
           listsSince: sync.listsCursor, lists: pack(sentLists, lists, 'list'),
-          termsSince: sync.termsCursor, terms: pack(sentTerms, terms.map((term) => ({ ...term, value: T.valueOf(term) })), 'term'),
+          termsSince: sync.termsCursor, terms: pack(sentTerms, terms.map((term) => ({ ...term, value: term.value || T.valueOf(term) })), 'term'),
         });
         if (!sync.user) return;   // signed out meanwhile
         for (const [id, modified] of Object.entries(sent)) {
@@ -828,7 +828,7 @@ async function applyRemoteTerms(changes) {
       terms = terms.filter((term) => term !== local);
       await DB.terms.del(c.id).catch(storageFailed);
     } else {
-      const { value, ...term } = { ...c.term, id: c.id, modified: c.modified };
+      const term = { ...c.term, id: c.id, modified: c.modified };
       if (local) { for (const k of Object.keys(local)) delete local[k]; Object.assign(local, term); } else terms.push(term);
       await DB.terms.put(local || term).catch(storageFailed);
     }
@@ -895,6 +895,7 @@ function agoText(iso) {
 
 /** The account part of the settings sheet; re-rendered whenever sync state changes. */
 function renderAccount() {
+  if (sync.summary?.isConnected) sync.summary.textContent = accountAbout();
   const box = sync.box;
   if (!box?.isConnected) { sync.box = null; return; }
 
@@ -924,7 +925,6 @@ function renderAccount() {
       h('label', { class: 'field' }, h('span', { text: t('Password') }), pass)),
     error, button);
     box.replaceChildren(
-      h('h3', { text: t('Account') }),
       form,
       h('p', { class: 'sheet-note', text: t('Optional. Signed in, your shelf is also kept on the server, so you can open it on your other devices. Ask the person who runs this site for an account.') }));
     return;
@@ -938,7 +938,6 @@ function renderAccount() {
   else status = sync.last ? t('Synced {when}.', { when: agoText(sync.last) }) : t('Not synced yet.');
 
   box.replaceChildren(
-    h('h3', { text: t('Account') }),
     h('p', { class: 'account-line' }, t('Signed in as '), h('strong', { text: sync.user })),
     h('p', { class: 'sheet-note account-status' + (sync.error ? ' is-error' : ''), text: status }),
     h('div', { class: 'stack account-actions' },
@@ -1053,17 +1052,17 @@ function oneChip(options, initial, name = (v) => v) {
   return picker;
 }
 /** Chips to choose any number of. → { el, value: Set } */
-function someChips(options, initial) {
+function someChips(options, initial, name = (v) => v) {
   const picker = { value: new Set(initial), el: h('div', { class: 'chips' }) };
   const draw = () => picker.el.replaceChildren(...[...new Set([...options, ...picker.value])].map((option) => h('button', {
-    class: 'chip', type: 'button', text: option, 'aria-pressed': String(picker.value.has(option)),
+    class: 'chip', type: 'button', text: name(option), 'aria-pressed': String(picker.value.has(option)),
     onclick: () => { if (!picker.value.delete(option)) picker.value.add(option); draw(); },
   })));
   draw();
   return picker;
 }
 /** Every tag on the shelf, for suggesting. */
-const tagNames = () => [...new Set(books.flatMap((b) => b.tags || []))].sort((a, b) => a.localeCompare(b, LOCALE));
+const tagNames = () => [...new Set(books.flatMap((b) => b.tags || []).map((slug) => tagName(slug)))].sort((a, b) => a.localeCompare(b, LOCALE));
 
 /** The line under a book's title: of `b` as one edition (look), and, given the book itself, how many editions it has. */
 function metaLine(b, book) {
@@ -1771,7 +1770,7 @@ function facetsOf() {
     const all = [...new Set(books.flatMap(pick))].filter(Boolean).sort(order);
     return { key, values: all.map((value) => ({ value: String(value), name: name(value), test: (b) => pick(b).includes(value) })) };
   };
-  facets.push({ ...having('category', (b) => b.categories || []), name: t('Category') });
+  facets.push({ ...having('category', (b) => b.categories || [], categoryName, (a, b) => categoryName(a).localeCompare(categoryName(b), LOCALE)), name: t('Category') });
   const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
   facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
   facets.push({ ...having('original', (b) => [b.originalLanguage].filter(Boolean), languageName, (a, b) => languageName(a).localeCompare(languageName(b), LOCALE)), name: t('Written in') });
@@ -2468,7 +2467,7 @@ function statsOf(rows, faces, facets) {
     statFigures(rows, reads),
     finished.length > 0 && yearChart(finished, facets),
     ageChart(finished),
-    categories.length > 1 && panel(t('Categories'), null, barList(categories.map(([key, value]) => ({ key, label: key, value })),
+    categories.length > 1 && panel(t('Categories'), null, barList(categories.map(([key, value]) => ({ key, label: categoryName(key), value })),
       has('category') ? { onPick: (key) => toggleFilter('category', key), pressed: pressed('category') } : {})),
     languages.length > 1 && panel(t('Languages'), t('Of the edition each book is shown as.'), barList(languages.map(([key, value]) => ({ key, label: languageName(key), value })),
       has('language') ? { onPick: (key) => toggleFilter('language', key), pressed: pressed('language') } : {})),
@@ -2808,6 +2807,7 @@ function openBulkEdit(chosen) {
     }),
     oneOf(t('Language'), languageCodes(), { name: languageName, has: (b, code) => faceIn(b).language === code, set: (book, code) => { faceIn(book).language = code; } }),
     categoryNames().length > 0 && someOf(t('Categories'), categoryNames(), {
+      name: categoryName,
       has: (b, c) => (b.categories || []).includes(c),
       apply: (book, mode, picked) => {
         const now = book.categories || [];
@@ -2815,9 +2815,10 @@ function openBulkEdit(chosen) {
       },
     }),
     someTyped(t('Tags'), {
-      present: (b) => b.tags || [],
+      present: (b) => (b.tags || []).map(tagName),
       suggest: h('datalist', { id: 'bulkTags' }, tagNames().map((value) => h('option', { value }))),
-      apply: (book, mode, tags) => {
+      apply: (book, mode, typed) => {
+        const tags = tagsOf(typed);
         const now = book.tags || [], keys = new Set(tags.map(tagKey));
         setList(book, 'tags', mode === 'add' ? [...now, ...tags.filter((tag) => !now.some((x) => tagKey(x) === tagKey(tag)))]
           : mode === 'remove' ? now.filter((x) => !keys.has(tagKey(x))) : tags);
@@ -3466,8 +3467,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
   const field = facts.field;
   // What it is in and about. A booklog book always says its language (its post does).
   const language = oneChip(languageCodes(), src.language, languageName);
-  const categories = someChips(categoryNames(), book.categories || []);
-  const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off', list: 'tagNames' });
+  const categories = someChips(categoryNames(), book.categories || [], categoryName);
+  const tags = h('input', { name: 'tags', value: (book.tags || []).map(tagName).join(', '), autocomplete: 'off', autocapitalize: 'off', list: 'tagNames' });
   // What it was first written in, and its title then: the book's, whichever edition this is.
   const original = originalPicker(book.originalLanguage);
   const originalTitle = h('input', { name: 'originalTitle', value: book.originalTitle || '', placeholder: t('Only if it differs'), autocomplete: 'off', autocapitalize: 'sentences' });
@@ -3529,7 +3530,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     const people = who.value().length || !book.boeken ? who.value() : (whole ? peopleOf(src) : split.common);
     const work = {
       title: v('title'), author: writersIn(people).join(', '),
-      categories: [...categories.value], tags: commaList(tags.value),
+      categories: [...categories.value], tags: tagsOf(commaList(tags.value)),
       series: v('series'), seriesNumber: null, seriesLabel: '',
       ...(original.value && { originalLanguage: original.value }),
       ...(originalTitle.value.trim() && { originalTitle: originalTitle.value.replace(/\s+/g, ' ').trim() }),
@@ -4066,7 +4067,7 @@ function openDescribe(shared, found) {
           p.note && h('p', { class: 'card-excerpt', text: p.note }),
           // The assistant only read its title and author: it says nothing of what the book is about.
           p.unknown && h('p', { class: 'card-excerpt unknown', text: t('The assistant doesn’t know this book, so it says nothing about what it is about.') }),
-          h('div', { class: 'book-tags' }, [...(p.categories || []), ...(p.tags || [])].map((text) => h('span', { class: 'tag', text }))),
+          h('div', { class: 'book-tags' }, [...(p.categories || []).map(categoryName), ...(p.tags || []).map(tagName)].map((text) => h('span', { class: 'tag', text }))),
           // Nearly right (the number in the series, say): put it right before it is added.
           !there && h('button', { class: 'link-btn proposal-edit', type: 'button', onclick: (e) => { e.preventDefault(); edit(p); } },
             icon('pencil'), t('Edit before adding'))));
@@ -4316,7 +4317,7 @@ function booklogHost() {
 
 /** The booklog's categories, most used first: it has a small, fixed set, and the books carry them. */
 function booklogCategories() {
-  const count = new Map();
+  const count = new Map(Object.keys(booklogNames?.categories || {}).map((slug) => [slug, 0]));
   for (const b of books) if (b.boeken) for (const c of b.categories || []) count.set(c, (count.get(c) || 0) + 1);
   return [...count].sort((a, b) => b[1] - a[1]).map(([name]) => name);
 }
@@ -4347,7 +4348,7 @@ function openBooklogForm(book, back) {
   const main = W.mainEdition(book);
   let language = main.language || '';
   const chosen = new Set(book.categories || []);
-  const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off' });
+  const tags = h('input', { name: 'tags', value: (book.tags || []).map(tagName).join(', '), autocomplete: 'off', autocapitalize: 'off' });
   // A book without a review can get a sentence about it: the text of its page until it is reviewed.
   const note = !(book.reviews || []).length && h('textarea', { name: 'note', rows: 2, autocapitalize: 'sentences' });
   const error = h('p', { class: 'field-error', hidden: true });
@@ -4363,7 +4364,7 @@ function openBooklogForm(book, back) {
         if (!p) throw Object.assign(new Error(t('No books recognised in that.')), { status: 1 });
         language ||= p.language || '';
         for (const name of p.categories || []) chosen.add(name);
-        if (!tags.value.trim()) tags.value = (p.tags || []).join(', ');
+        if (!tags.value.trim()) tags.value = (p.tags || []).map(tagName).join(', ');
         if (note && !note.value.trim()) note.value = p.note || '';
         draw();
       } catch (err) {
@@ -4381,7 +4382,7 @@ function openBooklogForm(book, back) {
     rows.language.replaceChildren(...Object.entries(LANGUAGE_NAMES)
       .map(([code, name]) => chip(name, language === code, () => { language = code; draw(); })));
     rows.categories.replaceChildren(...booklogCategories()
-      .map((name) => chip(name, chosen.has(name), () => { if (!chosen.delete(name)) chosen.add(name); draw(); })));
+      .map((name) => chip(categoryName(name), chosen.has(name), () => { if (!chosen.delete(name)) chosen.add(name); draw(); })));
   }
   draw();
 
@@ -4394,7 +4395,7 @@ function openBooklogForm(book, back) {
     main.language = language;
     Object.assign(book, {
       lists: on, categories: [...chosen],
-      tags: tags.value.split(',').map((tag) => tag.replace(/\s+/g, ' ').trim()).filter(Boolean),
+      tags: tagsOf(commaList(tags.value)),
       boekenWanted: true, boekenError: '',
     });
     if (note && note.value.trim()) book.reviews = [{ id: newId(), date: '', rating: null, text: note.value.trim() }];
@@ -4767,8 +4768,8 @@ function openBook(book, rows) {
         metaLine(b) && h('p', { class: 'book-meta', text: metaLine(b) }),
         // What it is in and about, quietly: the language and categories, then the tags.
         (b.language || book.originalLanguage || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
-          [languageLine(b, book), ...(book.categories || [])].filter(Boolean).join(' · '),
-          book.tags?.length > 0 && h('span', { text: (b.language || book.originalLanguage || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
+          [languageLine(b, book), ...(book.categories || []).map(categoryName)].filter(Boolean).join(' · '),
+          book.tags?.length > 0 && h('span', { text: (b.language || book.originalLanguage || book.categories?.length ? ' · ' : '') + book.tags.map(tagName).join(', ') })),
         listTags(book, null),
         coverSearch(book, viewer, main)),
       h('div', { class: 'page-corner' },
@@ -5232,7 +5233,7 @@ function openRoles() {
   });
 
   sheet.open(h('div', { class: 'roles-sheet' },
-    sheetHead(t('Roles'), t('What people did on a book, in English and in Dutch. Books keep the Dutch word, as the booklog has it.')),
+    pageHead(t('Roles'), t('What people did on a book, in English and in Dutch. Books keep the Dutch word, as the booklog has it.')),
     tidy,
     unknown,
     h('div', { class: 'sheet-section' },
@@ -5257,7 +5258,7 @@ function openUnknownRole(u) {
     openRoles();
   };
   sheet.open(h('div', null,
-    sheetHead(u.word, [plural(u.count, 'person'), u.books.slice(0, 3).join(', ')].join(' · ')),
+    pageHead(u.word, [plural(u.count, 'person'), u.books.slice(0, 3).join(', ')].join(' · '), openRoles),
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('The same as') }),
       h('div', { class: 'chips' }, all.map((term) => h('button', { class: 'chip', type: 'button', text: term[lang] || T.valueOf(term), onclick: () => merge(term) }))),
@@ -5277,7 +5278,7 @@ async function suggestMissing() {
   }).filter((x) => x.terms.length);
   const body = h('div', { class: 'list-rows' }, h('p', { class: 'sheet-note', text: t('Asking the assistant…') }));
   sheet.open(h('div', { class: 'roles-sheet' },
-    sheetHead(t('Suggested names'), t('Nothing is kept until you accept it.')),
+    pageHead(t('Suggested names'), t('Nothing is kept until you accept it.'), openRoles),
     body,
     h('div', { class: 'btn-row sheet-actions' },
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Back'), 'data-cancel': true, onclick: () => openRoles() }))));
@@ -5392,7 +5393,7 @@ function openRoleForm(term, word) {
 
   const languages = lang === 'nl' ? ['nl', 'en'] : ['en', 'nl'];
   sheet.open(h('form', { novalidate: true, onsubmit: submit },
-    sheetHead(isNew ? t('New role') : t('Edit role'), inUse.length ? t('On {n}', { n: reach(inUse) }) : ''),
+    pageHead(isNew ? t('New role') : t('Edit role'), inUse.length ? t('On {n}', { n: reach(inUse) }) : '', openRoles),
     languages.map((code) => h('div', { class: 'field' },
       h('span', { text: LANG_LABEL[code]() }),
       inputs[code],
@@ -5420,55 +5421,106 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (matchMedia('(pointer: coarse)').matches) installPrompt = e;
 });
 
-/** Settings → the words the app keeps in two languages. Roles for now; lists, categories and tags to follow. */
-function wordsSection() {
-  const { all } = roleVocab();
-  const s = T.survey(books, all);
-  return h('div', { class: 'sheet-section' },
-    h('h3', { text: t('Words') }),
-    h('div', { class: 'list-rows' }, h('div', { class: 'list-row' },
-      h('button', { class: 'list-name', type: 'button', onclick: openRoles },
-        h('span', { text: t('Roles') }),
-        h('small', { text: [plural(all.length, 'role'), s.unknown.length && t('{n} to sort out', { n: plural(s.unknown.length, 'word') }),
-          s.differently.length && t('written differently on {n}', { n: plural(new Set(s.differently.flatMap((d) => d.books)).size, 'book') })].filter(Boolean).join(' · ') })),
-      h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')))));
+/* Settings: a short list, each row a page of its own (Account, Language, the words the app keeps
+   in two languages, lookups, the shelf as a file, about). A page under it has Back (and Escape,
+   and the phone's back gesture) to the list, and Close to leave. */
+
+let settingsDepth = 0;
+/** Opens a page under Settings: `render` draws it with pageHead. Back returns to the list. */
+function openPage(render) {
+  settingsDepth += 1;
+  openLayer(() => { settingsDepth = Math.max(0, settingsDepth - 1); if (sheet.isOpen) openSettings(); });
+  render();
+}
+/** The head of a page: Back (to `back`, or to the Settings list when it is under it), and Close. */
+function pageHead(title, sub, back) {
+  return h('div', { class: 'sheet-head page-nav' },
+    (back || settingsDepth > 0) && h('button', { class: 'icon-btn page-back', type: 'button', 'aria-label': t('Back'), title: t('Back'), 'data-cancel': true, onclick: () => (back ? back() : closeLayer()) }, icon('back')),
+    h('div', { class: 'page-nav-title' }, h('h2', { class: 'sheet-title', text: title }), sub && h('p', { class: 'sheet-sub', text: sub })),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => closeLayersThen(() => {}) }, icon('x')));
+}
+/** A row of a list that opens something: its name, a line about it, a chevron. */
+const navRow = (label, about, onclick) => h('div', { class: 'list-row nav-row' },
+  h('button', { class: 'list-name', type: 'button', onclick }, h('span', { text: label }), about && h('small', { text: about })),
+  h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')));
+const navGroup = (title, ...rows) => h('div', { class: 'sheet-section nav-group-rows' }, title && h('h3', { text: title }), h('div', { class: 'list-rows' }, rows.filter(Boolean)));
+
+function accountAbout() {
+  if (!sync.user) return t('Not signed in · sync your shelf between devices');
+  if (sync.error) return t('Signed in as {user} · {error}', { user: sync.user, error: sync.error });
+  return t('Signed in as {user}', { user: sync.user }) + (sync.last ? ` · ${t('synced {when}', { when: agoText(sync.last) })}` : '');
+}
+function languageAbout() {
+  return langChoice in LANGS ? LANGS[langChoice] : t('Same as this device');
 }
 
 function openSettings() {
-  const key = h('input', { type: 'text', value: settings.googleKey, placeholder: t('Optional'), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
-  key.addEventListener('change', () => { settings.googleKey = key.value.trim(); store.set('googleKey', settings.googleKey); });
-
-  const langChip = (code, label) => h('button', {
-    class: 'chip', type: 'button', text: label, 'aria-pressed': String(langChoice === code || (code === 'auto' && !(langChoice in LANGS))),
-    onclick: () => { store.set('lang', code); location.reload(); },
-  });
-
-  sync.box = h('div', { class: 'sheet-section account' });
-  const kept = h('p', { class: 'sheet-note' });
-  sheet.open(h('div', null,
+  sync.summary = h('small', { text: accountAbout() });
+  const roles = T.survey(books, roleVocab().all);
+  const tidy = tagsToTidy();
+  sheet.open(h('div', { class: 'settings-hub' },
     sheetHead(t('Settings')),
     installPrompt && h('button', {
       class: 'btn btn-primary btn-block', type: 'button',
       onclick: async () => { const p = installPrompt; installPrompt = null; sheet.close(); await p.prompt(); },
     }, icon('download'), t('Install Folio on this phone')),
-    sync.box,
-    wordsSection(),
+    navGroup(null,
+      h('div', { class: 'list-row nav-row' },
+        h('button', { class: 'list-name', type: 'button', onclick: () => openPage(openAccountPage) }, h('span', { text: t('Account') }), sync.summary),
+        h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron'))),
+      navRow(t('Language'), languageAbout(), () => openPage(openLanguagePage))),
+    navGroup(t('Words'),
+      navRow(t('Categories'), plural(categoryNames().length, 'category'), () => openPage(openCategories)),
+      navRow(t('Tags'), [plural(T.counts(books, 'tags').size, 'tag'), tidy && t('{n} to tidy', { n: tidy })].filter(Boolean).join(' · '), () => openPage(openTags)),
+      navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles))),
+    navGroup(t('Your shelf'),
+      navRow(t('Lookups'), settings.googleKey ? t('Open Library, and Google Books with your key') : t('Open Library and Google Books'), () => openPage(openLookupsPage)),
+      navRow(t('As a file'), t('JSON, or for Goodreads, StoryGraph…'), () => openPage(openFilePage)),
+      navRow(t('About'), t('Version {version}', { version: APP_VERSION }), () => openPage(openAboutPage)))));
+  fetchBooklogNames();
+  if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
+}
+
+function openAccountPage() {
+  sync.box = h('div', { class: 'sheet-section account' });
+  sheet.open(h('div', null, pageHead(t('Account')), sync.box));
+  renderAccount();
+}
+
+function openLanguagePage() {
+  const chip = (code, label) => h('button', {
+    class: 'chip', type: 'button', text: label, 'aria-pressed': String(langChoice === code || (code === 'auto' && !(langChoice in LANGS))),
+    onclick: () => { store.set('lang', code); location.reload(); },
+  });
+  sheet.open(h('div', null, pageHead(t('Language')),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: t('Language') }),
-      h('div', { class: 'chips' }, langChip('auto', t('Same as this device')), Object.entries(LANGS).map(([code, label]) => langChip(code, label)))),
+      h('div', { class: 'chips' }, chip('auto', t('Same as this device')), Object.entries(LANGS).map(([code, label]) => chip(code, label))),
+      h('p', { class: 'sheet-note', text: t('The app’s own words. Roles, categories and tags are shown in this language too, where they have a name in it (Settings → Words).') }))));
+}
+
+function openLookupsPage() {
+  const key = h('input', { type: 'text', value: settings.googleKey, placeholder: t('Optional'), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  key.addEventListener('change', () => { settings.googleKey = key.value.trim(); store.set('googleKey', settings.googleKey); });
+  sheet.open(h('div', null, pageHead(t('Lookups')),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: t('Google Books API key') }),
-      h('label', { class: 'field' }, key),
+      h('label', { class: 'field' }, h('span', { text: t('Google Books API key') }), key),
       h('p', { class: 'sheet-note' },
-        t('Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.'))),
+        t('Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.')))));
+}
+
+function openFilePage() {
+  sheet.open(h('div', null, pageHead(t('Your shelf, as a file')),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: t('Your shelf, as a file') }),
       h('div', { class: 'stack' },
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('json') }, icon('download'), t('Export as JSON')),
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('goodreads') }, icon('download'), t('Export for Goodreads, StoryGraph…'))),
-      h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') })),
+      h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') }))));
+}
+
+function openAboutPage() {
+  const kept = h('p', { class: 'sheet-note' });
+  sheet.open(h('div', null, pageHead(t('About'), t('Version {version}', { version: APP_VERSION })),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: t('About · version {version}', { version: APP_VERSION }) }),
       h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }),
       kept,
       h('p', { class: 'sheet-note', text: t('Nothing about you is collected: no analytics, no advertising, no cookies but those that keep you signed in. Lookups go from this device to Open Library and Google Books, which see what is looked up. With an account, what you describe or photograph for the assistant goes through the server to OpenAI, and the server keeps the usual log of visits.') }),
@@ -5476,8 +5528,303 @@ function openSettings() {
   keepShelf().then((yes) => {
     if (books.length) kept.textContent = yes ? t('This browser keeps your shelf even when space runs low.') : t('This browser may clear your shelf when space runs low, or after weeks unused (Safari, unless Folio is installed).');
   });
-  renderAccount();
-  if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
+}
+
+/* ───────────────────────── Categories and tags (words in two languages) ───────────────────────── */
+
+// Both stay on books as the booklog's slugs; what is shown is a name in the app's language
+// (terms.js). The Dutch names are the booklog's own (its pages' titles), asked of the server
+// now and then and kept on the device; without an account a slug is its own name. A Dutch
+// name changed here becomes the title of that page, and a tag merged into another sends its
+// address there (publish.plan_words).
+
+let booklogNames = store.get('booklogNames', null);
+async function fetchBooklogNames() {
+  if (!sync.user || navigator.onLine === false) return;
+  if (booklogNames?.at && Date.now() - time(booklogNames.at) < 3 * 3600 * 1000) return;
+  try {
+    const res = await api('booklog-names');
+    if (!res.tags) return;
+    booklogNames = { ...res, at: new Date().toISOString() };
+    store.set('booklogNames', booklogNames);
+    termsChanged();
+  } catch {}
+}
+let wordCache = {};
+/** slug → names, for 'category' or 'tag'. */
+const wordMap = (kind) => (wordCache[kind] ??= T.names(terms, kind, { booklog: (kind === 'tag' ? booklogNames?.tags : booklogNames?.categories) || {} }));
+const categoryName = (slug) => T.nameOf(wordMap('category'), slug, lang);
+const tagName = (slug) => T.nameOf(wordMap('tag'), slug, lang);
+/** Tags as typed (in either language, or as a slug) → as stored. */
+const tagsOf = (list) => T.canonicalTags(list, wordMap('tag'));
+const otherName = (map, slug) => { const entry = map.get(slug); return (lang === 'nl' ? entry?.en : entry?.nl) || ''; };
+
+function tagSuggestionsNow() {
+  return T.tagSuggestions(books.filter((b) => !b.pending), { categories: categoryNames(), series: [...seriesMap().keys(), ...(booklogNames?.series || [])] })
+    .filter((s) => !dismissedTags.has(`${s.kind}:${s.from || s.tag}`));
+}
+const dismissedTags = new Set(store.get('dismissedTags', []));
+const tagsToTidy = () => tagSuggestionsNow().length + (aiMerges?.length || 0);
+
+/** Saves books whose tags or categories were rewritten (terms.js rewriteList), and offers to undo it. */
+async function saveListed(changed, key, message, undoTerms, again) {
+  for (const { book } of changed) touch(book.id, book);
+  renderLibrary();
+  await Promise.all(changed.map(({ book }) => DB.put(book))).catch(storageFailed);
+  if (!message) return;
+  toast(message, {
+    ms: 8000, action: t('Undo'),
+    onAction: async () => {
+      for (const { book, before } of [...changed].reverse()) { if (before.length) book[key] = before; else delete book[key]; }
+      await undoTerms?.();
+      await saveListed(changed, key, null);
+      toast(t('Undone'));
+      again?.();
+    },
+  });
+}
+
+/** The records of these tags as they are now, to put back on Undo. */
+async function keepTagRecords(slugs) {
+  const before = slugs.map((slug) => [`tag:${slug}`, terms.find((x) => x.id === `tag:${slug}`)]).map(([id, r]) => [id, r ? structuredClone(r) : null]);
+  return async () => { for (const [id, r] of before) { if (r) await saveTerm(r); else await forgetTerm(id); } };
+}
+const booksIn = (changed) => [...new Set(changed.map((c) => c.book))];
+
+/** Merges, [{froms, to}]: each `from` becomes its `to` on every book, and `to` remembers it (its page takes their addresses). One Undo for all. */
+async function mergeTags(pairs, again) {
+  const map = wordMap('tag');
+  const undoTerms = await keepTagRecords(pairs.map((p) => p.to));
+  const changed = [];
+  for (const { froms, to } of pairs) {
+    changed.push(...froms.flatMap((from) => T.mergeTag(books, from, to)));
+    const id = `tag:${to}`, prior = terms.find((x) => x.id === id);
+    const aliases = [...new Set([...(prior?.aliases || []), ...froms.flatMap((from) => [from, ...(map.get(from)?.aliases || [])])])];
+    await saveTerm({ ...(prior || { id, kind: 'tag', value: to }), aliases });
+  }
+  const said = pairs.length === 1
+    ? t('{from} merged into {to} on {n}', { from: pairs[0].froms.map(tagName).join(', '), to: tagName(pairs[0].to), n: reach(booksIn(changed)) })
+    : t('{tags} merged on {n}', { tags: plural(pairs.reduce((sum, p) => sum + p.froms.length, 0), 'tag'), n: reach(booksIn(changed)) });
+  await saveListed(changed, 'tags', said, undoTerms, again);
+}
+
+/** Tags off every book; each one's page in the booklog goes once no post has it. One Undo for all. */
+async function dropTags(slugs, again) {
+  const undoTerms = await keepTagRecords(slugs);
+  const changed = [];
+  for (const slug of slugs) {
+    changed.push(...T.removeTag(books, slug));
+    const id = `tag:${slug}`, prior = terms.find((x) => x.id === id);
+    await saveTerm({ ...(prior || { id, kind: 'tag', value: slug }), gone: true });
+  }
+  const said = slugs.length === 1 ? t('{tag} taken off {n}', { tag: tagName(slugs[0]), n: reach(booksIn(changed)) })
+    : t('{tags} taken off {n}', { tags: plural(slugs.length, 'tag'), n: reach(booksIn(changed)) });
+  await saveListed(changed, 'tags', said, undoTerms, again);
+}
+
+function openCategories() {
+  const map = wordMap('category'), n = T.counts(books, 'categories');
+  const slugs = categoryNames();
+  const lacking = slugs.filter((slug) => !map.get(slug)?.en || !map.get(slug)?.nl).length;
+  const again = () => openCategories();
+  sheet.open(h('div', { class: 'words-page' },
+    pageHead(t('Categories'), plural(slugs.length, 'category')),
+    lacking > 0 && canTranslate() && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => suggestNames('category', again) }, icon('sparkles'), t('Suggest the {n} missing names', { n: lacking })),
+    h('div', { class: 'list-rows' }, slugs.map((slug) => h('div', { class: 'list-row' },
+      h('button', { class: 'list-name', type: 'button', onclick: () => openWordForm('category', slug, again) },
+        h('span', { text: categoryName(slug) }),
+        h('small', { text: otherName(map, slug) || (lang === 'nl' ? t('No English name yet') : t('No Dutch name yet')) })),
+      h('span', { class: 'word-count', text: String(n.get(slug) || 0) })))),
+    h('p', { class: 'sheet-note', text: t('The booklog’s categories, in English and in Dutch. Books keep them as they are; only their names change.') })));
+}
+
+let aiMerges = null;   // what the assistant proposed last, until acted on or dismissed
+let tagView = { query: '', order: 'used' };
+
+function openTags() {
+  const map = wordMap('tag'), n = T.counts(books, 'tags');
+  const again = () => openTags();
+  const all = [...n.keys()];
+  const suggestions = tagSuggestionsNow();
+
+  // What could be tidied, a group per reason: one line with one action for the lot, the items
+  // folded inside, each to take or leave on its own.
+  const dismiss = (s) => { dismissedTags.add(`${s.kind}:${s.from || s.tag}`); store.set('dismissedTags', [...dismissedTags]); again(); };
+  const item = (label, about, act, action, leave) => h('div', { class: 'list-row suggestion' },
+    h('div', { class: 'list-name' }, h('span', { text: label }), about && h('small', { text: about })),
+    h('button', { class: 'icon-btn tidy-act', type: 'button', 'aria-label': act, title: act, onclick: action }, icon(act === t('Merge') ? 'merge' : 'trash')),
+    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Leave it'), title: t('Leave it'), onclick: leave }, icon('x')));
+  const group = (title, about, act, all, rowsOf) => all.length > 0 && h('details', { class: 'tidy-group' },
+    h('summary', null,
+      h('span', { class: 'list-name' }, h('span', { text: title }), h('small', { text: `${all.length} · ${about}` })),
+      h('button', { class: 'btn btn-outline btn-small', type: 'button', text: act.label, onclick: (e) => { e.preventDefault(); act.run(); } }),
+      h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron'))),
+    h('div', { class: 'list-rows' }, all.map(rowsOf)));
+  const alike = suggestions.filter((s) => s.kind === 'alike'), asCategory = suggestions.filter((s) => s.kind === 'category'), asSeries = suggestions.filter((s) => s.kind === 'series');
+  const pairsOf = (list) => [...list.reduce((by, s) => by.set(s.to, [...(by.get(s.to) || []), s.from]), new Map())].map(([to, froms]) => ({ to, froms }));
+  const tidy = [
+    group(t('Two spellings'), alike.slice(0, 3).map((s) => `${tagName(s.from)} → ${tagName(s.to)}`).join(', ') + (alike.length > 3 ? '…' : ''),
+      { label: t('Merge all'), run: () => mergeTags(pairsOf(alike), again) }, alike,
+      (s) => item(`${tagName(s.from)} → ${tagName(s.to)}`, plural(s.books, 'book'), t('Merge'), () => mergeTags([{ froms: [s.from], to: s.to }], again), () => dismiss(s))),
+    group(t('Also a category'), t('The category says it already.'), { label: t('Remove all'), run: () => dropTags(asCategory.map((s) => s.tag), again) }, asCategory,
+      (s) => item(tagName(s.tag), plural(s.books, 'book'), t('Remove'), () => dropTags([s.tag], again), () => dismiss(s))),
+    group(t('Also a series'), t('The series says it already.'), { label: t('Remove all'), run: () => dropTags(asSeries.map((s) => s.tag), again) }, asSeries,
+      (s) => item(tagName(s.tag), plural(s.books, 'book'), t('Remove'), () => dropTags([s.tag], again), () => dismiss(s))),
+    group(t('Same meaning'), t('Proposed by the assistant.'), { label: t('Merge all'), run: () => { const all = aiMerges; aiMerges = null; mergeTags(all.map((g) => ({ froms: g.merge.filter((s) => n.has(s)), to: g.keep })), again); } }, aiMerges || [],
+      (g) => item(`${g.merge.map(tagName).join(', ')} → ${tagName(g.keep)}`, g.why, t('Merge'),
+        () => { aiMerges = aiMerges.filter((x) => x !== g); mergeTags([{ froms: g.merge.filter((s) => n.has(s)), to: g.keep }], again); },
+        () => { aiMerges = aiMerges.filter((x) => x !== g); again(); })),
+  ].filter(Boolean);
+
+  const ask = canTranslate() && h('button', {
+    class: 'link-btn', type: 'button',
+    onclick: async (e) => {
+      const button = e.currentTarget;
+      button.disabled = true;
+      button.lastChild.textContent = t('Asking the assistant…');
+      try {
+        const res = await api('tag-merges', { tags: all.map((slug) => ({ slug, name: map.get(slug)?.nl || '', books: n.get(slug) })) });
+        aiMerges = (res.groups || []).filter((g) => n.has(g.keep) && g.merge.some((s) => n.has(s)));
+        if (!aiMerges.length) toast(t('The assistant found no tags that say the same thing.'));
+      } catch (err) { toast(err.message); }
+      again();
+    },
+  }, icon('sparkles'), t('Ask the assistant for tags that say the same thing'));
+
+  const search = h('input', { type: 'search', class: 'words-search', value: tagView.query, placeholder: t('Find a tag'), 'aria-label': t('Find a tag'), autocomplete: 'off', autocapitalize: 'off' });
+  const rows = h('div', { class: 'list-rows' });
+  const count = h('p', { class: 'sheet-note words-count' });
+  const draw = () => {
+    const q = fold(tagView.query);
+    const shown = all.filter((slug) => !q || [slug, map.get(slug)?.nl, map.get(slug)?.en, tagName(slug)].some((x) => x && fold(x).includes(q)))
+      .sort(tagView.order === 'used' ? (a, b) => n.get(b) - n.get(a) || tagName(a).localeCompare(tagName(b), LOCALE) : (a, b) => tagName(a).localeCompare(tagName(b), LOCALE));
+    count.textContent = q ? t('{n} of {all}', { n: shown.length, all: plural(all.length, 'tag') }) : '';
+    fill(rows, shown.slice(0, 400).map((slug) => h('div', { class: 'list-row' },
+      h('button', { class: 'list-name', type: 'button', onclick: () => openWordForm('tag', slug, again) },
+        h('span', { text: tagName(slug) }), otherName(map, slug) && otherName(map, slug) !== tagName(slug) && h('small', { text: otherName(map, slug) })),
+      h('span', { class: 'word-count', text: String(n.get(slug)) }))));
+  };
+  search.addEventListener('input', () => { tagView.query = search.value; draw(); });
+  const order = h('div', { class: 'seg', role: 'group', 'aria-label': t('Order') }, [['used', t('Most used')], ['name', t('A–Z')]].map(([key, label]) => h('button', {
+    type: 'button', text: label, 'aria-pressed': String(tagView.order === key), onclick: () => { tagView.order = key; again(); },
+  })));
+  const lacking = all.filter((slug) => !(lang === 'nl' ? map.get(slug)?.en : map.get(slug)?.nl || map.get(slug)?.en)).length;
+  draw();
+  sheet.open(h('div', { class: 'words-page' },
+    pageHead(t('Tags'), t('{tags} on {books}', { tags: plural(all.length, 'tag'), books: plural(books.filter((b) => b.tags?.length).length, 'book') })),
+    (tidy.length > 0 || ask) && h('div', { class: 'sheet-section' },
+      h('h3', { text: t('To tidy') }),
+      h('div', { class: 'tidy-groups' }, tidy),
+      ask),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: t('All tags') }),
+      h('div', { class: 'words-tools' }, search, order),
+      lacking > 0 && canTranslate() && h('button', { class: 'link-btn', type: 'button', onclick: () => suggestNames('tag', again) }, icon('sparkles'),
+        lang === 'nl' ? t('Suggest English names') : t('Suggest names for the {n} without one', { n: lacking })),
+      count,
+      rows),
+    h('p', { class: 'sheet-note', text: t('Books keep a tag as the booklog writes it; its names are for showing. A Dutch name is the title of its page in the booklog.') })));
+}
+
+/** A category or a tag: its names, and for a tag merging it into another, taking it off, its books. */
+function openWordForm(kind, slug, back) {
+  const map = wordMap(kind), entry = map.get(slug) || { value: slug, nl: '', en: '', aliases: [] };
+  const on = books.filter((b) => (b[kind === 'tag' ? 'tags' : 'categories'] || []).includes(slug));
+  const inputs = Object.fromEntries(['nl', 'en'].map((code) => [code, h('input', { name: code, value: entry[code] || '', placeholder: code === 'nl' ? T.prettify(slug) : '', autocomplete: 'off', autocapitalize: 'none', lang: code })]));
+  const notes = { nl: h('p', { class: 'sheet-note', hidden: true }), en: h('p', { class: 'sheet-note', hidden: true }) };
+  const suggest = (to) => canTranslate() && !inputs[to].value && h('button', {
+    class: 'link-btn', type: 'button',
+    onclick: async (e) => {
+      const button = e.currentTarget;
+      const from = to === 'en' ? 'nl' : 'en';
+      button.disabled = true;
+      try {
+        const res = await api('translate', { kind, to, words: [{ word: inputs[from].value.trim() || T.prettify(slug), books: on.slice(0, 3).map((b) => b.title) }] });
+        const got = res.words?.[0]?.translation;
+        if (got) { inputs[to].value = got; notes[to].textContent = t('Suggested by the assistant. Change it if it isn’t right; it is kept only when you save.'); notes[to].hidden = false; }
+        else toast(t('The assistant had nothing to suggest.'));
+      } catch (err) { toast(err.message); }
+      finally { button.disabled = false; }
+    },
+  }, icon('sparkles'), t('Suggest'));
+
+  async function save(e) {
+    e.preventDefault();
+    const clean = (input) => input.value.replace(/\s+/g, ' ').trim();
+    const prior = terms.find((x) => x.id === `${kind}:${slug}`);
+    await saveTerm({ ...(prior || { id: `${kind}:${slug}`, kind, value: slug }), nl: clean(inputs.nl), en: clean(inputs.en) });
+    back();
+  }
+
+  const merge = kind === 'tag' && (() => {
+    const others = [...T.counts(books, 'tags').keys()].filter((x) => x !== slug);
+    const into = h('input', { list: 'mergeInto', placeholder: t('Another tag'), autocomplete: 'off', autocapitalize: 'off', 'aria-label': t('Merge into') });
+    const go = h('button', { class: 'btn btn-outline', type: 'button', text: t('Merge'), disabled: true });
+    const pick = () => T.canonicalTags([into.value], map).find((x) => others.includes(x));
+    into.addEventListener('input', () => { const target = pick(); go.disabled = !target; go.textContent = target ? t('Merge into {tag}', { tag: tagName(target) }) : t('Merge'); });
+    go.addEventListener('click', () => { const target = pick(); if (target) { mergeTags([{ froms: [slug], to: target }], back); back(); } });
+    return h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Merge into another tag') }),
+      h('div', { class: 'merge-row' }, into, go),
+      h('datalist', { id: 'mergeInto' }, others.map((x) => h('option', { value: tagName(x) }))),
+      h('p', { class: 'sheet-note', text: t('Its books get the other tag instead. Its page on the booklog goes, and its address leads to the other’s.') }));
+  })();
+
+  sheet.open(h('form', { class: 'words-page', novalidate: true, onsubmit: save },
+    pageHead(kind === 'tag' ? tagName(slug) : categoryName(slug), [plural(on.length, 'book'), kind === 'tag' && slug].filter(Boolean).join(' · '), back),
+    (lang === 'nl' ? ['nl', 'en'] : ['en', 'nl']).map((code) => h('div', { class: 'field' },
+      h('span', { text: code === 'nl' ? t('Dutch') : t('English') }), inputs[code], notes[code], suggest(code))),
+    h('p', { class: 'sheet-note', text: booklogHost() ? t('The Dutch name is the title of its page on {host}.', { host: booklogHost() }) : t('Books keep it as it is written; its names are for showing.') }),
+    merge,
+    on.length > 0 && h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Its books') }),
+      h('p', { class: 'word-books' }, on.slice(0, 12).map((b) => b.title).join(' · ') + (on.length > 12 ? ` · ${t('and {n} more', { n: on.length - 12 })}` : ''))),
+    h('div', { class: 'btn-row sheet-actions' },
+      kind === 'tag' && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Take this tag off every book'), title: t('Take this tag off every book'), onclick: () => { dropTags([slug], back); back(); } }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save')))));
+}
+
+/** Asks the assistant for the missing names of every category or tag, to accept one by one. */
+async function suggestNames(kind, back) {
+  const map = wordMap(kind);
+  const slugs = kind === 'tag' ? [...T.counts(books, 'tags').keys()] : categoryNames();
+  const to = lang === 'nl' ? 'en' : (slugs.some((s) => !map.get(s)?.en) ? 'en' : 'nl');
+  const these = slugs.filter((s) => !map.get(s)?.[to]).slice(0, 150);
+  const body = h('div', { class: 'list-rows' }, h('p', { class: 'sheet-note', text: t('Asking the assistant…') }));
+  sheet.open(h('div', { class: 'roles-sheet' },
+    pageHead(t('Suggested names'), t('Nothing is kept until you accept it.'), back),
+    body,
+    h('div', { class: 'btn-row sheet-actions' }, h('button', { class: 'btn btn-outline', type: 'button', text: t('Back'), 'data-cancel': true, onclick: back }))));
+  let words;
+  try {
+    words = (await api('translate', { kind, to, words: these.map((s) => ({ word: map.get(s)?.nl || T.prettify(s) })) })).words || [];
+  } catch (err) { fill(body, h('p', { class: 'field-error', text: err.message })); return; }
+  const bySource = new Map(these.map((s) => [map.get(s)?.nl || T.prettify(s), s]));
+  const proposals = words.map((w) => ({ slug: bySource.get(w.word), value: w.translation })).filter((p) => p.slug);
+  if (!body.isConnected) return;
+  if (!proposals.length) { fill(body, h('p', { class: 'sheet-note', text: t('The assistant had nothing to suggest.') })); return; }
+  const accept = async (p, row, input) => {
+    const value = input.value.replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    const id = `${kind}:${p.slug}`, prior = terms.find((x) => x.id === id);
+    await saveTerm({ ...(prior || { id, kind, value: p.slug }), [to]: value });
+    row.remove();
+    if (!body.querySelector('.list-row')) back();
+  };
+  const acceptAll = h('button', { class: 'btn btn-outline btn-block', type: 'button', text: t('Accept all as they are'), onclick: async () => {
+    for (const row of [...body.querySelectorAll('.list-row')]) await row.accept();
+  } });
+  fill(body, acceptAll, proposals.map((p) => {
+    const input = h('input', { value: p.value, 'aria-label': to === 'en' ? t('English') : t('Dutch'), autocomplete: 'off', autocapitalize: 'none' });
+    const row = h('div', { class: 'list-row suggestion-row' },
+      h('div', { class: 'list-name' }, h('span', { text: (kind === 'tag' ? tagName : categoryName)(p.slug) }), h('small', { text: to === 'en' ? t('English') : t('Dutch') })),
+      h('label', { class: 'field' }, input),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Accept'), title: t('Accept'), onclick: () => accept(p, row, input) }, icon('check')),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Skip'), title: t('Skip'), onclick: () => { row.remove(); if (!body.querySelector('.list-row')) back(); } }, icon('x')));
+    row.accept = () => accept(p, row, input);
+    return row;
+  }));
 }
 
 /* ───────────────────────── Scanner ───────────────────────── */
