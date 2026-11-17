@@ -62,16 +62,69 @@ def found(language, title='', known_as=()):
     return {'language': language, 'title': title}
 
 
-def from_wikidata(olids):
-    """Open Library work ids → {olid: {'language', 'title'}} for those Wikidata knows the language of."""
+def from_wikidata(olids, pause=0.2):
+    """Open Library work ids → {olid: {'language', 'title'}} for those Wikidata knows the language of.
+    Its query service answers for two hundred at a time; while it is down or rate-limited (as it
+    was in November 2026), Wikidata's own API is asked instead, one work at a time."""
     olids = sorted({o for o in olids if OLID.fullmatch(str(o or ''))})
+    try:
+        return by_query(olids)
+    except (urllib.error.URLError, OSError, ValueError, KeyError):
+        return by_api(olids, pause)
+
+
+API = 'https://www.wikidata.org/w/api.php?format=json'
+# Wikidata's languages by their item; any other is asked once (its ISO 639-1 code, else 639-2).
+LANGUAGE_ITEMS = {'Q1860': 'en', 'Q150': 'fr', 'Q7411': 'nl', 'Q188': 'de', 'Q1321': 'es', 'Q652': 'it', 'Q5146': 'pt',
+                  'Q5287': 'ja', 'Q7737': 'ru', 'Q7850': 'zh', 'Q9176': 'ko', 'Q13955': 'ar', 'Q9288': 'he', 'Q9027': 'sv',
+                  'Q9035': 'da', 'Q25167': 'no', 'Q9043': 'no', 'Q1412': 'fi', 'Q809': 'pl', 'Q9056': 'cs', 'Q9067': 'hu',
+                  'Q256': 'tr', 'Q36510': 'grc', 'Q397': 'la', 'Q8798': 'uk', 'Q8752': 'eu', 'Q7026': 'ca', 'Q9168': 'fa'}
+
+
+def claim(claims, prop):
+    return [((c.get('mainsnak') or {}).get('datavalue') or {}).get('value') for c in claims.get(prop) or []]
+
+
+def language_code(qid):
+    if qid not in LANGUAGE_ITEMS:
+        claims = get_json(f'{API}&action=wbgetentities&props=claims&ids={qid}')['entities'][qid].get('claims') or {}
+        code = next((v for v in claim(claims, 'P218') + claim(claims, 'P219') if isinstance(v, str) and CODE.fullmatch(v)), '')
+        LANGUAGE_ITEMS[qid] = code
+    return LANGUAGE_ITEMS[qid]
+
+
+def by_api(olids, pause=0.2):
+    out = {}
+    for olid in olids:
+        try:
+            hits = get_json(f'{API}&action=query&list=search&srlimit=3&srsearch='
+                            + urllib.parse.quote(f'haswbstatement:P648={olid}'))['query']['search']
+            if hits:
+                ids = '|'.join(h['title'] for h in hits)
+                entities = get_json(f'{API}&action=wbgetentities&props=claims&ids={ids}')['entities']
+                for h in hits:
+                    claims = entities.get(h['title'], {}).get('claims') or {}
+                    item = next((v.get('id') for v in claim(claims, 'P407') if isinstance(v, dict)), '')
+                    code = item and language_code(item)
+                    if code:
+                        title = next((v['text'] for v in claim(claims, 'P1476')
+                                      if isinstance(v, dict) and str(v.get('language', '')).split('-')[0] == code), '')
+                        out[olid] = {'language': code, 'title': title}
+                        break
+        except (urllib.error.URLError, OSError, ValueError, KeyError):
+            pass
+        time.sleep(pause)
+    return out
+
+
+def by_query(olids):
     out = {}
     for i in range(0, len(olids), 200):
         query = ('SELECT ?ol ?code ?title WHERE { VALUES ?ol { %s } ?item wdt:P648 ?ol . '
                  'OPTIONAL { ?item wdt:P407 ?l . OPTIONAL { ?l wdt:P218 ?two } OPTIONAL { ?l wdt:P219 ?three } BIND(COALESCE(?two, ?three) AS ?code) } '
                  'OPTIONAL { ?item wdt:P1476 ?title } }'
                  % ' '.join(f'"{o}"' for o in olids[i:i + 200]))
-        rows = get_json('https://query.wikidata.org/sparql?format=json&query=' + urllib.parse.quote(query), 60)['results']['bindings']
+        rows = get_json('https://query.wikidata.org/sparql?format=json&query=' + urllib.parse.quote(query), 60, tries=2)['results']['bindings']
         seen = {}
         for row in rows:
             entry = seen.setdefault(row['ol']['value'], {'codes': [], 'titles': []})

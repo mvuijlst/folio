@@ -25,6 +25,20 @@ class WikidataTests(TestCase):
             got = original.from_wikidata(['OL1W', 'OL2W', 'OL3W', 'not an id'])
         self.assertEqual(got, {'OL1W': {'language': 'ar', 'title': 'فرانكشتاين في بغداد'}, 'OL2W': {'language': 'ja', 'title': '1Q84'}})
 
+    def test_while_the_query_service_refuses_the_api_is_asked(self):
+        import urllib.error
+
+        def answer(url, *args, **kwargs):
+            if 'query.wikidata.org' in url:
+                raise urllib.error.HTTPError(url, 429, 'slow down', {}, None)
+            if 'list=search' in url:
+                return {'query': {'search': [{'title': 'Q208971'}]}}
+            return {'entities': {'Q208971': {'claims': {
+                'P407': [{'mainsnak': {'datavalue': {'value': {'id': 'Q5287'}}}}],
+                'P1476': [{'mainsnak': {'datavalue': {'value': {'text': '1Q84', 'language': 'ja'}}}}]}}}}
+        with mock.patch.object(original, 'get_json', side_effect=answer), mock.patch.object(original.time, 'sleep'):
+            self.assertEqual(original.from_wikidata(['OL15029001W']), {'OL15029001W': {'language': 'ja', 'title': '1Q84'}})
+
     def test_a_title_the_book_already_has_is_not_an_original_title(self):
         self.assertEqual(original.found('ja', '1Q84', ['1Q84']), {'language': 'ja', 'title': ''})
         self.assertEqual(original.found('ru', 'Мастер и Маргарита', ['The Master and Margarita']),
