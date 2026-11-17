@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.7.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.8.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -182,6 +182,7 @@ async function addBook(data) {
   touch(book.id, book);
   renderLibrary();
   await DB.put(book).catch(storageFailed);
+  if (!book.pending) findOriginal(book);   // in the background (a scan made offline: once it is looked up)
   return book;
 }
 
@@ -1020,7 +1021,17 @@ function formatPicker(initial) {
 /* What a book is in and about: the language of its edition (a two-letter code, as the booklog
    has it), its categories (the booklog's own small set) and its tags (anything). */
 const LANGUAGE_NAMES = { nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' };
-const languageName = (code) => LANGUAGE_NAMES[code] || String(code || '').toUpperCase();
+// Any other language by its name in the app's language (Japans, Japanese), where the browser knows it.
+const LANGUAGE_DISPLAY = (() => { try { return new Intl.DisplayNames([lang], { type: 'language' }); } catch { return null; } })();
+function languageName(code) {
+  return LANGUAGE_NAMES[code] || languageIn(code);
+}
+/** A language as the app's language names it (Engels, Japans), for saying what a book was written in. */
+function languageIn(code) {
+  let name = '';
+  try { name = code ? LANGUAGE_DISPLAY?.of(code) || '' : ''; } catch {}
+  return name && name !== code ? name[0].toLocaleUpperCase(LOCALE) + name.slice(1) : String(code || '').toUpperCase();
+}
 /** The languages to choose from: the four the booklog mostly has, and any other a book is in. */
 const languageCodes = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.flatMap((b) => editionsOf(b).map((e) => e.language)).filter((code) => /^[a-z]{2}$/.test(code || ''))])];
 /** Categories to choose from: the booklog's, most used first, then any other a book has. */
@@ -1207,6 +1218,103 @@ async function lookupIsbn(isbn) {
   if (book && !book.language) { const language = isbnLanguage(isbn); if (language) book.language = language; }
   if (book) return { status: 'found', book };
   return results.some((r) => r?.ok) ? { status: 'notfound' } : { status: 'unreachable' };
+}
+
+/* The language a book was first written in, and its title then (`originalLanguage`, `originalTitle`:
+   the book's own, whichever edition you have). Looked up when a book is added: Wikidata, by the
+   book's Open Library work, says it for many books, and Open Library itself for an edition that
+   says it is a translation; both from this device, with or without an account. With an account
+   and the assistant, the server is asked for the rest (server/shelf/original.py). What nobody
+   knows stays empty, to be filled in by hand under Edit details. */
+const WIKIDATA = 'https://www.wikidata.org/w/api.php?format=json&origin=*';
+// Wikidata's languages by their item; any other is asked once (its ISO 639-1 code, else 639-2).
+const WIKIDATA_LANGUAGES = { Q1860: 'en', Q150: 'fr', Q7411: 'nl', Q188: 'de', Q1321: 'es', Q652: 'it', Q5146: 'pt', Q5287: 'ja',
+  Q7737: 'ru', Q7850: 'zh', Q9176: 'ko', Q13955: 'ar', Q9288: 'he', Q9027: 'sv', Q9035: 'da', Q25167: 'no', Q9043: 'no', Q1412: 'fi',
+  Q809: 'pl', Q9056: 'cs', Q9067: 'hu', Q256: 'tr', Q36510: 'grc', Q397: 'la', Q8798: 'uk', Q8752: 'eu', Q7026: 'ca', Q9168: 'fa' };
+const isOlid = (id) => /^OL\d+W$/.test(id || '');
+
+async function wikidataLanguage(qid) {
+  if (WIKIDATA_LANGUAGES[qid]) return WIKIDATA_LANGUAGES[qid];
+  const claims = (await getJSON(`${WIKIDATA}&action=wbgetentities&props=claims&ids=${qid}`)).entities?.[qid]?.claims || {};
+  const code = [claims.P218, claims.P219].map((c) => c?.[0]?.mainsnak?.datavalue?.value).find((v) => /^[a-z]{2,3}$/.test(v || ''));
+  if (code) WIKIDATA_LANGUAGES[qid] = code;
+  return code || '';
+}
+
+/** An Open Library work id → {language, title} as Wikidata has the work, or null. */
+async function originalFromWikidata(olid) {
+  if (!isOlid(olid)) return null;
+  const hits = (await getJSON(`${WIKIDATA}&action=query&list=search&srlimit=3&srsearch=${encodeURIComponent(`haswbstatement:P648=${olid}`)}`)).query?.search || [];
+  if (!hits.length) return null;
+  const entities = (await getJSON(`${WIKIDATA}&action=wbgetentities&props=claims&ids=${hits.map((x) => x.title).join('|')}`)).entities || {};
+  for (const { title: qid } of hits) {
+    const claims = entities[qid]?.claims || {};
+    const lq = claims.P407?.[0]?.mainsnak?.datavalue?.value?.id;
+    const language = lq && await wikidataLanguage(lq);
+    if (!language) continue;
+    const named = (claims.P1476 || []).map((c) => c.mainsnak?.datavalue?.value).find((v) => v?.language?.split('-')[0] === language);
+    return { language, title: named?.text || '' };
+  }
+  return null;
+}
+
+/** Sets a book's original language and title; the title only when it isn't one the book already goes by. */
+function setOriginal(book, language, title) {
+  if (!/^[a-z]{2,3}$/.test(language || '')) return false;
+  book.originalLanguage = language;
+  const known = [book.title, ...editionsOf(book).map((e) => e.title)].filter(Boolean).map(fold);
+  const plainTitle = String(title || '').replace(/\s+/g, ' ').trim();
+  if (plainTitle && !known.includes(fold(plainTitle))) book.originalTitle = plainTitle; else delete book.originalTitle;
+  return true;
+}
+
+/** Looks up the original language of a book that has none, in the background; saves the book when found. */
+const originalAsked = new Set();
+async function findOriginal(book) {
+  if (!book || book.originalLanguage || originalAsked.has(book.id) || navigator.onLine === false) return;
+  originalAsked.add(book.id);
+  const main = W.mainEdition(book) || {};
+  let olid = isOlid(book.olid) ? book.olid : '', said = null;
+  try {
+    if (main.isbn && /^97[89]\d{10}$/.test(main.isbn)) {
+      // Open Library's record of the edition: its work, and whether it says it is a translation.
+      const d = await getJSON(`https://openlibrary.org/isbn/${main.isbn}.json`).catch(() => null);
+      const work = String(d?.works?.[0]?.key || '').split('/').pop();
+      if (!olid && isOlid(work)) olid = work;
+      const from = MARC_LANGUAGES[String(d?.translated_from?.[0]?.key || '').split('/').pop()];
+      if (from) said = { language: from, title: d.translation_of || '' };
+    }
+    if (!said && olid) said = await originalFromWikidata(olid).catch(() => null);
+    if (!said && sync.user && sync.assistant && book.title) {
+      const res = await api('original', { title: book.title, author: book.author || '', language: main.language || '' }).catch(() => null);
+      if (res?.language) said = res;
+    }
+  } catch { return; }
+  if (!books.includes(book) || book.originalLanguage) return;
+  let changed = false;
+  if (said) changed = setOriginal(book, said.language, said.title);
+  // The work found on the way is the book's too, unless the booklog says which it is.
+  if (olid && !book.olid && !book.boeken) { book.olid = olid; changed = true; }
+  if (changed) await saveBook(book);
+}
+
+/* Every language, for choosing the one a book was written in: ISO 639-1, named in the app's language. */
+const ALL_LANGUAGES = ('af ar bg bn ca cs cy da de el en eo es et eu fa fi fr fy ga gl he hi hr hu hy id is it ja ka ko la lt lv mk ' +
+  'ms mt nl no pl pt ro ru sk sl sq sr sv sw ta th tl tr uk ur vi yi zh grc').split(' ');
+/** Chips for the languages books on the shelf were written in (and the four the booklog mostly has), and any other from a list. → { el, value } */
+function originalPicker(initial) {
+  const picker = { value: initial || '', el: h('div', { class: 'original-picker' }) };
+  const common = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.map((b) => b.originalLanguage).filter(Boolean), picker.value].filter(Boolean))];
+  const other = h('select', { class: 'language-select', 'aria-label': t('Another language') },
+    h('option', { value: '', text: t('Another language…') }),
+    ALL_LANGUAGES.map((code) => [code, languageIn(code)]).sort((a, b) => a[1].localeCompare(b[1], LOCALE)).map(([value, text]) => h('option', { value, text })));
+  other.addEventListener('change', () => { if (other.value) { picker.value = other.value; other.value = ''; draw(); } });
+  const draw = () => fill(picker.el, h('div', { class: 'chips' }, common().map((code) => h('button', {
+    class: 'chip', type: 'button', text: languageName(code), 'aria-pressed': String(picker.value === code),
+    onclick: () => { picker.value = picker.value === code ? '' : code; draw(); },
+  }))), other);
+  draw();
+  return picker;
 }
 
 /* ───────────────────────── Layers, sheet, toast ───────────────────────── */
@@ -1411,6 +1519,13 @@ function editionCovers(book, face) {
   const covers = [];
   for (const e of others) { const key = e.cover || e.thumb; if (!seen.has(key)) { seen.add(key); covers.push(e); } }
   return covers.length ? [...covers.slice(-2), front].map((e) => look(book, e)) : [look(book, front)];
+}
+
+/** "English, translated from Japanese": the edition's language, and the one it was written in when that is another. */
+function languageLine(e, book) {
+  const was = book.originalLanguage;
+  if (!e.language) return was ? t('Written in {language}', { language: languageIn(was) }) : '';
+  return was && was !== e.language ? t('{language}, translated from {original}', { language: languageName(e.language), original: languageIn(was) }) : languageName(e.language);
 }
 
 /** One line about an edition: "Audiobook · 11u 36m · Audible · 2018 · stem: Roy Dotrice", its own title and language first when it has another title. */
@@ -1659,6 +1774,7 @@ function facetsOf() {
   facets.push({ ...having('category', (b) => b.categories || []), name: t('Category') });
   const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
   facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
+  facets.push({ ...having('original', (b) => [b.originalLanguage].filter(Boolean), languageName, (a, b) => languageName(a).localeCompare(languageName(b), LOCALE)), name: t('Written in') });
   if (view.list !== 'to-read' && view.list !== 'reading') {
     // A span of years, from–to (openFilterSheet draws it as a slider). A book is in it when it
     // was read in any year of it: read in 2015 and again in 2020, it is among the books of both.
@@ -3352,6 +3468,9 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
   const language = oneChip(languageCodes(), src.language, languageName);
   const categories = someChips(categoryNames(), book.categories || []);
   const tags = h('input', { name: 'tags', value: (book.tags || []).join(', '), autocomplete: 'off', autocapitalize: 'off', list: 'tagNames' });
+  // What it was first written in, and its title then: the book's, whichever edition this is.
+  const original = originalPicker(book.originalLanguage);
+  const originalTitle = h('input', { name: 'originalTitle', value: book.originalTitle || '', placeholder: t('Only if it differs'), autocomplete: 'off', autocapitalize: 'sentences' });
   const error = h('p', { class: 'field-error', hidden: true });
   // The lists the book is on, edited as a copy until the form is saved. With several editions,
   // only its reading status: where each copy is, is on its own sheet.
@@ -3385,6 +3504,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
     seriesNames,
     whole && h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
+    h('div', { class: 'field' }, h('span', { text: t('Written in') }), original.el),
+    field(t('Original title'), originalTitle),
     (categories.value.size > 0 || categoryNames().length > 0) && h('div', { class: 'field' }, h('span', { text: t('Categories') }), categories.el),
     field(t('Tags'), tags),
     h('datalist', { id: 'tagNames' }, tagNames().map((value) => h('option', { value }))),
@@ -3410,6 +3531,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
       title: v('title'), author: writersIn(people).join(', '),
       categories: [...categories.value], tags: commaList(tags.value),
       series: v('series'), seriesNumber: null, seriesLabel: '',
+      ...(original.value && { originalLanguage: original.value }),
+      ...(originalTitle.value.trim() && { originalTitle: originalTitle.value.replace(/\s+/g, ' ').trim() }),
     };
     // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
     const typed = work.series ? v('seriesNumber') : '';
@@ -3439,6 +3562,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
       rememberTarget(Object.keys(listed));
     } else {
       Object.assign(book, work, { pending: false, unresolved: false });
+      if (!work.originalLanguage) delete book.originalLanguage;
+      if (!work.originalTitle) delete book.originalTitle;
       if (copy) {
         setFacts(ed, copy);
         if (!copy.people) delete ed.people;
@@ -3754,8 +3879,9 @@ async function addFound(flat, { say = true, match = false } = {}) {
   const status = Object.entries(flat.lists || {}).filter(([id]) => isStatus(id));
   for (const [id, entry] of status) place(same.lists, id, entry.at);
   if (status.length && W.OPEN.some((id) => same.lists[id])) same.main = edition.id;
-  for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel']) if (!same[key] && flat[key]) same[key] = flat[key];
+  for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel', 'originalLanguage', 'originalTitle']) if (!same[key] && flat[key]) same[key] = flat[key];
   await saveBook(same);
+  findOriginal(same);
   const { undo, keepSeparate } = detachable(same, edition, before, flat);
   const done = adding.last = { book: same, edition, attached: true, undo, keepSeparate };
   if (say) {
@@ -3793,7 +3919,7 @@ function detachable(book, edition, before, flat) {
       const piece = await take();
       if (!piece) return addBook(flat);
       // A book of its own: what was found says what book it is.
-      for (const key of ['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'olid', 'categories', 'tags']) {
+      for (const key of ['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'olid', 'categories', 'tags', 'originalLanguage', 'originalTitle']) {
         if (flat[key] != null && flat[key] !== '') piece[key] = structuredClone(flat[key]); else delete piece[key];
       }
       if (flat.lists) for (const [id, entry] of Object.entries(flat.lists)) if (isStatus(id)) place(piece.lists, id, entry.at);
@@ -4629,6 +4755,7 @@ function openBook(book, rows) {
       viewer,
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
+        book.originalTitle && h('p', { class: 'page-original', lang: book.originalLanguage || null, text: book.originalTitle }),
         // Each name leads to all of that person's books.
         book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', personLink(name)])),
         others.length > 0 && h('p', { class: 'page-people' },
@@ -4639,9 +4766,9 @@ function openBook(book, rows) {
         }),
         metaLine(b) && h('p', { class: 'book-meta', text: metaLine(b) }),
         // What it is in and about, quietly: the language and categories, then the tags.
-        (b.language || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
-          [b.language && languageName(b.language), ...(book.categories || [])].filter(Boolean).join(' · '),
-          book.tags?.length > 0 && h('span', { text: (b.language || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
+        (b.language || book.originalLanguage || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
+          [languageLine(b, book), ...(book.categories || [])].filter(Boolean).join(' · '),
+          book.tags?.length > 0 && h('span', { text: (b.language || book.originalLanguage || book.categories?.length ? ' · ' : '') + book.tags.join(', ') })),
         listTags(book, null),
         coverSearch(book, viewer, main)),
       h('div', { class: 'page-corner' },
@@ -6097,7 +6224,10 @@ async function retryPending() {
       if (W.findWork(flat, books.filter((b) => b !== book && !b.pending))) {
         await removeBook(book);
         await addFound(flat, { match: true });
-      } else await saveBook(book);
+      } else {
+        await saveBook(book);
+        findOriginal(book);
+      }
     }
   } finally {
     retrying = false;

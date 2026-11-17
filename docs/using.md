@@ -190,6 +190,16 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   artist); a voice or a translator of one edition is named with that edition. They are edited
   as rows of name and role, in a book's details and on an edition's sheet. Any name leads to
   all of that person's books (`#/author/<name>`), whatever they did on them.
+- **Written in, and the original title.** A book (not an edition) can say which language it
+  was first written in and what it was called then: *Kafka on the Shore*, written in Japanese,
+  海辺のカフカ. Its page then says *English, translated from Japanese*, with the original title
+  under its own; the filters have *Written in*. When a book is added, the app looks it up by
+  itself: Open Library's record of the edition (when it says it is a translation) and Wikidata,
+  through the Open Library work, which knows it for many well-known books. With an account and
+  the assistant, the server is asked for the rest, and a book the assistant proposes comes with
+  it. What nobody knows stays empty; it is set under *Edit details* (*Written in*, *Original
+  title*). These stay in Folio: the booklog doesn't have them. `manage.py fill_original` (see
+  [server.md](server.md)) fills them in for books already on the shelf.
 - **Roles, in two languages.** Settings → *Words* → *Roles* lists every role with its English
   and its Dutch name; a book shows a role in the language of the app, and a role can be typed
   in either (*narrator* or *stem*). Books keep the Dutch word, as the booklog has it, so

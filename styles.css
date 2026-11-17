@@ -1183,3 +1183,9 @@ div.list-name { cursor: default; }
   .search { order: -2; flex-basis: calc(100% - 50px); }
   #pickBtn { order: -1; }
 }
+
+/* The original title under a book's title, and choosing the language it was written in */
+.page-original { margin: -2px 0 6px; color: var(--muted); font-family: var(--serif); font-style: italic; font-size: 1rem; }
+.original-picker { display: flex; flex-direction: column; gap: 8px; }
+.language-select { align-self: flex-start; max-width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--muted); font: inherit; font-size: .88rem; }
+.language-select option { color: var(--text); background: var(--bg); }

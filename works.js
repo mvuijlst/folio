@@ -404,7 +404,7 @@ export function combine(survivor, absorbed, { title = 'mine' } = {}) {
     if (isOpen(theirs) && main) survivor.main = ids.get(main.id);
     for (const key of PROGRESS) { if (key in absorbed) survivor[key] = clone(absorbed[key]); else delete survivor[key]; }
   }
-  for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel', 'issues']) if (empty(survivor[key]) && !empty(absorbed[key])) survivor[key] = clone(absorbed[key]);
+  for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel', 'issues', 'originalLanguage', 'originalTitle']) if (empty(survivor[key]) && !empty(absorbed[key])) survivor[key] = clone(absorbed[key]);
   for (const key of ['categories', 'tags']) {
     const all = [...(survivor[key] || []), ...(absorbed[key] || [])];
     const seen = new Set();

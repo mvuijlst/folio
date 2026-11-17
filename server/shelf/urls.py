@@ -10,4 +10,5 @@ urlpatterns = [
     path('cover', views.cover, name='cover'),
     path('suggest', views.suggest, name='suggest'),
     path('translate', views.translate, name='translate'),
+    path('original', views.original_of, name='original'),
 ]

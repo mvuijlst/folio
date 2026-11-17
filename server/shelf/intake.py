@@ -38,7 +38,7 @@ from pathlib import Path
 import yaml
 from django.conf import settings
 
-from . import boeken
+from . import boeken, original
 
 TIMEOUT = 90
 PHOTO_SIDE = 1024     # px: a cover photo is sent no larger than this
@@ -64,7 +64,7 @@ SCHEMA = {
                 'type': 'object',
                 'additionalProperties': False,
                 'required': ['title', 'authors', 'known', 'publisher', 'year', 'pages', 'duration', 'series',
-                             'series_number', 'language', 'categories', 'tags', 'note'],
+                             'series_number', 'language', 'original_language', 'original_title', 'categories', 'tags', 'note'],
                 'properties': {
                     'title': {'type': 'string', 'description': 'kale titel, zonder reeksprefix'},
                     'authors': {
@@ -90,6 +90,11 @@ SCHEMA = {
                     'series_number': {'type': ['number', 'null']},
                     'language': {'type': ['string', 'null'],
                                  'description': 'ISO 639-1 van de editie zoals de titel gegeven is (en, nl, fr, de…)'},
+                    'original_language': {'type': ['string', 'null'],
+                                          'description': 'ISO 639-1 van de taal waarin het werk oorspronkelijk geschreven is '
+                                                         '(een Murakami: ja); null als je het boek niet kent'},
+                    'original_title': {'type': ['string', 'null'],
+                                       'description': 'de oorspronkelijke titel, in die taal en dat schrift; null als je hem niet kent'},
                     'categories': {'type': 'array', 'items': {'type': 'string'}},
                     'tags': {'type': 'array', 'items': {'type': 'string'},
                              'description': 'kleine-letter-slugs, alleen echt informatieve'},
@@ -584,7 +589,9 @@ def classify(proposal, categories):
         return {**proposal, 'known': False, 'categories': first.get('categories') or [],
                 'language': proposal.get('language') or first.get('language')}
     return {**proposal, 'categories': first.get('categories') or [], 'tags': first.get('tags') or [],
-            'note': first.get('note') or '', 'language': proposal.get('language') or first.get('language')}
+            'note': first.get('note') or '', 'language': proposal.get('language') or first.get('language'),
+            'original_language': proposal.get('original_language') or first.get('original_language'),
+            'original_title': proposal.get('original_title') or first.get('original_title')}
 
 
 def propose(text, booklog=None, categories=(), url='', image=None):
@@ -639,6 +646,11 @@ def propose(text, booklog=None, categories=(), url='', image=None):
             'cover': str(proposal.get('cover') or ''),
             'unknown': unknown or None,
         }
+        # The language it was first written in, and its title then: only from a model that knows the book.
+        first = not unknown and original.found(str(proposal.get('original_language') or '').lower(), proposal.get('original_title'), [book['title']])
+        if first:
+            book['originalLanguage'] = first['language']
+            book['originalTitle'] = first['title']
         if book['title']:
             out.append({k: v for k, v in book.items() if v not in ('', None, [])})
     return out

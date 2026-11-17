@@ -571,4 +571,13 @@ export default {
     'Wat je typt, en wat uit een opzoeking of van de assistent komt, wordt als deze rol geschreven als het een van deze is.',
   'Delete role': 'Rol verwijderen',
   'Add role': 'Rol toevoegen',
+
+  // The language a book was first written in
+  'Written in': 'Geschreven in',
+  'Original title': 'Oorspronkelijke titel',
+  'Only if it differs': 'Alleen als die anders is',
+  'Another language': 'Een andere taal',
+  'Another language…': 'Een andere taal…',
+  'Written in {language}': 'Geschreven in het {language}',
+  '{language}, translated from {original}': '{language}, vertaald uit het {original}',
 };

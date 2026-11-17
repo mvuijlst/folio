@@ -10,6 +10,9 @@
                       "listsSince": cursor | null, "lists": [change…]}
                       "termsSince": cursor | null, "terms": [change…]}
                      → {"cursor", "changes": [change…], "lists": [change…], "terms": [change…]}
+  POST /api/original {"title", "author", "language"} → {"language", "title"}: the language the
+                     book was first written in and its title then, as far as the assistant knows
+                     ({} when it doesn't); the app asks Wikidata and Open Library itself first
   POST /api/translate {"kind": "role", "to": "en" | "nl", "words": [{"word", "books"}…]}
                      → {"words": [{"word", "translation"}…]}: the assistant's proposals, which
                      the app shows for the user to accept or not
@@ -42,7 +45,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from django.conf import settings
 
-from . import covers, intake, works
+from . import covers, intake, original, works
 from .models import Book, List, Term
 
 logger = logging.getLogger(__name__)
@@ -199,6 +202,25 @@ def suggest(request):
     except intake.IntakeError as err:
         return error(str(err), 502)
     return JsonResponse({'books': books})
+
+
+@require_POST
+def original_of(request):
+    """A book → the language it was first written in, and its title in that language, as the assistant knows it."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    data = body(request) or {}
+    title = str(data.get('title') or '').strip()[:300]
+    if not title:
+        return error('Bad request')
+    book = {'id': '1', 'title': title, 'author': str(data.get('author') or '').strip()[:300],
+            'language': str(data.get('language') or '').strip()[:5]}
+    try:
+        return JsonResponse(original.ask([book]).get('1') or {})
+    except intake.NotSetUp as err:
+        return error(str(err), 503)
+    except intake.IntakeError as err:
+        return error(str(err), 502)
 
 
 @require_POST

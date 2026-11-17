@@ -21,7 +21,7 @@ and when you're back online; if two devices change the same book or the same lis
 change wins. *Sign out & clear* removes the shelf from that device only.
 
 The server is a small Django app in [`server/`](../server): a JSON API (`/api/session`, `/api/login`,
-`/api/logout`, `/api/sync`, and for the assistant `/api/suggest` and `/api/translate`) plus the Django admin at `/admin/`, where accounts are made. There
+`/api/logout`, `/api/sync`, and for the assistant `/api/suggest`, `/api/translate` and `/api/original`) plus the Django admin at `/admin/`, where accounts are made. There
 is no public sign-up.
 
 ```bash
@@ -73,3 +73,13 @@ A sync says which shape of book the app speaks (`"schema": 2`, books with editio
 so a copy of the app from before can never write books in the old shape over new ones; it
 shows that under Settings and updates itself the next time it is opened. The one-time
 conversion of a shelf is `manage.py to_works` (see [booklog.md](booklog.md#books-with-editions-and-what-a-version-was)).
+
+## Filling in what a shelf lacks
+
+`manage.py fill_original --user NAME` gives books the language they were first written in and
+their original title (`originalLanguage`, `originalTitle`), from Wikidata (through each book's
+Open Library work) and Open Library's record of an ISBN; `--assistant` also asks the assistant,
+forty books a question, for the rest. Without `--write` it only says what it found, and
+`--report FILE` lists it to read first. Nothing is published: the booklog doesn't have these
+fields. Wikidata's query service may be rate-limited; the command then waits as long as it is
+told to and tries again.

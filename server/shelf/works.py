@@ -351,7 +351,7 @@ def combine(survivor, absorbed, title='mine'):
                 survivor[key] = copy.deepcopy(absorbed[key])
             else:
                 survivor.pop(key, None)
-    for key in ('olid', 'series', 'seriesNumber', 'seriesLabel', 'issues'):
+    for key in ('olid', 'series', 'seriesNumber', 'seriesLabel', 'issues', 'originalLanguage', 'originalTitle'):
         if empty(survivor.get(key)) and not empty(absorbed.get(key)):
             survivor[key] = copy.deepcopy(absorbed[key])
     for key in ('categories', 'tags'):
