@@ -358,7 +358,24 @@ export function findWork(candidate, books) {
   });
 }
 
-/** Books that may be the same book as another on the shelf (the same olid, or title and first writer). → Set of ids */
+/** Whether `a` and `b` were said to be two books (`apart`: the ids of the books a book is not). */
+export const keptApart = (a, b) => (a.apart || []).includes(b.id) || (b.apart || []).includes(a.id);
+
+/** `a` and `b` are two books, not one: each says so of the other (in place). */
+export function setApart(a, b) {
+  if (!a?.id || !b?.id || a.id === b.id) return;
+  for (const [x, y] of [[a, b], [b, a]]) if (!(x.apart || []).includes(y.id)) x.apart = [...(x.apart || []), y.id];
+}
+
+/** The books that `book` may be the same book as (twins), the ones it was said not to be left out. */
+export function twinsOf(book, books) {
+  return books.filter((b) => b !== book && twins([b, book]).size > 0);
+}
+
+/**
+ * Books that may be the same book as another on the shelf (the same olid, or title and first
+ * writer), unless the two were said to be two books (setApart). → Set of ids
+ */
 export function twins(books) {
   const out = new Set();
   const index = new Map();
@@ -372,7 +389,7 @@ export function twins(books) {
     if (writer) for (const title of titles(b)) put(fold(title) && `t:${fold(title)}|${writer}`, b);
   }
   const pair = (a, b) => {
-    if (a === b || otherVolume(placeOf(a), placeOf(b))) return;
+    if (a === b || otherVolume(placeOf(a), placeOf(b)) || keptApart(a, b)) return;
     out.add(a.id); out.add(b.id);
   };
   for (const b of books) {
@@ -430,6 +447,9 @@ export function combine(survivor, absorbed, { title = 'mine' } = {}) {
     if (all.length) survivor[key] = all.filter((v) => !seen.has(fold(v)) && seen.add(fold(v)));
   }
   if (absorbed.dropReads?.length) survivor.dropReads = [...new Set([...(survivor.dropReads || []), ...absorbed.dropReads])];
+  // What either was said not to be, the combined book is not either (but it is itself).
+  const apart = [...new Set([...(survivor.apart || []), ...(absorbed.apart || [])])].filter((id) => id !== survivor.id && id !== absorbed.id);
+  if (apart.length) survivor.apart = apart; else delete survivor.apart;
   return survivor;
 }
 

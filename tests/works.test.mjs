@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
-  upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, flatView, fold,
+  upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, twinsOf, setApart, flatView, fold,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -122,6 +122,24 @@ test('findWork: two volumes of a set are two books, even as one Open Library wor
   assert.equal(findWork({ title: 'The Way of Kings: Book One of the Stormlight Archive', author: 'Brandon Sanderson' },
     [{ id: 'k', title: 'The Way of Kings', author: 'Brandon Sanderson', seriesNumber: 1, editions: [] }])?.id, 'k');
   assert.deepEqual([...twins([...shelf, { id: 'v2', title: 'The Barbarian Invasions: History of the Art of War, Volume II', author: 'Hans Delbrück', olid: 'OL1104614W', editions: [] }])], []);
+});
+
+test('setApart: two books said not to be one are no twins, and a combined book keeps what both were not', () => {
+  const zero = { id: 'z', title: 'Channel Zero', author: 'Brian Wood', editions: [] };
+  const jennie = { id: 'j', title: 'Channel Zero: Jennie One', author: 'Brian Wood', editions: [] };
+  const other = { id: 'o', title: 'Channel Zero', author: 'Brian Wood', editions: [] };
+  assert.deepEqual([...twins([zero, jennie, other])].sort(), ['j', 'o', 'z']);
+  setApart(zero, jennie);
+  assert.deepEqual(zero.apart, ['j']);
+  assert.deepEqual(jennie.apart, ['z']);
+  setApart(zero, jennie);   // once is enough
+  assert.deepEqual(zero.apart, ['j']);
+  assert.deepEqual(twinsOf(zero, [zero, jennie, other]).map((b) => b.id), ['o']);
+  assert.deepEqual(twinsOf(jennie, [zero, jennie, other]).map((b) => b.id), ['o']);
+  setApart(jennie, other);
+  assert.deepEqual([...twins([zero, jennie, other])].sort(), ['o', 'z']);
+  combine(zero, other);   // the one Channel Zero is not Jennie One either; it is not itself
+  assert.deepEqual(zero.apart, ['j']);
 });
 
 test('twins: books that may be one', () => {

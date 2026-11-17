@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.10.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.11.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3943,6 +3943,9 @@ function detachable(book, edition, before, flat) {
         if (flat[key] != null && flat[key] !== '') piece[key] = structuredClone(flat[key]); else delete piece[key];
       }
       if (flat.lists) for (const [id, entry] of Object.entries(flat.lists)) if (isStatus(id)) place(piece.lists, id, entry.at);
+      // Kept separate on purpose: the two are not "possibly the same book" any more.
+      W.setApart(book, piece);
+      await saveBook(book);
       settle(piece);
       books.unshift(guarded(piece));
       touch(piece.id, piece);
@@ -3967,7 +3970,13 @@ function openCombine(book, back) {
     const rank = (b) => (W.findWork(b, [book]) ? 0 : fold(b.title).includes(query) ? 1 : 2);
     const found = books.filter((b) => b !== book && (query ? searchText(b).includes(query) : alike.has(b.id) && W.twins([b, book]).size))
       .sort((a, b) => rank(a) - rank(b)).slice(0, 30);
-    fill(results, ...found.map((b) => { const row = bookRow(b, () => combineWith(book, b, back)); row.classList.add('cand'); return row; }),
+    // A suggestion (no search) can also be told apart: it is another book, and stops being suggested.
+    fill(results, ...found.map((b) => {
+      const row = bookRow(b, () => combineWith(book, b, back));
+      row.classList.add('cand');
+      return query ? row : h('div', { class: 'cand-twin' }, row,
+        h('button', { class: 'link-btn', type: 'button', onclick: () => notTheSame(book, b, () => openCombine(book, back)) }, icon('split'), t('Not the same book')));
+    }),
       !found.length && h('p', { class: 'no-results', text: query ? t('No books match that search.') : t('Search for the book that is this one in another edition.') }));
   }
   search.addEventListener('input', draw);
@@ -4016,6 +4025,39 @@ async function combineWith(book, other, back, title) {
 /** Whether any read of a book is a page in the booklog. */
 const inBooklog = (book) => (book.reviews || []).some((r) => r.boeken);
 
+/** `book` and `other` are two books: neither is "possibly the same book" as the other any more. */
+async function notTheSame(book, other, again) {
+  const before = [structuredClone(book), structuredClone(other)];
+  W.setApart(book, other);
+  await saveBooks([book, other]);
+  again();
+  toast(t('“{a}” and “{b}” are two books', { a: displayTitle(book), b: displayTitle(other) }), {
+    action: t('Undo'), ms: 8000,
+    onAction: async () => { await putBack(book, before[0]); await putBack(other, before[1]); if (sheet.isOpen) again(); },
+  });
+}
+
+/** On a book's page: the books it may be the same book as, each to combine with or to tell apart. */
+function twinsSection(book, again) {
+  const alike = W.twinsOf(book, books);
+  if (!alike.length) return null;
+  return h('div', { class: 'sheet-section twins' },
+    h('div', { class: 'section-head' }, h('h3', { text: t('Possibly the same book') })),
+    alike.map((other) => {
+      const o = look(other);
+      return h('div', { class: 'twin-row' },
+        h('button', { class: 'edition-row', type: 'button', onclick: () => openBook(other) },
+          coverEl(o),
+          h('span', { class: 'review-what' },
+            h('span', { text: displayTitle(other) }),
+            h('small', { text: [other.author, metaLine(o, other)].filter(Boolean).join(' · ') })),
+          icon('chevron')),
+        h('div', { class: 'twin-actions' },
+          h('button', { class: 'link-btn', type: 'button', onclick: () => combineWith(book, other, again) }, icon('merge'), t('Combine')),
+          h('button', { class: 'link-btn', type: 'button', onclick: () => notTheSame(book, other, again) }, icon('split'), t('Not the same book'))));
+    }));
+}
+
 /** An edition, with its reads, as a book of its own (plan 5.3). Reads of it that are in the
     booklog become a group of their own there with the next publish (plan_regroup). */
 async function splitOff(book, edition, back) {
@@ -4023,6 +4065,7 @@ async function splitOff(book, edition, back) {
   const moving = (book.reviews || []).some((r) => r.ed === edition.id && r.boeken);
   const { piece } = W.split(book, edition.id, { id: newId(), added: new Date().toISOString(), status: statusIds() });
   if (moving) book.regroup = piece.regroup = true;
+  W.setApart(book, piece);   // split on purpose: not "possibly the same book" any more
   settleRating(book);
   await saveBook(book);
   settle(piece);
@@ -4797,6 +4840,7 @@ function openBook(book, rows) {
     sourceNote(book, false, again),
     progressBox(book, again),
     bookActions(book, again),
+    twinsSection(book, again),
     multi && h('div', { class: 'sheet-section editions' },
       h('div', { class: 'section-head' },
         h('h3', { text: t('Editions') }),

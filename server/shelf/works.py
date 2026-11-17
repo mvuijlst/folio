@@ -361,4 +361,11 @@ def combine(survivor, absorbed, title='mine'):
             survivor[key] = [v for v in every if not (fold(v) in seen or seen.add(fold(v)))]
     if absorbed.get('dropReads'):
         survivor['dropReads'] = list(dict.fromkeys([*(survivor.get('dropReads') or []), *absorbed['dropReads']]))
+    # What either was said not to be (works.js setApart), the combined book is not either.
+    apart = [i for i in dict.fromkeys([*(survivor.get('apart') or []), *(absorbed.get('apart') or [])])
+             if i not in (survivor.get('id'), absorbed.get('id'))]
+    if apart:
+        survivor['apart'] = apart
+    else:
+        survivor.pop('apart', None)
     return survivor

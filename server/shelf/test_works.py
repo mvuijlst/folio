@@ -69,6 +69,11 @@ class UpgradeTests(SimpleTestCase):
         self.assertEqual((theirs['title'], theirs['seriesNumber']), ("Foundation's Edge", 6))
         self.assertEqual([e.get('title') for e in theirs['editions']], ['Hoeksteen van de Foundation', None])
 
+    def test_combine_keeps_what_both_were_said_not_to_be(self):
+        survivor = {'id': 'z', 'title': 'Channel Zero', 'lists': {}, 'apart': ['j', 'o'], 'editions': [{'id': 'e1'}]}
+        absorbed = {'id': 'o', 'title': 'Channel Zero', 'lists': {}, 'apart': ['z', 'c'], 'editions': [{'id': 'e1'}]}
+        self.assertEqual(works.combine(survivor, absorbed)['apart'], ['j', 'c'])
+
     def test_combine_as_the_app_does(self):
         read = fixtures()['folio-read-another-edition']['after']
         planned = fixtures()['scanned-paper-book']['after']

@@ -783,6 +783,14 @@ div.list-name { cursor: default; }
 /* Candidate list */
 .cand-list { margin: -6px 0 16px; }
 .cand .book-title { -webkit-line-clamp: 3; }
+/* A suggestion to combine, with Not the same book under it */
+.cand-twin { border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.cand-twin .book { border-bottom: none; padding-bottom: 4px; }
+.cand-twin > .link-btn { margin-left: 68px; padding-top: 0; }
+/* Possibly the same book, on a book's page: each one with Combine and Not the same book */
+.twin-row + .twin-row { border-top: 1px solid var(--border); }
+.twin-row .edition-row { border-top: none; }
+.twin-actions { display: flex; flex-wrap: wrap; gap: 4px 20px; padding: 0 0 6px 44px; }
 .badge {
   display: inline-block; vertical-align: 2px; margin-right: 8px;
   font-family: var(--sans); font-size: .66rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
