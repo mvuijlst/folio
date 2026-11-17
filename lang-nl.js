@@ -464,6 +464,7 @@ export default {
   'The other stays the title of its own copy, as with a translation.': 'De andere blijft de titel van die kopie, zoals bij een vertaling.',
   'Possibly the same book': 'Misschien hetzelfde boek',
   'Not the same book': 'Niet hetzelfde boek',
+  'ISBN / ASIN': 'ISBN / ASIN',
   'Combine': 'Samenvoegen',
   '“{a}” and “{b}” are two books': '“{a}” en “{b}” zijn twee boeken',
   'Each edition has its own details, under Editions.': 'De gegevens van elke kopie staan onder Kopieën.',

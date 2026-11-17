@@ -8,7 +8,7 @@
 // and what each must become, and both sides are tested against them.
 
 /** What moved from a book into its editions in the new shape (v: 2). */
-export const MOVED = ['format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn',
+export const MOVED = ['format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin',
   'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'people'];
 /** The lists of the app's reading-status set; a user's own lists in that set come on top. */
 export const STATUS = ['to-read', 'reading', 'read', 'abandoned'];
@@ -54,7 +54,7 @@ export function factsOf(x) {
 function identity(e) {
   const v = (key) => (empty(e[key]) ? '' : e[key]);
   const people = tidyPeople(e.people);
-  return JSON.stringify([v('format'), v('isbn'), v('publisher'), v('date'), v('pages'), v('duration'), v('language'),
+  return JSON.stringify([v('format'), v('isbn'), v('asin'), v('publisher'), v('date'), v('pages'), v('duration'), v('language'),
     people.length ? people : '', v('coverSource') || v('cover') || v('thumb')]);
 }
 

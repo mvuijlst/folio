@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.12.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.13.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3430,8 +3430,10 @@ function editionFields(src, { format: initialFormat } = {}) {
     date: input('date', { placeholder: t('e.g. 1998'), inputmode: 'numeric' }),
     pages: input('pages', { inputmode: 'numeric', pattern: '[0-9]*' }),
     duration: input('duration', { placeholder: '11u 36m' }),
-    isbn: input('isbn', { inputmode: 'numeric' }),
+    // ISBN / ASIN: one field, showing the ISBN, else the ASIN (Audible, Kindle). Stored apart.
+    isbn: input('isbn', { value: src.isbn || src.asin || '', autocapitalize: 'characters', spellcheck: 'false' }),
   };
+  const shown = src.isbn ? 'isbn' : src.asin ? 'asin' : null;
   const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
   // Paper, e-book or audiobook; an audiobook has a length where the others have pages.
   const format = formatPicker(initialFormat ?? formatOf(src));
@@ -3445,13 +3447,13 @@ function editionFields(src, { format: initialFormat } = {}) {
     publisherRow: field(t('Publisher'), f.publisher),
     formatRow: h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
     extentRow: h('div', { class: 'field-row' }, field(t('Published'), f.date), extent.pages, extent.duration),
-    isbnRow: field('ISBN', f.isbn),
+    isbnRow: field(t('ISBN / ASIN'), f.isbn),
     /** → the facts as typed, or a sentence saying what is wrong (and the field is focused) */
     read() {
       const data = {
         publisher: v('publisher'), date: normDate(v('date')),
         pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
-        isbn: toIsbn13(v('isbn')) || v('isbn').replace(/[^0-9Xx]/g, ''),
+        ...codesOf(v('isbn'), src, shown),
         format: format.value,
       };
       // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
@@ -3461,6 +3463,24 @@ function editionFields(src, { format: initialFormat } = {}) {
       return data;
     },
   };
+}
+
+/** An Amazon number of something with no ISBN (an Audible audiobook, a Kindle book): B and nine letters or digits. */
+const isAsin = (code) => /^B[0-9A-Z]{9}$/.test(code);
+
+/**
+ * What was typed in the ISBN / ASIN field, as {isbn, asin}. `src`: the edition as it was, `shown`:
+ * which of its two the field showed. An ISBN (any ISBN-10 is also an Amazon number, so it is one)
+ * or an ASIN goes where it belongs; replacing the one shown with the other kind takes it off, and
+ * leaves the other one alone. An empty field takes off what it showed.
+ */
+function codesOf(typed, src = {}, shown = null) {
+  const code = String(typed || '').replace(/[\s-]/g, '').toUpperCase();
+  const isbn = toIsbn13(code);
+  if (isbn) return { isbn, asin: shown === 'asin' ? '' : src.asin || '' };
+  if (isAsin(code)) return { asin: code, isbn: shown === 'isbn' ? '' : src.isbn || '' };
+  if (!code) return { isbn: shown === 'isbn' ? '' : src.isbn || '', asin: shown === 'asin' ? '' : src.asin || '' };
+  return { isbn: code.replace(/[^0-9X]/g, ''), asin: shown === 'asin' ? '' : src.asin || '' };
 }
 
 /** Facts given to an edition: what is said is set, what is empty is taken off. */

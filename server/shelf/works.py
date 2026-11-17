@@ -15,7 +15,7 @@ import re
 from .boeken import fold, tidy_people
 
 # What moved from a book into its editions (v: 2).
-MOVED = ('format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn',
+MOVED = ('format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin',
          'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'people')
 STATUS = ('to-read', 'reading', 'read', 'abandoned')
 OPEN = ('to-read', 'reading')
@@ -43,7 +43,7 @@ def identity(e):
     """What makes two editions one: the same facts, and the same cover picture."""
     v = lambda key: '' if empty(e.get(key)) else e[key]
     people = tidy_people(e.get('people'))
-    return json.dumps([v('format'), v('isbn'), v('publisher'), v('date'), v('pages'), v('duration'), v('language'),
+    return json.dumps([v('format'), v('isbn'), v('asin'), v('publisher'), v('date'), v('pages'), v('duration'), v('language'),
                        people or '', v('coverSource') or v('cover') or v('thumb')], ensure_ascii=False)
 
 
