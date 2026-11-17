@@ -260,7 +260,6 @@ export default {
   'Undo': 'Ongedaan maken',
 
   // Managing lists
-  'Tap a list to rename it or change how it works.': 'Tik op een lijst om ze te hernoemen of aan te passen.',
   'One of: {set}': 'Eén van: {set}',
   'Note: {label}': 'Notitie: {label}',
   'Move {list} up': '{list} omhoog',
@@ -270,9 +269,7 @@ export default {
   'Name': 'Naam',
   'Either-or': 'Of-of',
   'On its own': 'Op zichzelf',
-  'New set': 'Nieuwe groep',
   'New set…': 'Nieuwe groep…',
-  'Name of the new set, e.g. Wishlist priority': 'Naam van de nieuwe groep, bv. Verlanglijst',
   'Lists in the same set are either-or: putting a book on one takes it off the others, like To read, Reading and Read. A list on its own can hold any book.':
     'Lijsten in dezelfde groep sluiten elkaar uit: zet je een boek op de ene, dan verdwijnt het van de andere, zoals Te lezen, Lezende en Gelezen. Op een lijst die op zichzelf staat, kan elk boek.',
   'e.g. Lent to': 'bv. Uitgeleend aan',
@@ -639,4 +636,11 @@ export default {
   'The series says it already.': 'De reeks zegt het al.',
   'Same meaning': 'Zelfde betekenis',
   'Proposed by the assistant.': 'Voorgesteld door de assistent.',
+  'Tap a list to rename it, in English and in Dutch, or change how it works. The reading lists are part of the app.':
+    'Tik op een lijst om ze te hernoemen, in het Engels en in het Nederlands, of om te veranderen hoe ze werkt. De leeslijsten horen bij de app.',
+  'Name of the new set': 'Naam van de nieuwe groep',
+  'e.g. Wishlist priority': 'bv. Verlanglijst-prioriteit',
+  'Name of the set': 'Naam van de groep',
+  'Suggest the other': 'Stel de andere voor',
+  '{n} without a name in both languages': '{n} zonder naam in beide talen',
 };

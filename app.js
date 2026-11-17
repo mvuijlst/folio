@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.9.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.10.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -82,8 +82,8 @@ function t(text, values) {
 }
 
 const COUNTED = {
-  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'], tag: ['tag', 'tags'], category: ['category', 'categories'] },
-  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'], tag: ['tag', 'tags'], category: ['categorie', 'categorieën'] },
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'], tag: ['tag', 'tags'], category: ['category', 'categories'], list: ['list', 'lists'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'], tag: ['tag', 'tags'], category: ['categorie', 'categorieën'], list: ['lijst', 'lijsten'] },
 };
 const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
 
@@ -313,7 +313,18 @@ const view = { list: null, series: null, seriesIndex: false, author: null, filte
 // they are the same list on a Dutch and an English device. Until they are renamed, they
 // are shown in the device's language.
 const STANDARD_TEXT = new Set([READING, ...STANDARD_LISTS.flatMap((l) => [l.name, l.noteLabel])].filter(Boolean));
-const show = (text) => (STANDARD_TEXT.has(text) ? t(text) : text);
+// A list word (a list's name, a set's, a note's label) can have a name in each language of
+// its own (Settings → Words → Lists): records like {id: "list:Te kopen", kind: "list", value:
+// "Te kopen", en: "To buy", nl: "Te kopen"}. The word itself, as stored, never changes.
+const listWords = () => (wordCache.list ??= new Map(terms.filter((r) => r?.kind === 'list' && r.value).map((r) => [r.value, r])));
+/** A list word's name in `code`: yours, else the app's for a standard word, else '' (a word of your own says nothing in the other language until named). */
+function listWordIn(text, code, standardOnly = false) {
+  const own = !standardOnly && String(listWords().get(text)?.[code] || '').trim();
+  if (own) return own;
+  if (STANDARD_TEXT.has(text)) return code === 'nl' ? NL[text] || text : text;
+  return '';
+}
+const show = (text) => (text && listWordIn(text, lang)) || text;
 /** What a list is called: a fixed list by its own name in your language, any other as you named it. */
 const listName = (l) => (FIXED.has(l.id) ? t(FIXED.get(l.id).name) : show(l.name));
 
@@ -4925,57 +4936,71 @@ function openLists() {
     renderLibrary();
     draw();
   };
-  const row = (list, i) => h('div', { class: 'list-row' },
-    h(FIXED.has(list.id) ? 'div' : 'button', FIXED.has(list.id) ? { class: 'list-name' } : { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
-      h('span', { text: listName(list) }),
-      h('small', { text: [FIXED.has(list.id) && t('Part of the app'), list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) })].filter(Boolean).join(' · ') })),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} up', { list: listName(list) }), disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
-    h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} down', { list: listName(list) }), disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
+  const other = lang === 'nl' ? 'en' : 'nl';
+  const row = (list, i) => {
+    const second = !FIXED.has(list.id) && listWordIn(list.name, other);
+    return h('div', { class: 'list-row' },
+      h(FIXED.has(list.id) ? 'div' : 'button', FIXED.has(list.id) ? { class: 'list-name' } : { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
+        h('span', { text: listName(list) }),
+        h('small', { text: [FIXED.has(list.id) ? t('Part of the app') : second && second !== listName(list) ? second : '',
+          list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) })].filter(Boolean).join(' · ') })),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} up', { list: listName(list) }), disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} down', { list: listName(list) }), disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
+  };
   function draw() {
-    sheet.open(h('div', null,
-      sheetHead(t('Lists'), t('Tap a list to rename it or change how it works.')),
+    const lacking = listWordsLacking();
+    sheet.open(h('div', { class: 'words-page' },
+      pageHead(t('Lists'), plural(lists.length, 'list')),
+      lacking.length > 0 && canTranslate() && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => suggestListWords(draw) }, icon('sparkles'),
+        t('Suggest the {n} missing names', { n: lacking.length })),
       h('div', { class: 'list-rows' }, lists.map(row)),
-      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openListForm() }, icon('plus'), t('New list'))));
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openListForm() }, icon('plus'), t('New list')),
+      h('p', { class: 'sheet-note', text: t('Tap a list to rename it, in English and in Dutch, or change how it works. The reading lists are part of the app.') })));
   }
   draw();
 }
 
-/** Add a list, or edit one. Afterwards the sheet goes back to the overview of lists. */
+/** Add a list, or edit one: its names in both languages, its either-or set, the note its books can carry. */
 function openListForm(list) {
   const isNew = !list;
-  // A standard name is shown translated; left as it is, it is also stored as it was.
-  const kept = (input, stored) => { const typed = input.value.replace(/\s+/g, ' ').trim(); return stored && typed === show(stored) ? stored : typed; };
-  const name = h('input', { name: 'name', value: show(list?.name || ''), autocomplete: 'off', autocapitalize: 'sentences', enterkeyhint: 'done' });
-  const noteLabel = h('input', { name: 'noteLabel', value: show(list?.noteLabel || ''), placeholder: t('e.g. Lent to'), autocomplete: 'off', autocapitalize: 'sentences' });
+  const name = bilingualField(t('Name'), list?.name, { autofocus: isNew });
+  const noteLabel = bilingualField(t('Note'), list?.noteLabel, { placeholder: t('e.g. Lent to') });
   const error = h('p', { class: 'field-error', hidden: true });
 
-  // Either-or sets: on its own, one of the sets that exist, or a new one.
+  // Either-or sets: on its own, one of the sets that exist, or a new one. A set has names too.
   const NEW = Symbol('new set');
   let group = list?.group || '';
   const sets = [...new Set(lists.map((l) => l.group).filter(Boolean))];
-  const newSet = h('input', { name: 'group', placeholder: t('Name of the new set, e.g. Wishlist priority'), autocomplete: 'off', autocapitalize: 'sentences' });
-  const newSetField = h('label', { class: 'field', hidden: true }, h('span', { text: t('New set') }), newSet);
+  const setNames = new Map([[NEW, bilingualField(t('Name of the new set'), '', { placeholder: t('e.g. Wishlist priority') })],
+    ...sets.map((g) => [g, bilingualField(t('Name of the set'), g)])]);
+  const setName = h('div', { class: 'set-name' });
   const setChips = h('div', { class: 'chips' });
   const drawSets = () => {
     const chip = (value, text) => h('button', {
       class: 'chip', type: 'button', text, 'aria-pressed': String(group === value),
-      onclick: () => { group = value; drawSets(); if (value === NEW) newSet.focus(); },
+      onclick: () => { group = value; drawSets(); if (value === NEW) setNames.get(NEW).focus(); },
     });
     setChips.replaceChildren(chip('', t('On its own')), ...sets.map((g) => chip(g, show(g))), chip(NEW, t('New set…')));
-    newSetField.hidden = group !== NEW;
+    fill(setName, group ? setNames.get(group).el : null);
   };
   drawSets();
 
   async function submit(e) {
     e.preventDefault();
-    const clean = (input) => input.value.replace(/\s+/g, ' ').trim();
-    const data = { name: kept(name, list?.name), group: group === NEW ? clean(newSet) : group, noteLabel: kept(noteLabel, list?.noteLabel) };
-    const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
-    if (!data.name) return fail(t('A list needs a name.'), name);
-    if (lists.some((l) => l !== list && fold(listName(l)) === fold(show(data.name)))) return fail(t('There is already a list with that name.'), name);
-    if (group === NEW && !data.group) return fail(t('Give the new set a name, or pick “On its own”.'), newSet);
+    const fail = (message, field) => { error.textContent = message; error.hidden = false; field?.focus(); };
+    const names = name.value(), notes = noteLabel.value(), set = group ? setNames.get(group).value() : null;
+    const stored = list?.name || names[lang] || names.en || names.nl;
+    if (!stored) return fail(t('A list needs a name.'), name);
+    const shown = names[lang] || stored;
+    if (lists.some((l) => l !== list && fold(listName(l)) === fold(shown))) return fail(t('There is already a list with that name.'), name);
+    if (group === NEW && !(set.en || set.nl)) return fail(t('Give the new set a name, or pick “On its own”.'), setNames.get(NEW));
+    const groupStored = group === NEW ? set[lang] || set.en || set.nl : group;
+    const noteStored = notes.en || notes.nl ? list?.noteLabel || notes[lang] || notes.en || notes.nl : '';
+    await saveListWord(stored, names);
+    if (groupStored) await saveListWord(groupStored, set);
+    if (noteStored) await saveListWord(noteStored, notes);
     const target = list || { id: newId(), order: lists.reduce((max, l) => Math.max(max, l.order ?? 0), -1) + 1 };
-    Object.assign(target, data);
+    Object.assign(target, { name: stored, group: groupStored, noteLabel: noteStored });
     await saveList(target);
     openLists();
   }
@@ -4990,17 +5015,16 @@ function openListForm(list) {
       : t('Deleted “{list}”', { list: listName(list) }), { action: t('Undo'), onAction: () => saveList(list) });
   }
 
-  sheet.open(h('form', { novalidate: true, onsubmit: submit },
-    sheetHead(isNew ? t('New list') : t('Edit list')),
-    h('label', { class: 'field' }, h('span', { text: t('Name') }), name),
+  sheet.open(h('form', { class: 'words-page', novalidate: true, onsubmit: submit },
+    pageHead(isNew ? t('New list') : t('Edit list'), null, openLists),
+    name.el,
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('Either-or') }),
       setChips,
-      newSetField,
+      setName,
       h('p', { class: 'sheet-note', text: t('Lists in the same set are either-or: putting a book on one takes it off the others, like To read, Reading and Read. A list on its own can hold any book.') })),
     h('div', { class: 'sheet-section' },
-      h('h3', { text: t('Note') }),
-      h('label', { class: 'field' }, noteLabel),
+      noteLabel.el,
       h('p', { class: 'sheet-note', text: t('Optional. If you name a note here, each book on this list can carry one — who you lent it to, where you left it.') })),
     error,
     h('div', { class: 'btn-row sheet-actions' },
@@ -5008,6 +5032,101 @@ function openListForm(list) {
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => openLists() }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add list') : t('Save')))));
   if (isNew) name.focus();
+}
+
+/**
+ * A name in two languages: the app's first. `stored`: the word as kept (a list's name, a set's,
+ * a note's label), whose names fill the fields. With the assistant, the other language can be
+ * suggested from the first; nothing is kept until the form is saved. → { el, value(), focus() }
+ */
+function bilingualField(label, stored, { placeholder = '', autofocus = false } = {}) {
+  const first = lang, second = lang === 'nl' ? 'en' : 'nl';
+  const tag = { en: t('English'), nl: t('Dutch') };
+  const input = (code, value) => h('input', { name: `${label}-${code}`, value: value || '', placeholder: code === first ? placeholder : '', lang: code, autocomplete: 'off', autocapitalize: 'sentences', 'aria-label': `${label} (${tag[code]})` });
+  const inputs = { [first]: input(first, stored ? show(stored) : ''), [second]: input(second, stored ? listWordIn(stored, second) : '') };
+  const note = h('p', { class: 'sheet-note', hidden: true });
+  const suggest = canTranslate() && h('button', {
+    class: 'link-btn', type: 'button',
+    onclick: async (e) => {
+      const button = e.currentTarget;
+      const [from, to] = inputs[first].value.trim() ? [first, second] : [second, first];
+      const word = inputs[from].value.trim();
+      if (!word) { inputs[first].focus(); return; }
+      button.disabled = true;
+      try {
+        const got = (await api('translate', { kind: 'list', to, words: [{ word }] })).words?.[0]?.translation;
+        if (got) { inputs[to].value = got; note.textContent = t('Suggested by the assistant. Change it if it isn’t right; it is kept only when you save.'); note.hidden = false; }
+        else toast(t('The assistant had nothing to suggest.'));
+      } catch (err) { toast(err.message); }
+      finally { button.disabled = false; }
+    },
+  }, icon('sparkles'), t('Suggest the other'));
+  const el = h('div', { class: 'field bilingual' },
+    h('span', { text: label }),
+    h('div', { class: 'field-row' }, [first, second].map((code) => h('label', { class: 'lang-input' }, inputs[code], h('small', { text: tag[code] })))),
+    note,
+    suggest);
+  const clean = (x) => x.value.replace(/\s+/g, ' ').trim();
+  return { el, value: () => ({ en: clean(inputs.en), nl: clean(inputs.nl) }), focus: () => inputs[first].focus(), autofocus };
+}
+
+/** Keeps the names of a list word; a standard word left as the app says it gets no record. */
+async function saveListWord(stored, names) {
+  if (!stored) return;
+  const id = `list:${stored}`, prior = terms.find((x) => x.id === id);
+  const as = { en: listWordIn(stored, 'en', true), nl: listWordIn(stored, 'nl', true) };
+  if (!prior && names.en === as.en && names.nl === as.nl) return;
+  if (prior && prior.en === names.en && prior.nl === names.nl) return;
+  await saveTerm({ ...(prior || { id, kind: 'list', value: stored }), en: names.en, nl: names.nl });
+}
+
+/** The list words (names of lists, sets, notes) that have no name in one of the languages. */
+function listWordsLacking() {
+  const words = new Set();
+  for (const l of lists) {
+    if (!FIXED.has(l.id)) words.add(l.name);
+    if (l.group && l.group !== READING) words.add(l.group);
+    if (l.noteLabel) words.add(l.noteLabel);
+  }
+  return [...words].filter((w) => w && (!listWordIn(w, 'en') || !listWordIn(w, 'nl')));
+}
+
+/** Asks the assistant for the missing names of list words, to accept one by one. */
+async function suggestListWords(back) {
+  const these = listWordsLacking();
+  const body = h('div', { class: 'list-rows' }, h('p', { class: 'sheet-note', text: t('Asking the assistant…') }));
+  sheet.open(h('div', { class: 'roles-sheet' },
+    pageHead(t('Suggested names'), t('Nothing is kept until you accept it.'), back),
+    body,
+    h('div', { class: 'btn-row sheet-actions' }, h('button', { class: 'btn btn-outline', type: 'button', text: t('Back'), 'data-cancel': true, onclick: back }))));
+  const proposals = [];
+  try {
+    for (const to of ['en', 'nl']) {
+      const from = to === 'en' ? 'nl' : 'en';
+      const asked = these.filter((w) => !listWordIn(w, to)).map((w) => ({ stored: w, word: listWordIn(w, from) || w }));
+      if (!asked.length) continue;
+      const got = (await api('translate', { kind: 'list', to, words: asked.map((a) => ({ word: a.word })) })).words || [];
+      for (const g of got) { const a = asked.find((x) => x.word === g.word); if (a) proposals.push({ ...a, to, value: g.translation }); }
+    }
+  } catch (err) { fill(body, h('p', { class: 'field-error', text: err.message })); return; }
+  if (!body.isConnected) return;
+  if (!proposals.length) { fill(body, h('p', { class: 'sheet-note', text: t('The assistant had nothing to suggest.') })); return; }
+  fill(body, proposals.map((p) => {
+    const input = h('input', { value: p.value, 'aria-label': p.to === 'en' ? t('English') : t('Dutch'), autocomplete: 'off' });
+    const row = h('div', { class: 'list-row suggestion-row' },
+      h('div', { class: 'list-name' }, h('span', { text: show(p.stored) }), h('small', { text: p.to === 'en' ? t('English') : t('Dutch') })),
+      h('label', { class: 'field' }, input),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Accept'), title: t('Accept'), onclick: async () => {
+        const value = input.value.replace(/\s+/g, ' ').trim();
+        if (!value) return;
+        await saveListWord(p.stored, { en: listWordIn(p.stored, 'en'), nl: listWordIn(p.stored, 'nl'), [p.to]: value });
+        renderLibrary();
+        row.remove();
+        if (!body.querySelector('.list-row')) back();
+      } }, icon('check')),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Skip'), title: t('Skip'), onclick: () => { row.remove(); if (!body.querySelector('.list-row')) back(); } }, icon('x')));
+    return row;
+  }));
 }
 
 /* ───────────────────────── Export ───────────────────────── */
@@ -5478,6 +5597,7 @@ function openSettings() {
         h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron'))),
       navRow(t('Language'), languageAbout(), () => openPage(openLanguagePage))),
     navGroup(t('Words'),
+      navRow(t('Lists'), [plural(lists.length, 'list'), listWordsLacking().length && t('{n} without a name in both languages', { n: listWordsLacking().length })].filter(Boolean).join(' · '), () => openPage(openLists)),
       navRow(t('Categories'), plural(categoryNames().length, 'category'), () => openPage(openCategories)),
       navRow(t('Tags'), [plural(T.counts(books, 'tags').size, 'tag'), tidy && t('{n} to tidy', { n: tidy })].filter(Boolean).join(' · '), () => openPage(openTags)),
       navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles))),

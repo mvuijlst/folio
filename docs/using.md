@@ -203,6 +203,13 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 - **Settings** is a short list: *Account*, *Language*, then *Words* (*Categories*, *Tags*,
   *Roles*), then *Your shelf* (*Lookups*, *As a file*, *About*). Each row opens a page of its
   own with Back (and Escape, and a phone's back gesture) to the list, and Close.
+- **Lists, in two languages.** Settings → *Words* → *Lists* (or *Edit lists* beside them) has every
+  list, in its order. A list's form has its name, the name of its either-or set and the label of
+  its note each in English and in Dutch, the app's language first; with an account and the
+  assistant, *Suggest the other* fills in the second from the first, and the page can suggest
+  every missing name at once. A list keeps the name it was made with (its other devices and an
+  older copy of the app show that one); the names are shown in the app's language wherever the
+  list, its set or its note appears. The reading lists are part of the app and named by it.
 - **Categories and tags, in two languages.** Both stay on books as the booklog writes them
   (`geschiedenis`, `belgie`); what is shown is a name in the language of the app: in Dutch the
   title of its page in the booklog (*België*), in English a name of its own (*Belgium*).

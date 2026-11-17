@@ -1246,3 +1246,12 @@ div.list-name { cursor: default; }
 .tidy-group > .list-rows { margin: 0 0 10px 18px; }
 .tidy-group > .list-rows .list-row:last-child { border-bottom: 0; }
 .tidy-act { color: var(--accent); }
+
+/* A name in two languages: two fields, each with its language under it */
+.bilingual .field-row { gap: 10px; }
+.lang-input { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.lang-input input { width: 100%; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font: inherit; font-size: 1.02rem; outline: none; }
+.lang-input input:focus { border-color: var(--accent); }
+.lang-input small { color: var(--faint); font-size: .76rem; }
+.bilingual .link-btn { align-self: flex-start; }
+.set-name:not(:empty) { margin-top: 16px; }

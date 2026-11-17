@@ -228,6 +228,8 @@ TRANSLATABLE = {
             'a part an actor voices in an audiobook (a character, the footnotes); keep such a name as it is.',
     'category': 'the categories of a personal library (genres such as fantasy and crime, and kinds of non-fiction '
                 'such as history, biography, religion, design, art).',
+    'list': 'names in a reading app: of lists of books (Library, To read, Wishlist), of sets of lists that are '
+            'either-or, and of the note a book on a list can carry (Lent to).',
     'tag': 'tags on books in a personal library: subjects, places, periods, themes and sub-genres (vampieren, '
            'space-opera, tweede-wereldoorlog, belgie). A name (a person, a series, a fictional world, a brand) stays as it is.',
 }
@@ -239,6 +241,8 @@ STYLE = {
                    'inkt, letters, stem, vertaling, redactie)'},
     'category': {'en': 'a short lowercase name, as a bookshop shelf would say it (history, science fiction)',
                  'nl': 'a short lowercase Dutch name, as a Flemish bookshop shelf would say it (geschiedenis)'},
+    'list': {'en': 'a short name, capitalised like a heading (To buy, Lent to)',
+             'nl': 'a short Dutch name, capitalised like a heading (Te kopen, Uitgeleend aan)'},
     'tag': {'en': 'a short name as a tag in English, lowercase unless it is a name (vampires, Belgium, space opera)',
             'nl': 'a short name as a tag in Dutch, lowercase unless it is a name (vampieren, België, ruimteopera)'},
 }
