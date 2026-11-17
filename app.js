@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.7.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.7.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1721,8 +1721,23 @@ function openFilterSheet(inScope) {
   const body = h('div');
   // Chosen here, applied when the sheet closes: only then is the address under it the current one.
   let draft = { ...view.filters };
+  // Which filters and choices the sheet shows is settled once, by what the place holds, so that
+  // nothing comes or goes while you choose and the sheet stays where it is: only the numbers
+  // change, and a choice with nothing left goes faint. Numbers keep the width of the largest.
+  const opened = { ...view.filters };
+  const shown = new Map(facets.filter((facet) => !facet.span).map((facet) => {
+    const counts = facet.values.map((v) => inScope.filter((b) => passes(b, facets, null, { [facet.key]: [v.value] })).length);
+    const held = (opened[facet.key] || []).map((x) => (x.startsWith(NOT) ? x.slice(NOT.length) : x));
+    const values = facet.values.filter((v, i) => counts[i] > 0 || held.includes(v.value));
+    // A filter that can't tell the place's books apart is not worth showing: one whose only
+    // value every book has, or none.
+    const tells = values.length > 1 || (values.length === 1 && counts[facet.values.indexOf(values[0])] < inScope.length);
+    return [facet.key, tells || held.length ? { values, digits: String(Math.max(0, ...counts)).length } : null];
+  }));
   const draw = () => {
     const left = inScope.filter((b) => passes(b, facets, null, draft)).length;
+    // Drawn again, the sheet keeps the choice you just tapped in hand (for the keyboard).
+    const focused = document.activeElement?.dataset?.choice;
     body.replaceChildren(
       sheetHead(t('Filter'), plural(left, 'book')),
       h('p', { class: 'filter-hint', text: t('Tap a choice to show only those books, again to leave them out, a third time to let it go.') }),
@@ -1737,26 +1752,26 @@ function openFilterSheet(inScope) {
         // A value is wanted ('in'), left out ('out') or neither; a tap goes on to the next.
         const state = (v) => (chosen.includes(v.value) ? 'in' : chosen.includes(NOT + v.value) ? 'out' : '');
         const next = { '': (v) => v.value, in: (v) => NOT + v.value, out: () => null };
-        const values = facet.values.map((v) => ({ ...v, count: others.filter((b) => passes(b, facets, null, { ...draft, [facet.key]: [v.value] })).length }))
-          .filter((v) => v.count > 0 || state(v));
-        // A facet that can't tell the books apart is not worth showing: one whose only value
-        // every book has, or none.
-        if (!chosen.length && (values.length === 0 || (values.length === 1 && values[0].count >= others.length))) return null;
+        const place = shown.get(facet.key);
+        if (!place) return null;
+        const values = place.values.map((v) => ({ ...v, count: others.filter((b) => passes(b, facets, null, { ...draft, [facet.key]: [v.value] })).length }));
         return h('div', { class: 'sheet-section facet' },
           h('h3', { text: facet.name }),
           h('div', { class: 'chips' }, values.map((v) => h('button', {
             class: 'chip', type: 'button', 'aria-pressed': String(state(v) === 'in'), 'data-state': state(v) || null,
+            'data-choice': `${facet.key}=${v.value}`, disabled: !v.count && !state(v),
             'aria-label': state(v) === 'out' ? t('not {name}', { name: v.name }) : null,
             onclick: () => {
               const then = next[state(v)](v);
               draft = { ...draft, [facet.key]: [...chosen.filter((x) => x !== v.value && x !== NOT + v.value), ...(then ? [then] : [])] };
               draw();
             },
-          }, state(v) === 'out' && icon('ban'), h('span', { text: v.name }), h('b', { text: String(v.count) })))));
+          }, state(v) === 'out' && icon('ban'), h('span', { text: v.name }), h('b', { text: String(v.count), style: `min-width: ${place.digits}ch` })))));
       }).filter(Boolean),
       h('div', { class: 'btn-row sheet-actions' },
         h('button', { class: 'btn btn-outline', type: 'button', text: t('Clear'), disabled: !Object.values(draft).some((values) => values.length), onclick: () => { draft = {}; draw(); } }),
         h('button', { class: 'btn btn-primary', type: 'button', onclick: () => sheet.close() }, icon('check'), t('Show {n}', { n: plural(left, 'book') }))));
+    if (focused) [...body.querySelectorAll('[data-choice]')].find((el) => el.dataset.choice === focused)?.focus({ preventScroll: true });
   };
   draw();
   sheet.open(body, () => refine({ filters: draft }));
@@ -1774,9 +1789,11 @@ function spanSlider(facet, inScope, others, draft, choose) {
   if (min === max) return null;
   const chosen = yearRange(draft[facet.key]);
   let from = Math.max(min, Math.min(max, chosen?.[0] ?? min)), to = Math.max(from, Math.min(max, chosen?.[1] ?? max));
-  const counts = new Map();
+  const counts = new Map(), all = new Map();
   for (const b of others) for (const y of readYears(b)) counts.set(Number(y), (counts.get(Number(y)) || 0) + 1);
-  const most = Math.max(1, ...counts.values());
+  for (const b of inScope) for (const y of readYears(b)) all.set(Number(y), (all.get(Number(y)) || 0) + 1);
+  // Measured against the place, not what is left: the columns shrink as filters narrow, never jump.
+  const most = Math.max(1, ...all.values());
   const columns = [];
   for (let y = min; y <= max; y++) columns.push(h('span', { title: `${y}: ${plural(counts.get(y) || 0, 'book')}`, style: `height: ${Math.max(counts.get(y) ? 6 : 0, ((counts.get(y) || 0) / most) * 100)}%` }));
   const readout = h('span', { class: 'span-readout' });

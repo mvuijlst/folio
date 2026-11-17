@@ -207,7 +207,7 @@ img { display: block; max-width: 100%; }
 .active-filters { flex: 1 1 100%; margin: 0 0 2px; gap: 6px; }
 .active-filter { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; font-size: .84rem; background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
 .active-filter .icon { width: 14px; height: 14px; }
-.chip b { margin-left: 7px; font-weight: 500; font-size: .8em; opacity: .6; font-variant-numeric: tabular-nums; }
+.chip b { display: inline-block; margin-left: 7px; font-weight: 500; font-size: .8em; opacity: .6; font-variant-numeric: tabular-nums; text-align: left; }
 .facet { margin-top: 20px; }
 /* Years read: a span, with a handle at each end, over a column per year */
 .span-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
@@ -800,11 +800,19 @@ div.list-name { cursor: default; }
   transition: border-color .15s ease, background .15s ease;
 }
 .chip:active { border-color: var(--accent); }
+/* A choice with nothing left under the other filters: still there, so nothing moves, but faint. */
+.facet .chip:disabled { opacity: .38; cursor: default; }
+.facet .chip:disabled:active { border-color: var(--border); }
 .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
 /* Left out: struck through, with the sign for "not" before it. */
 .facet .chip[data-state="out"] { border-color: var(--faint); color: var(--muted); }
 .facet .chip[data-state="out"] > span { text-decoration: line-through; text-decoration-thickness: 1px; }
-.chip[data-state="out"] > .icon:first-child { margin: 0 6px 0 0; opacity: .8; }
+.facet .chip { position: relative; }
+/* The sign sits on the corner, so leaving a choice out does not widen it and nothing moves. */
+.facet .chip[data-state="out"] > .icon:first-child {
+  position: absolute; top: -7px; left: -7px; width: 16px; height: 16px; margin: 0; padding: 1px;
+  border-radius: 50%; background: var(--surface); color: var(--muted); opacity: 1;
+}
 .filter-hint { color: var(--faint); font-size: .84rem; margin-top: -6px; }
 
 /* ───────────── Scanner ───────────── */
