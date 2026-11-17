@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.3.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.3.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2015,17 +2015,27 @@ function ageChart(finished) {
   const width = Math.max(280, $('library').clientWidth || 640), height = 270;
   const left = 42, right = 10, top = 10, bottom = 24;
   const x0 = Math.floor(Math.min(...dots.map((d) => d.when))), x1 = Math.ceil(Math.max(...dots.map((d) => d.when)));
-  // The axes fit the dots, with a little room around them; the ticks fall where they fall.
-  const ys = dots.map((d) => d.year), ySpan = Math.max(...ys) - Math.min(...ys), yStep = tickStep(ySpan);
-  const yPad = Math.max(1, Math.round(ySpan * .03));
-  const y0 = Math.min(...ys) - yPad, y1 = Math.max(...ys) + yPad;
+  // The year axis fits all but the oldest few in twenty, with a little room around them: a
+  // Shakespeare from 1623 would otherwise squash every other dot into a line. The ones older
+  // than that sit in a strip of their own under the chart, each at its own time of reading.
+  const ys = dots.map((d) => d.year).sort((a, b) => a - b);
+  const oldest = ys[Math.floor((ys.length - 1) * .05)], newest = ys[ys.length - 1];
+  const ySpan = Math.max(1, newest - oldest), yStep = tickStep(ySpan), yPad = Math.max(1, Math.round(ySpan * .03));
+  const y0 = oldest - yPad, y1 = newest + yPad;
+  const early = dots.filter((d) => d.year < y0);
+  const strip = early.length ? 26 : 0;   // the strip of older ones, between the chart and the years read
+  const plotBottom = height - bottom - strip;
   const X = (v) => left + ((v - x0) / Math.max(1, x1 - x0)) * (width - left - right);
-  const Y = (v) => top + ((y1 - v) / (y1 - y0)) * (height - top - bottom);
+  const Y = (v) => (v < y0 ? plotBottom + strip / 2 + 3 : top + ((y1 - v) / (y1 - y0)) * (plotBottom - top));
   const xStep = tickStep(x1 - x0);
   const ticks = [];
   for (let y = Math.ceil(y0 / yStep) * yStep; y <= y1; y += yStep) {
     ticks.push(svg('line', { class: 'grid', x1: left, x2: width - right, y1: Y(y), y2: Y(y) }),
       svg('text', { x: left - 6, y: Y(y) + 4, 'text-anchor': 'end' }, String(y)));
+  }
+  if (early.length) {
+    ticks.push(svg('line', { class: 'grid grid-break', x1: left, x2: width - right, y1: plotBottom + 3, y2: plotBottom + 3 }),
+      svg('text', { x: left - 6, y: Y(y0 - 1) + 4, 'text-anchor': 'end' }, `< ${Math.ceil(y0)}`));
   }
   for (let x = Math.ceil(x0 / xStep) * xStep; x <= x1; x += xStep) ticks.push(svg('text', { x: X(x), y: height - 6, 'text-anchor': 'middle' }, String(x)));
   const trail = [...new Set(dots.map((d) => d.x.book))];

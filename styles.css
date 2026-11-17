@@ -426,6 +426,7 @@ button.col:hover .col-bar { opacity: .75; }
 .scatter { display: block; width: 100%; height: auto; overflow: visible; }
 .scatter text { fill: var(--faint); font-family: var(--sans); font-size: 11px; font-variant-numeric: tabular-nums; }
 .scatter .grid { stroke: var(--border); stroke-width: 1; }
+.scatter .grid-break { stroke-dasharray: 3 4; }
 .scatter .dot { fill: var(--accent); fill-opacity: .5; cursor: pointer; transition: fill-opacity .15s ease; }
 .scatter .dot:hover { fill-opacity: 1; }
 
