@@ -52,6 +52,8 @@ class Command(BaseCommand):
         parser.add_argument('--limit', type=int, default=0, help='at most this many books (for a trial)')
         parser.add_argument('--pause', type=float, default=0.3, help='seconds between Open Library requests')
         parser.add_argument('--report', help='write what was found to this file')
+        parser.add_argument('--retry', help='only the books this report found no language for (an answer that timed out, say)')
+        parser.add_argument('--batch', type=int, default=BATCH, help='books in one question to the assistant')
         parser.add_argument('--apply', help='store the language and original title of each row of this file (a report, corrected)')
 
     def handle(self, *args, **opts):
@@ -62,6 +64,10 @@ class Command(BaseCommand):
         if opts['apply']:
             return self.apply(opts['apply'])
         rows = [r for r in Book.objects.filter(user=self.user, deleted=False).order_by('id') if not r.data.get('originalLanguage')]
+        if opts['retry']:
+            with open(opts['retry'], encoding='utf-8-sig', newline='') as f:
+                again = {r['id'] for r in csv.DictReader(f, delimiter='	') if not (r.get('language') or '').strip()}
+            rows = [r for r in rows if r.uid in again]
         if opts['limit']:
             rows = rows[:opts['limit']]
         self.stdout.write(f'{len(rows)} books without an original language')
@@ -107,8 +113,8 @@ class Command(BaseCommand):
 
         if opts['assistant']:
             # Four questions at a time: each takes the model a while.
-            batches = [[{'id': r.uid, **{k: info[r.uid][k] for k in ('title', 'author', 'language')}} for r in rows[i:i + BATCH]]
-                       for i in range(0, len(rows), BATCH)]
+            batches = [[{'id': r.uid, **{k: info[r.uid][k] for k in ('title', 'author', 'language')}} for r in rows[i:i + opts['batch']]]
+                       for i in range(0, len(rows), opts['batch'])]
 
             def ask(batch):
                 try:
