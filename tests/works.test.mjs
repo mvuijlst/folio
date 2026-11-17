@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
-  upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, combine, split, twins, flatView, fold,
+  upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, flatView, fold,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -98,6 +98,25 @@ test('findWork: the same olid, or the same title by the same first writer', () =
   assert.equal(findWork({ title: 'Guards! Guards!', author: 'Terry Pratchett', seriesNumber: 9 }, shelf), undefined);
   assert.equal(findWork({ title: 'Guards Guards', author: 'Terry Pratchett' }, shelf)?.id, 'c');
   assert.equal(findWork({ title: 'De geverfde vogel', author: 'Jerzy Kosinski' }, shelf)?.id, 'd');
+});
+
+test('volumeOf: the volume a title says it is', () => {
+  assert.equal(volumeOf('Warfare in Antiquity: History of the Art of War, Volume I (Warfare in Antiquity)'), 1);
+  assert.equal(volumeOf('The Dawn of Modern Warfare: History of the Art of War, Vol. 4'), 4);
+  assert.equal(volumeOf('Geschiedenis van de Nederlanden, deel IX'), 9);
+  assert.equal(volumeOf('The Way of Kings: Book One of the Stormlight Archive'), 1);
+  assert.equal(volumeOf('The Book Thief'), null);
+  assert.equal(volumeOf('History of the Art of War'), null);
+});
+
+test('findWork: two volumes of a set are two books, even as one Open Library work', () => {
+  const shelf = [{ id: 'v1', title: 'Warfare in Antiquity: History of the Art of War, Volume I', author: 'Hans Delbrück', olid: 'OL1104614W', editions: [] }];
+  assert.equal(findWork({ title: 'The Barbarian Invasions: History of the Art of War, Volume II', author: 'Hans Delbrück', olid: 'OL1104614W' }, shelf), undefined);
+  assert.equal(findWork({ title: 'History of the Art of War: Volume II', author: 'Hans Delbrück' }, [{ ...shelf[0], title: 'History of the Art of War: Volume I', olid: '' }]), undefined);
+  assert.equal(findWork({ title: 'Warfare in Antiquity', author: 'Hans Delbrück', olid: 'OL1104614W' }, shelf)?.id, 'v1');   // says no volume: may be the same
+  assert.equal(findWork({ title: 'The Way of Kings: Book One of the Stormlight Archive', author: 'Brandon Sanderson' },
+    [{ id: 'k', title: 'The Way of Kings', author: 'Brandon Sanderson', seriesNumber: 1, editions: [] }])?.id, 'k');
+  assert.deepEqual([...twins([...shelf, { id: 'v2', title: 'The Barbarian Invasions: History of the Art of War, Volume II', author: 'Hans Delbrück', olid: 'OL1104614W', editions: [] }])], []);
 });
 
 test('twins: books that may be one', () => {

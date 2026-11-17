@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.9.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.9.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3853,9 +3853,16 @@ function addedToast() {
   adding.last = null;
 }
 
-/** The book an ISBN is an edition of on the shelf, with that edition: {book, edition} or null. With more than one, the one already where you are scanning to answers. */
-function byIsbn(isbn, target = []) {
-  const found = books.flatMap((book) => editionsOf(book).filter((e) => e.isbn === isbn).map((edition) => ({ book, edition })));
+/**
+ * The book an ISBN is an edition of on the shelf, with that edition: {book, edition} or null.
+ * With more than one, the one already where you are scanning to answers. `paper`: only an
+ * edition that may be a paper one (a barcode is on a paper book); an audiobook or e-book with
+ * that ISBN is not the copy in your hand: catalogues, and the booklog's ids, often give one the
+ * paperback's ISBN.
+ */
+function byIsbn(isbn, target = [], { paper = false } = {}) {
+  const found = books.flatMap((book) => editionsOf(book).filter((e) => e.isbn === isbn
+    && (!paper || !['ebook', 'audiobook'].includes(formatOf({ ...e, boeken: book.boeken })))).map((edition) => ({ book, edition })));
   return found.find(({ book, edition }) => target.every((id) => (isStatus(id) ? book.lists?.[id] : edition.lists?.[id]))) || found[0] || null;
 }
 
@@ -3865,11 +3872,12 @@ function byIsbn(isbn, target = []) {
  * → {book, edition, attached, keepSeparate(), undo()}: `attached` when it became an edition of a
  * book that was there; then `keepSeparate` makes it a book of its own, `undo` takes it back.
  */
-async function addFound(flat, { say = true, match = false } = {}) {
+async function addFound(flat, { say = true, match = false, sibling = null } = {}) {
   // `match`: only by findWork (a book found in the background is not what "Add another edition" is adding).
+  // `sibling`: a book that is surely this one (its audiobook or e-book has this ISBN), where none was chosen.
   const into = !match && adding.into && books.includes(adding.into) ? adding.into : null;
   if (!match) adding.into = null;
-  const same = into || W.findWork(flat, books);
+  const same = into || (sibling && books.includes(sibling) ? sibling : null) || W.findWork(flat, books);
   if (!same) {
     const book = await addBook(flat);
     return (adding.last = { book, edition: book.editions[0], attached: false });
@@ -6257,7 +6265,10 @@ async function onIsbn(isbn) {
   pulse();
 
   // The same ISBN is the same edition. With more than one copy, the one that is already where you are scanning to answers.
-  const known = byIsbn(isbn, scanner.target);
+  const known = byIsbn(isbn, scanner.target, { paper: true });
+  // Only an audiobook or e-book has it: the paper copy is another edition of that book, whatever
+  // its title (said on the card, with Keep separate), unless you chose the book it goes to.
+  const sibling = !known && byIsbn(isbn);
   if (known) {
     const { book: existing, edition } = known;
     scanner.busy = false;
@@ -6299,7 +6310,7 @@ async function onIsbn(isbn) {
 
   if (result.status === 'found') {
     // A book of its own, or, when it is another edition of a book on the shelf, an edition of that one.
-    const done = await addFound({ ...result.book, isbn, format: 'paper', lists: targetLists() }, { say: !alive(session) });   // a barcode is on a paper book
+    const done = await addFound({ ...result.book, isbn, format: 'paper', lists: targetLists() }, { say: !alive(session), sibling: sibling?.book });   // a barcode is on a paper book
     if (!alive(session)) { if (!done.attached) toast(t('Added “{title}”', { title: done.book.title })); return; }
     scanner.added++;
     updateScanCount();

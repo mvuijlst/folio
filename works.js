@@ -316,24 +316,44 @@ function tidyTitles(work) {
 const firstWriter = (author) => fold(String(author || '').split(',')[0]);
 const number = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
 
+const WORDS = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
+  een: 1, twee: 2, drie: 3, vier: 4, vijf: 5, zes: 6, zeven: 7, acht: 8, negen: 9, tien: 10 };
+const ROMAN = { i: 1, v: 5, x: 10 };
+const VOLUME = new RegExp(`\\b(?:vol|volume|deel|dl|band|bd|tome|tomo|book|boek|part)\\s+(\\d+|[ivx]+|${Object.keys(WORDS).join('|')})\\b`);
+/** The volume a title says it is ("History of the Art of War, Volume II", "Vol. 4", "Deel 3", "Book One"), or null. */
+export function volumeOf(title) {
+  const said = fold(title).match(VOLUME)?.[1];
+  if (!said) return null;
+  if (/^\d+$/.test(said)) return Number(said);
+  if (WORDS[said]) return WORDS[said];
+  if (!/^x{0,3}(ix|iv|v?i{0,3})$/.test(said)) return null;
+  let n = 0;
+  for (let i = 0; i < said.length; i++) n += ROMAN[said[i]] < (ROMAN[said[i + 1]] || 0) ? -ROMAN[said[i]] : ROMAN[said[i]];
+  return n || null;
+}
+/** Where a book stands in its series or set: its series number, else the volume its title says. */
+const placeOf = (b, title = b.title) => number(b.seriesNumber) ?? volumeOf(title);
+/** Two places that both say something and differ: two volumes, never one book. */
+const otherVolume = (n, m) => n != null && m != null && n !== m;
+
 /**
  * The book on the shelf that `candidate` (a flat proposal) is another edition of, or undefined:
  * the same Open Library work, or the same title by the same first writer, unless both say where
- * they stand in a series and that differs. A differing olid doesn't veto a title: Open Library
- * has duplicate works. Translations are never found this way.
+ * they stand in a series (or which volume they are) and that differs: Open Library has works
+ * that hold every volume of a set. A differing olid doesn't veto a title: Open Library has
+ * duplicate works. Translations are never found this way.
  */
 export function findWork(candidate, books) {
   const olid = String(candidate.olid || '');
-  const byOlid = olid && books.find((b) => b.olid && b.olid === olid);
+  const n = placeOf(candidate);
+  const byOlid = olid && books.find((b) => b.olid && b.olid === olid && !otherVolume(n, placeOf(b)));
   if (byOlid) return byOlid;
   const writer = firstWriter(candidate.author);
   if (!writer || !fold(candidate.title)) return undefined;
-  const n = number(candidate.seriesNumber);
   return books.find((b) => {
     if (firstWriter(b.author) !== writer) return false;
-    const m = number(b.seriesNumber);
-    if (n != null && m != null && n !== m) return false;
-    return [b.title, ...(b.editions || []).map((e) => e.title)].some((title) => title && sameTitle(title, candidate.title));
+    return [b.title, ...(b.editions || []).map((e) => e.title)].some((title) => title && sameTitle(title, candidate.title)
+      && !otherVolume(n, placeOf(b, title)));
   });
 }
 
@@ -351,9 +371,7 @@ export function twins(books) {
     if (writer) for (const title of titles(b)) put(fold(title) && `t:${fold(title)}|${writer}`, b);
   }
   const pair = (a, b) => {
-    if (a === b) return;
-    const n = number(a.seriesNumber), m = number(b.seriesNumber);
-    if (n != null && m != null && n !== m) return;
+    if (a === b || otherVolume(placeOf(a), placeOf(b))) return;
     out.add(a.id); out.add(b.id);
   };
   for (const b of books) {
