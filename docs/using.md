@@ -172,8 +172,11 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   which of the booklog's categories it belongs to, and its tags (a comma between them). Its
   page shows them quietly under the other details. For a book in the booklog they are
   published like the rest.
-- **A book without a cover**, or with only the photograph you took when adding it, offers
-  *Find a (better) cover*, which opens the cover (see *The cover, large*).
+- **A book without a cover**, or whose cover is the photograph you took of it in the scanner,
+  offers *Find a (better) cover*, which opens the cover (see *The cover, large*). So does a
+  picture you chose while it is only on this device. Once you choose another cover, the
+  link goes. (Photographs taken before 2.2.4 are recognised by the viewfinder's shape:
+  `manage.py mark_cover_photos --user NAME [--dry-run]`.)
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
 - **In the covers view the covers stand on one base line**, whether or not a book has a rating

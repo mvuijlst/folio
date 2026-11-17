@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.4'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2338,8 +2338,8 @@ const ownCover = (subject) => !!(subject.coverFull || (!subject.cover && subject
 /** What a chosen cover makes of a book (or an edition): {picture} is one of your own, {url, ratio} a catalogue's. */
 function coverFields(choice) {
   return choice.picture
-    ? { thumb: choice.picture.thumb, cover: '', coverRatio: choice.picture.ratio, coverSource: '', coverFull: '' }
-    : { cover: choice.url, coverSource: choice.url, coverRatio: choice.ratio || null, thumb: '', coverFull: '' };
+    ? { thumb: choice.picture.thumb, cover: '', coverRatio: choice.picture.ratio, coverSource: '', coverFull: '', coverPhoto: '' }
+    : { cover: choice.url, coverSource: choice.url, coverRatio: choice.ratio || null, thumb: '', coverFull: '', coverPhoto: '' };
 }
 
 /**
@@ -2726,7 +2726,7 @@ function coverViewer(book, again, ed = W.mainEdition(book)) {
     subject: () => look(book, ed),
     query: { isbn: ed.isbn, title: ed.title || book.title, author: book.author },
     onChoose: (choice) => {
-      const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull'];
+      const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull', 'coverPhoto'];
       const before = Object.fromEntries(keys.map((key) => [key, ed[key]]));
       Object.assign(ed, coverFields(choice));
       saveBook(book);
@@ -2951,7 +2951,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
 function openEditionForm(book, ed, { back, from, onSaved } = {}) {
   const isNew = !ed;
   // A new edition starts from the facts of the one it is next to, but not its cover, nor whoever is on that one alone (a voice).
-  const src = isNew ? Object.fromEntries(Object.entries(W.factsOf(from || {})).filter(([key]) => !['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'people'].includes(key))) : ed;
+  const src = isNew ? Object.fromEntries(Object.entries(W.factsOf(from || {})).filter(([key]) => !['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'people'].includes(key))) : ed;
   const view = look(book, isNew ? src : ed);
   const facts = editionFields(view);
   const title = h('input', { name: 'edtitle', value: ed?.title || '', placeholder: book.title, autocomplete: 'off', autocapitalize: 'sentences' });
@@ -3459,7 +3459,7 @@ function openDescribe(shared, found) {
     const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
     // From a photograph of one book: that photograph is its cover until a better one is found,
     // and a barcode that was scanned first but found nowhere is its ISBN.
-    if (found && one) Object.assign(book, { thumb: found.thumb }, found.isbn && { isbn: found.isbn });
+    if (found && one) Object.assign(book, { thumb: found.thumb }, !book.cover && { coverPhoto: true }, found.isbn && { isbn: found.isbn });
     if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
     // Another edition of a book you have (its audiobook) becomes an edition of it: what the
     // find said of the book itself (its series as a store names it, its note) is not needed.
@@ -3612,7 +3612,7 @@ async function openCoverFor(blob) {
   const results = h('div', { class: 'cand-list' });
 
   async function put(book, edition) {
-    Object.assign(edition, { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '', coverSource: '' });
+    Object.assign(edition, { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '', coverSource: '', coverPhoto: '' });
     await saveBook(book);
     uploadCover(edition, picture, book);
     sheet.close();
@@ -4008,12 +4008,13 @@ async function tintSheet(book) {
   $('sheet').classList.toggle('tinted', !!colour);
 }
 
-/** For a book that has no cover, or only the photograph taken of it when it was added: a way
- *  to the cover's own page (coverViewer), where better ones are found. */
+/** For a book that has no cover, only the small copy of a picture (not kept by the server yet),
+ *  or the photograph taken of it in the scanner (`coverPhoto`): a way to the cover's own page
+ *  (coverViewer), where better ones are found. A cover chosen there is no photograph any more. */
 function coverSearch(book, viewer, ed = W.mainEdition(book)) {
-  if (ed.cover || !book.title) return null;   // `thumb` alone is your own photograph
+  if (!book.title || (ed.cover && !ed.coverPhoto)) return null;
   return h('button', { class: 'link-btn cover-search', type: 'button', onclick: () => viewer.open() },
-    icon('search'), ed.thumb ? t('Find a better cover') : t('Find a cover'));
+    icon('search'), ed.thumb || ed.coverPhoto ? t('Find a better cover') : t('Find a cover'));
 }
 
 /* From a book to the one before or after it in the list it was opened from: swipe right or
@@ -5184,14 +5185,14 @@ async function processCover({ canvas, thumb }) {
     openDescribe(null, {
       books: seen, thumb, canvas, isbn, onClose: finish,
       byHand: () => openBookForm({
-        book: { title: seen[0].title, author: seen[0].author, isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
+        book: { title: seen[0].title, author: seen[0].author, isbn, thumb, coverPhoto: true, lists: targetLists() }, isNew: true, onClose: finish,
         heading: t('Check the details'),
       }),
     });
     return;
   }
   openBookForm({
-    book: { isbn, thumb, lists: targetLists() }, isNew: true, onClose: finish,
+    book: { isbn, thumb, coverPhoto: true, lists: targetLists() }, isNew: true, onClose: finish,
     heading: asked ? t('Couldn’t tell which book this is') : t('New book'),
     subheading: t('The photo is its cover. Type the details.'),
   });
