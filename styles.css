@@ -801,6 +801,11 @@ div.list-name { cursor: default; }
 }
 .chip:active { border-color: var(--accent); }
 .chip[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+/* Left out: struck through, with the sign for "not" before it. */
+.facet .chip[data-state="out"] { border-color: var(--faint); color: var(--muted); }
+.facet .chip[data-state="out"] > span { text-decoration: line-through; text-decoration-thickness: 1px; }
+.chip[data-state="out"] > .icon:first-child { margin: 0 6px 0 0; opacity: .8; }
+.filter-hint { color: var(--faint); font-size: .84rem; margin-top: -6px; }
 
 /* ───────────── Scanner ───────────── */
 .scanner {

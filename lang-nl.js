@@ -514,6 +514,9 @@ export default {
   'All years': 'Alle jaren',
   'From': 'Van',
   'To': 'Tot',
+  'not {name}': 'niet {name}',
+  'Tap a choice to show only those books, again to leave them out, a third time to let it go.':
+    'Tik op een keuze om alleen die boeken te tonen, nog eens om ze weg te laten, een derde keer om ze los te laten.',
   // Roles, in two languages (Settings → Words → Roles)
   'Words': 'Woorden',
   'Roles': 'Rollen',

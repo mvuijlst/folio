@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.6.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.7.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1686,8 +1686,7 @@ function facetsOf() {
  */
 function faceOf(b, facets, except, filters = view.filters) {
   const active = (facets || []).filter((facet) => facet.key !== except && filters[facet.key]?.length);
-  const fits = (facet) => (facet.match ? facet.match(b, filters[facet.key]) : facet.values.some((v) => filters[facet.key].includes(v.value) && v.test(b)));
-  if (!active.filter((facet) => !facet.edition).every(fits)) return null;
+  if (!active.filter((facet) => !facet.edition).every((facet) => fitsFacet(facet, filters[facet.key], b))) return null;
   const test = copyTest(facets, except, filters);
   return W.faceEdition(b, { list: view.list, status: statusIds(), test: test && ((e) => test(b, e)) });
 }
@@ -1696,7 +1695,25 @@ const passes = (b, facets, except, filters) => !!faceOf(b, facets, except, filte
 function copyTest(facets, except, filters = view.filters) {
   const copies = (facets || []).filter((facet) => facet.edition && facet.key !== except && filters[facet.key]?.length);
   if (!copies.length) return null;
-  return (b, e) => copies.every((facet) => facet.values.some((v) => filters[facet.key].includes(v.value) && (v.edition ? v.test(b, e) : v.test(b))));
+  return (b, e) => copies.every((facet) => fitsFacet(facet, filters[facet.key], b, e));
+}
+
+// A value of a filter can also be left out: "-magweg" is not on Mag weg (a "-" stays readable
+// in the address, where a "!" would not).
+const NOT = '-';
+/** What is chosen in a filter: the values a book must have one of, and those it must have none of. */
+function chosenIn(chosen = []) {
+  const wanted = [], unwanted = [];
+  for (const value of chosen) (value.startsWith(NOT) ? unwanted : wanted).push(value.startsWith(NOT) ? value.slice(NOT.length) : value);
+  return { wanted, unwanted };
+}
+/** Whether book `b` (with `e`, that edition of it) fits what is chosen in `facet`: one of what is wanted, if anything is, and none of what is not. */
+function fitsFacet(facet, chosen, b, e) {
+  if (facet.match) return facet.match(b, chosen);
+  const { wanted, unwanted } = chosenIn(chosen);
+  const has = (v) => (v.edition ? v.test(b, e) : v.test(b));
+  return (!wanted.length || facet.values.some((v) => wanted.includes(v.value) && has(v)))
+    && !facet.values.some((v) => unwanted.includes(v.value) && has(v));
 }
 
 function openFilterSheet(inScope) {
@@ -1708,6 +1725,7 @@ function openFilterSheet(inScope) {
     const left = inScope.filter((b) => passes(b, facets, null, draft)).length;
     body.replaceChildren(
       sheetHead(t('Filter'), plural(left, 'book')),
+      h('p', { class: 'filter-hint', text: t('Tap a choice to show only those books, again to leave them out, a third time to let it go.') }),
       ...facets.map((facet) => {
         // What each value would give, with the other filters as they are.
         const others = inScope.filter((b) => passes(b, facets, facet.key, draft));
@@ -1716,16 +1734,25 @@ function openFilterSheet(inScope) {
           draw();
         });
         const chosen = draft[facet.key] || [];
+        // A value is wanted ('in'), left out ('out') or neither; a tap goes on to the next.
+        const state = (v) => (chosen.includes(v.value) ? 'in' : chosen.includes(NOT + v.value) ? 'out' : '');
+        const next = { '': (v) => v.value, in: (v) => NOT + v.value, out: () => null };
         const values = facet.values.map((v) => ({ ...v, count: others.filter((b) => passes(b, facets, null, { ...draft, [facet.key]: [v.value] })).length }))
-          .filter((v) => v.count > 0 || chosen.includes(v.value));
-        // A facet that can't tell the books apart is not worth showing.
-        if (values.length < 2 && !chosen.length) return null;
+          .filter((v) => v.count > 0 || state(v));
+        // A facet that can't tell the books apart is not worth showing: one whose only value
+        // every book has, or none.
+        if (!chosen.length && (values.length === 0 || (values.length === 1 && values[0].count >= others.length))) return null;
         return h('div', { class: 'sheet-section facet' },
           h('h3', { text: facet.name }),
           h('div', { class: 'chips' }, values.map((v) => h('button', {
-            class: 'chip', type: 'button', 'aria-pressed': String(chosen.includes(v.value)),
-            onclick: () => { draft = { ...draft, [facet.key]: chosen.includes(v.value) ? chosen.filter((x) => x !== v.value) : [...chosen, v.value] }; draw(); },
-          }, v.name, h('b', { text: String(v.count) })))));
+            class: 'chip', type: 'button', 'aria-pressed': String(state(v) === 'in'), 'data-state': state(v) || null,
+            'aria-label': state(v) === 'out' ? t('not {name}', { name: v.name }) : null,
+            onclick: () => {
+              const then = next[state(v)](v);
+              draft = { ...draft, [facet.key]: [...chosen.filter((x) => x !== v.value && x !== NOT + v.value), ...(then ? [then] : [])] };
+              draw();
+            },
+          }, state(v) === 'out' && icon('ban'), h('span', { text: v.name }), h('b', { text: String(v.count) })))));
       }).filter(Boolean),
       h('div', { class: 'btn-row sheet-actions' },
         h('button', { class: 'btn btn-outline', type: 'button', text: t('Clear'), disabled: !Object.values(draft).some((values) => values.length), onclick: () => { draft = {}; draw(); } }),
@@ -1792,9 +1819,11 @@ function spanSlider(facet, inScope, others, draft, choose) {
 /** Under the search box: what the view is narrowed by, each to be taken off again. */
 function drawActiveFilters(facets) {
   const chips = facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
-    const name = facet.label ? facet.label(value) : facet.values.find((v) => v.value === value)?.name || value;
+    const out = !facet.match && value.startsWith(NOT), plain = out ? value.slice(NOT.length) : value;
+    const named = facet.label ? facet.label(value) : facet.values.find((v) => v.value === plain)?.name || plain;
+    const name = out ? t('not {name}', { name: named }) : named;
     return h('button', {
-      class: 'chip active-filter', type: 'button', title: t('Remove'),
+      class: 'chip active-filter', type: 'button', title: t('Remove'), 'data-state': out ? 'out' : null,
       onclick: () => refine({ filters: { ...view.filters, [facet.key]: view.filters[facet.key].filter((x) => x !== value) } }),
     }, `${facet.name}: ${name}`, icon('x'));
   }));
@@ -2042,7 +2071,7 @@ function tally(keys) {
 
 /** Tapping a bar: that value of a filter on, or off again. */
 function toggleFilter(key, value) {
-  const chosen = view.filters[key] || [];
+  const chosen = (view.filters[key] || []).filter((x) => x !== NOT + value);   // wanted now, so no longer left out
   refine({ filters: { ...view.filters, [key]: chosen.includes(value) ? chosen.filter((x) => x !== value) : [...chosen, value] } });
 }
 
