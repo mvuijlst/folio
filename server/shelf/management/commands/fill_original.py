@@ -27,6 +27,7 @@ is left alone.
 """
 import csv
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
@@ -46,6 +47,8 @@ class Command(BaseCommand):
         parser.add_argument('--user', required=True)
         parser.add_argument('--write', action='store_true', help='store what was found (default: only say it)')
         parser.add_argument('--assistant', action='store_true', help='also ask the assistant, about every book')
+        parser.add_argument('--no-catalogues', action='store_true',
+                            help="don't ask Open Library and Wikidata (slow: seconds a book, and Wikidata's query service may be down)")
         parser.add_argument('--limit', type=int, default=0, help='at most this many books (for a trial)')
         parser.add_argument('--pause', type=float, default=0.3, help='seconds between Open Library requests')
         parser.add_argument('--report', help='write what was found to this file')
@@ -73,12 +76,18 @@ class Command(BaseCommand):
         olids = {r.uid: r.data.get('olid') for r in rows if original.OLID.fullmatch(str(r.data.get('olid') or ''))}
         catalogue, said_by_assistant, new_olids = {}, {}, {}
 
-        # Open Library: the work of an ISBN, and whether the edition says it is a translation.
-        for r in rows:
-            if r.uid in olids or not info[r.uid]['isbn']:
-                continue
-            work, said = original.from_open_library(info[r.uid]['isbn'])
+        # Open Library: the work of an ISBN, and whether the edition says it is a translation. A
+        # few at a time: it is slow to answer, and sometimes doesn't.
+        asking = [] if opts['no_catalogues'] else [r for r in rows if r.uid not in olids and info[r.uid]['isbn']]
+        self.stdout.write(f'Asking Open Library about {len(asking)} ISBNs')
+
+        def ask_open_library(r):
+            answer = original.from_open_library(info[r.uid]['isbn'])
             time.sleep(opts['pause'])
+            return r, answer
+        with ThreadPoolExecutor(4) as pool:
+            answers = list(pool.map(ask_open_library, asking))
+        for r, (work, said) in answers:
             if work:
                 olids[r.uid] = work
                 if not r.data.get('boeken'):
@@ -87,7 +96,8 @@ class Command(BaseCommand):
                 catalogue[r.uid] = ('open library', hit)
         self.stdout.write(f'{len(olids)} with an Open Library work id ({len(new_olids)} found now)')
 
-        known = original.from_wikidata(olids.values())
+        self.stdout.write('Asking Wikidata')
+        known = {} if opts['no_catalogues'] else original.from_wikidata(olids.values())
         for uid, olid in olids.items():
             if uid not in catalogue and olid in known:
                 hit = original.found(known[olid]['language'], known[olid]['title'], info[uid]['known_as'])
@@ -96,18 +106,26 @@ class Command(BaseCommand):
         self.stdout.write(f'Wikidata and Open Library know {len(catalogue)}')
 
         if opts['assistant']:
-            for i in range(0, len(rows), BATCH):
-                batch = [{'id': r.uid, **{k: info[r.uid][k] for k in ('title', 'author', 'language')}} for r in rows[i:i + BATCH]]
+            # Four questions at a time: each takes the model a while.
+            batches = [[{'id': r.uid, **{k: info[r.uid][k] for k in ('title', 'author', 'language')}} for r in rows[i:i + BATCH]]
+                       for i in range(0, len(rows), BATCH)]
+
+            def ask(batch):
                 try:
-                    said = original.ask(batch)
+                    return batch, original.ask(batch), None
                 except intake.IntakeError as err:
-                    self.stderr.write(f'The assistant failed for books {i + 1}–{i + len(batch)}: {err}')
-                    continue
-                for uid, hit in said.items():
-                    hit = original.found(hit['language'], hit['title'], info[uid]['known_as'])
-                    if hit:
-                        said_by_assistant[uid] = hit
-                self.stdout.write(f'  asked the assistant about {min(i + BATCH, len(rows))} of {len(rows)}')
+                    return batch, {}, err
+            done = 0
+            with ThreadPoolExecutor(4) as pool:
+                for batch, said, err in pool.map(ask, batches):
+                    done += len(batch)
+                    if err:
+                        self.stderr.write(f'The assistant failed for {len(batch)} books: {err}')
+                    for uid, hit in said.items():
+                        hit = original.found(hit['language'], hit['title'], info[uid]['known_as'])
+                        if hit:
+                            said_by_assistant[uid] = hit
+                    self.stdout.write(f'  asked the assistant about {done} of {len(rows)}')
 
         results, report, counts = {}, [], {'translated': 0, 'unknown': 0, 'disagree': 0}
         for r in rows:

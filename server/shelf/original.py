@@ -19,6 +19,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
 
@@ -93,15 +94,15 @@ def language_code(qid):
     return LANGUAGE_ITEMS[qid]
 
 
-def by_api(olids, pause=0.2):
-    out = {}
-    for olid in olids:
+def by_api(olids, pause=0.2, workers=6):
+    """Wikidata's API, a few works at a time; a work it can't answer for is left out."""
+    def one(olid):
         try:
             hits = get_json(f'{API}&action=query&list=search&srlimit=3&srsearch='
-                            + urllib.parse.quote(f'haswbstatement:P648={olid}'))['query']['search']
+                            + urllib.parse.quote(f'haswbstatement:P648={olid}'), 20, tries=3)['query']['search']
             if hits:
                 ids = '|'.join(h['title'] for h in hits)
-                entities = get_json(f'{API}&action=wbgetentities&props=claims&ids={ids}')['entities']
+                entities = get_json(f'{API}&action=wbgetentities&props=claims&ids={ids}', 20, tries=3)['entities']
                 for h in hits:
                     claims = entities.get(h['title'], {}).get('claims') or {}
                     item = next((v.get('id') for v in claim(claims, 'P407') if isinstance(v, dict)), '')
@@ -109,12 +110,14 @@ def by_api(olids, pause=0.2):
                     if code:
                         title = next((v['text'] for v in claim(claims, 'P1476')
                                       if isinstance(v, dict) and str(v.get('language', '')).split('-')[0] == code), '')
-                        out[olid] = {'language': code, 'title': title}
-                        break
+                        return olid, {'language': code, 'title': title}
         except (urllib.error.URLError, OSError, ValueError, KeyError):
             pass
-        time.sleep(pause)
-    return out
+        finally:
+            time.sleep(pause)
+        return olid, None
+    with ThreadPoolExecutor(workers) as pool:
+        return {olid: hit for olid, hit in pool.map(one, olids) if hit}
 
 
 def by_query(olids):
@@ -124,7 +127,7 @@ def by_query(olids):
                  'OPTIONAL { ?item wdt:P407 ?l . OPTIONAL { ?l wdt:P218 ?two } OPTIONAL { ?l wdt:P219 ?three } BIND(COALESCE(?two, ?three) AS ?code) } '
                  'OPTIONAL { ?item wdt:P1476 ?title } }'
                  % ' '.join(f'"{o}"' for o in olids[i:i + 200]))
-        rows = get_json('https://query.wikidata.org/sparql?format=json&query=' + urllib.parse.quote(query), 60, tries=2)['results']['bindings']
+        rows = get_json('https://query.wikidata.org/sparql?format=json&query=' + urllib.parse.quote(query), 60, tries=1)['results']['bindings']
         seen = {}
         for row in rows:
             entry = seen.setdefault(row['ol']['value'], {'codes': [], 'titles': []})
@@ -144,7 +147,7 @@ def by_query(olids):
 def from_open_library(isbn):
     """An edition's ISBN → (its work's Open Library id, {'language', 'title'} when the edition says it is a translation)."""
     try:
-        edition = get_json(f'https://openlibrary.org/isbn/{isbn}.json', 15)
+        edition = get_json(f'https://openlibrary.org/isbn/{isbn}.json', 15, tries=1)
     except (urllib.error.URLError, OSError, ValueError):
         return '', None
     work = str(((edition.get('works') or [{}])[0] or {}).get('key') or '').rsplit('/', 1)[-1]
