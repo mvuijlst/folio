@@ -58,3 +58,17 @@ class List(Record):
 
     def __str__(self):
         return self.name or self.uid
+
+
+class Term(Record):
+    """A word the user keeps in two languages: for now a role of people on a book (terms.js).
+
+    `data` is {"kind", "nl", "en", "aliases", "gone"}; `value` is the word stored on books.
+    """
+    KEY = 'term'
+    LABEL = 'value'
+
+    value = models.CharField(max_length=300, blank=True)
+
+    def __str__(self):
+        return self.value or self.uid

@@ -8,10 +8,15 @@
                      shared page is about (by ISBN where there is one, else the assistant)
   POST /api/sync     {"schema": 2, "since": cursor | null, "changes": [change…],
                       "listsSince": cursor | null, "lists": [change…]}
-                     → {"cursor", "changes": [change…], "lists": [change…]}
+                      "termsSince": cursor | null, "terms": [change…]}
+                     → {"cursor", "changes": [change…], "lists": [change…], "terms": [change…]}
+  POST /api/translate {"kind": "role", "to": "en" | "nl", "words": [{"word", "books"}…]}
+                     → {"words": [{"word", "translation"}…]}: the assistant's proposals, which
+                     the app shows for the user to accept or not
 
-Books travel in "changes" and the user's lists in "lists". A change is {"id", "modified",
-"deleted", "book"} (or "list"). The server keeps the newest change for each record (by
+Books travel in "changes", the user's lists in "lists" and the words they keep in two
+languages (roles, terms.js) in "terms". A change is {"id", "modified", "deleted", "book"} (or
+"list", "term"). The server keeps the newest change for each record (by
 "modified") and answers with everything stored after the cursor that the device doesn't
 already have, so every device converges on the same shelf.
 
@@ -38,7 +43,7 @@ from django.views.decorators.http import require_GET, require_POST
 from django.conf import settings
 
 from . import covers, intake, works
-from .models import Book, List
+from .models import Book, List, Term
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +201,32 @@ def suggest(request):
     return JsonResponse({'books': books})
 
 
+@require_POST
+def translate(request):
+    """Words the user keeps in two languages → the assistant's proposal for the missing language."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    data = body(request) or {}
+    kind, to = data.get('kind'), data.get('to')
+    words = data.get('words')
+    if kind not in intake.TRANSLATABLE or to not in ('en', 'nl') or not isinstance(words, list) or not 0 < len(words) <= 100:
+        return error('Bad request')
+    asked = []
+    for w in words:
+        word = str((w or {}).get('word') or '').strip()[:100] if isinstance(w, dict) else ''
+        if word:
+            seen_in = [str(b)[:100] for b in (w.get('books') or [])[:3] if b]
+            asked.append({'word': word, 'books': seen_in})
+    if not asked:
+        return error('Bad request')
+    try:
+        return JsonResponse({'words': intake.translate(kind, to, asked)})
+    except intake.NotSetUp as err:
+        return error(str(err), 503)
+    except intake.IntakeError as err:
+        return error(str(err), 502)
+
+
 # ───────────────────────── Sync ─────────────────────────
 
 def clean_change(raw, key):
@@ -309,8 +340,8 @@ def sync(request):
         return error('Bad request')
     if data.get('schema') != SCHEMA:
         return error(OUT_OF_DATE, 409)
-    raw_books, raw_lists = data.get('changes') or [], data.get('lists') or []
-    if not all(isinstance(raw, list) and len(raw) <= MAX_CHANGES for raw in (raw_books, raw_lists)):
+    raw_books, raw_lists, raw_terms = data.get('changes') or [], data.get('lists') or [], data.get('terms') or []
+    if not all(isinstance(raw, list) and len(raw) <= MAX_CHANGES for raw in (raw_books, raw_lists, raw_terms)):
         return error('Bad request')
 
     user = request.user
@@ -322,6 +353,8 @@ def sync(request):
         # Every device starts with the same standard lists, so a fresh one must also hear
         # which of them were deleted elsewhere.
         lists = merge(List, user, raw_lists, when(data.get('listsSince')), now, tombstones_when_fresh=True)
+        # A copy of the app from before terms sends none and asks for none.
+        terms = merge(Term, user, raw_terms, when(data.get('termsSince')), now, tombstones_when_fresh=True) if 'terms' in data else {}
 
     # Covers from the book catalogues get a copy on this server, a few per sync. Those books go
     # back in this answer, so the device that scanned them points at the copy straight away.
@@ -335,6 +368,7 @@ def sync(request):
         'cursor': now.isoformat().replace('+00:00', 'Z'),
         'changes': [b.as_change() for b in books.values()],
         'lists': [l.as_change() for l in lists.values()],
+        **({'terms': [t.as_change() for t in terms.values()]} if 'terms' in data else {}),
         'user': user.get_username(),
         'assistant': bool(settings.OPENAI_API_KEY),   # whether /api/suggest will answer
     })

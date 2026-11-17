@@ -21,7 +21,7 @@ and when you're back online; if two devices change the same book or the same lis
 change wins. *Sign out & clear* removes the shelf from that device only.
 
 The server is a small Django app in [`server/`](../server): a JSON API (`/api/session`, `/api/login`,
-`/api/logout`, `/api/sync`) plus the Django admin at `/admin/`, where accounts are made. There
+`/api/logout`, `/api/sync`, and for the assistant `/api/suggest` and `/api/translate`) plus the Django admin at `/admin/`, where accounts are made. There
 is no public sign-up.
 
 ```bash

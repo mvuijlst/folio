@@ -214,6 +214,61 @@ def ask(text, categories, image=None, model=None, effort=None):
         raise IntakeError(f'The assistant gave an answer that could not be read: {err}')
 
 
+# ───────────────────────── Words in two languages ─────────────────────────
+
+# What the app keeps in two languages (terms.js), and how to tell the model what they are.
+TRANSLATABLE = {
+    'role': 'roles of people credited on a book: who wrote, drew, inked, coloured or lettered a comic, '
+            'who translated a book, who read an audiobook aloud, who edited an anthology. A role can also be '
+            'a part an actor voices in an audiobook (a character, the footnotes); keep such a name as it is.',
+}
+LANGUAGE = {'en': 'English', 'nl': 'Dutch (as spoken in Flanders)'}
+STYLE = {
+    'role': {'en': 'a short lowercase noun for the person, as in comics and audiobook credits (writer, artist, '
+                   'colourist, letterer, narrator, translator), British spelling',
+             'nl': 'a short lowercase noun for the work, as Dutch comics credits have it (tekst, beeld, kleur, '
+                   'inkt, letters, stem, vertaling, redactie)'},
+}
+TRANSLATION_SCHEMA = {
+    'type': 'object', 'additionalProperties': False, 'required': ['words'],
+    'properties': {'words': {'type': 'array', 'items': {
+        'type': 'object', 'additionalProperties': False, 'required': ['word', 'translation'],
+        'properties': {'word': {'type': 'string'}, 'translation': {'type': 'string'}}}}},
+}
+
+
+def translate(kind, to, words):
+    """[{word, books}] → [{word, translation}]: the model's proposal for each word in language `to`.
+    Only proposals: the app shows them, and keeps none the user doesn't accept."""
+    if not settings.OPENAI_API_KEY:
+        raise NotSetUp('The assistant is not set up on this server.')
+    system = (f'You translate {TRANSLATABLE[kind]} Translate each word into {LANGUAGE[to]}: {STYLE[kind][to]}. '
+              'A word may already be in that language, or be a name: then give it back unchanged. '
+              'Answer with every word you were given, in the same order, spelled exactly as given.')
+    said = '\n'.join(f"- {w['word']}" + (f" (on: {'; '.join(w['books'])})" if w.get('books') else '') for w in words)
+    question = {
+        'model': settings.OPENAI_MODEL,
+        'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': said}],
+        'response_format': {'type': 'json_schema', 'json_schema': {'name': 'words', 'strict': True, 'schema': TRANSLATION_SCHEMA}},
+    }
+    try:
+        answer = post_json('https://api.openai.com/v1/chat/completions', question, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
+        got = json.loads(answer['choices'][0]['message']['content'])['words']
+    except urllib.error.HTTPError as err:
+        raise IntakeError(f'The assistant answered with an error ({err.code}).')
+    except (urllib.error.URLError, OSError) as err:
+        raise IntakeError(f'The assistant could not be reached: {err}')
+    except (ValueError, KeyError, IndexError, TypeError) as err:
+        raise IntakeError(f'The assistant gave an answer that could not be read: {err}')
+    asked = {w['word'] for w in words}
+    out = []
+    for w in got if isinstance(got, list) else []:
+        word, translation = str(w.get('word') or ''), ' '.join(str(w.get('translation') or '').split())[:100]
+        if word in asked and translation:
+            out.append({'word': word, 'translation': translation})
+    return out
+
+
 # ───────────────────────── Open Library: ISBN and cover, when it really is that book ─────────────────────────
 
 def plain(text):

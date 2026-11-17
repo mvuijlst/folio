@@ -10,8 +10,9 @@
 
 import NL from './lang-nl.js';
 import * as W from './works.js';
+import * as T from './terms.js';
 
-const APP_VERSION = '2.3.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.4.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -81,8 +82,8 @@ function t(text, values) {
 }
 
 const COUNTED = {
-  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'] },
-  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'] },
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'] },
 };
 const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
 
@@ -142,7 +143,7 @@ function table(database, name) {
     del: (id) => run('readwrite', (s) => s.delete(id)),
   };
 }
-const DB = { ...table('bookscan', 'books'), lists: table('bookscan-lists', 'lists') };
+const DB = { ...table('bookscan', 'books'), lists: table('bookscan-lists', 'lists'), terms: table('bookscan-terms', 'terms') };
 
 /** In-memory copy of the shelf, newest first. */
 let books = [];
@@ -175,6 +176,7 @@ const guarded = (b) => { if (GUARD && b && Object.getPrototypeOf(b) === Object.p
 
 /** A new book from a flat proposal (a lookup, the assistant, a form): one edition. */
 async function addBook(data) {
+  if (Array.isArray(data.people)) data = { ...data, people: rolesStored(data.people) };
   const book = guarded(W.newWork({ id: newId(), added: new Date().toISOString(), title: '', author: '', lists: {}, ...data }, statusIds()));
   books.unshift(book);
   touch(book.id, book);
@@ -430,6 +432,23 @@ const authorsOf = (b) => String(b.author || '').split(',').map((name) => name.tr
    stays the names of the writers, for lists and searching. A book has the people of its
    latest read, and each read's edition its own: the audiobook has a voice, the paperback not.
    A book that only has `author` (scanned, nothing more said) has those as its people. */
+/* Roles are kept in two languages (terms.js): stored as the booklog's Dutch word, shown in the
+   language of the app. Your changes to the standard roles, and roles of your own, are `terms`. */
+let terms = [];
+let roleCache = null;
+function termsChanged() { roleCache = null; }
+/** The roles, and an index of every way of writing them. */
+function roleVocab() {
+  if (!roleCache) { const all = T.vocabulary(terms, 'role'); roleCache = { all, by: T.index(all) }; }
+  return roleCache;
+}
+/** A role as stored → as shown ("tekst, beeld" → "writer, artist" in English). */
+const roleText = (role) => T.display(role, roleVocab().all, lang, roleVocab().by);
+/** A role as typed → as stored ("Narrator" → "stem"; "tekst en beeld" → "tekst, beeld"). */
+const roleValue = (role) => T.canonical(role, roleVocab().all, roleVocab().by);
+/** People with their roles as stored. */
+const rolesStored = (people) => (Array.isArray(people) ? people.map((person) => (person && person.role ? { ...person, role: roleValue(person.role) } : person)) : people);
+
 const WRITER_ROLES = new Set(['auteur', 'auteurs', 'author', 'schrijver', 'tekst', 'writer']);   // as the booklog has it
 const isWriter = (person) => !person.role || WRITER_ROLES.has(person.role.trim().toLowerCase());
 const peopleOf = (x) => (Array.isArray(x.people) && x.people.length ? x.people : authorsOf(x).map((name) => ({ name, role: '' })));
@@ -463,12 +482,14 @@ const personLink = (name) => h('a', {
 
 /** The people editor of a form: a row of name and role each. → { el, first, value() } */
 function peopleEditor(people) {
-  const known = new Set(), roles = new Set(['tekst', 'beeld', 'kleur', 'inkt', 'letters', 'stem', 'vertaling', 'redactie', 'illustraties', 'voorwoord']);
-  for (const b of books) for (const x of [{ author: b.author }, ...editionsOf(b)]) for (const person of x.people || peopleOf(x)) { known.add(person.name); if (person.role) roles.add(person.role); }
+  // The roles (Settings → Words) are offered in the app's language, as are the roles of the people
+  // shown; typed in either language, or as the booklog writes them, they are stored as it says.
+  const known = new Set(), roles = new Set(roleVocab().all.map((term) => roleText(T.valueOf(term))));
+  for (const b of books) for (const x of [{ author: b.author }, ...editionsOf(b)]) for (const person of x.people || peopleOf(x)) known.add(person.name);
   const rows = h('div', { class: 'people-rows' });
   const add = (person = {}) => {
     const name = h('input', { name: 'person', value: person.name || '', placeholder: t('Name'), list: 'peopleNames', autocomplete: 'off', autocapitalize: 'words' });
-    const role = h('input', { name: 'role', value: person.role || '', placeholder: t('role, if any'), list: 'peopleRoles', autocomplete: 'off', autocapitalize: 'none' });
+    const role = h('input', { name: 'role', value: person.role ? roleText(person.role) : '', placeholder: t('role, if any'), list: 'peopleRoles', autocomplete: 'off', autocapitalize: 'none' });
     const row = h('div', { class: 'people-row' }, name, role, h('button', {
       class: 'icon-btn', type: 'button', 'aria-label': t('Remove'), title: t('Remove'),
       onclick: () => { if (rows.children.length > 1) row.remove(); else name.value = role.value = ''; },
@@ -490,7 +511,7 @@ function peopleEditor(people) {
       for (const row of rows.children) {
         const [name, role] = [...row.querySelectorAll('input')].map((input) => input.value.replace(/\s+/g, ' ').trim());
         for (const one of name.split(',').map((part) => part.trim()).filter(Boolean)) {
-          if (!seen.has(fold(one))) { seen.add(fold(one)); out.push({ name: one, role }); }
+          if (!seen.has(fold(one))) { seen.add(fold(one)); out.push({ name: one, role: roleValue(role) }); }
         }
       }
       return out;
@@ -575,6 +596,8 @@ const sync = {
   listsCursor: store.get('syncListsCursor', null),
   drops: store.get('syncDrops', {}),       // ids of deleted books that were dropped, until the server knows
   dirtyLists: store.get('syncDirtyLists', {}),
+  termsCursor: store.get('syncTermsCursor', null),
+  dirtyTerms: store.get('syncDirtyTerms', {}),
   last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
   error: '',
   assistant: store.get('assistant', false),   // whether the server can propose books from a description
@@ -588,10 +611,12 @@ function saveSyncState() {
   store.set('syncDirty', sync.dirty);
   store.set('syncListsCursor', sync.listsCursor);
   store.set('syncDirtyLists', sync.dirtyLists);
+  store.set('syncTermsCursor', sync.termsCursor);
+  store.set('syncDirtyTerms', sync.dirtyTerms);
   store.set('syncLast', sync.last);
 }
 
-const waitingChanges = () => Object.keys(sync.dirty).length + Object.keys(sync.dirtyLists).length;
+const waitingChanges = () => Object.keys(sync.dirty).length + Object.keys(sync.dirtyLists).length + Object.keys(sync.dirtyTerms).length;
 
 /** Record a change to a book (pass the book) or its deletion (pass only the id). */
 function touch(id, book) {
@@ -608,6 +633,15 @@ function touchList(id, list) {
   if (list) list.modified = now;
   sync.dirtyLists[id] = now;
   store.set('syncDirtyLists', sync.dirtyLists);
+  scheduleSync();
+}
+
+/** The same for a term (terms.js). */
+function touchTerm(id, term) {
+  const now = new Date().toISOString();
+  if (term) term.modified = now;
+  sync.dirtyTerms[id] = now;
+  store.set('syncDirtyTerms', sync.dirtyTerms);
   scheduleSync();
 }
 
@@ -653,7 +687,7 @@ async function runSync({ loud = false } = {}) {
     try {
       do {
         sync.again = false;
-        const sent = { ...sync.dirty }, sentLists = { ...sync.dirtyLists };
+        const sent = { ...sync.dirty }, sentLists = { ...sync.dirtyLists }, sentTerms = { ...sync.dirtyTerms };
         const pack = (dirty, rows, key) => {
           const byId = new Map(rows.map((r) => [r.id, r]));
           return Object.entries(dirty).map(([id, modified]) => {
@@ -665,6 +699,7 @@ async function runSync({ loud = false } = {}) {
           schema: 2,   // books with editions (works.js); a server that has them refuses copies of the app from before
           since: sync.cursor, changes: pack(sent, books, 'book'),
           listsSince: sync.listsCursor, lists: pack(sentLists, lists, 'list'),
+          termsSince: sync.termsCursor, terms: pack(sentTerms, terms.map((term) => ({ ...term, value: T.valueOf(term) })), 'term'),
         });
         if (!sync.user) return;   // signed out meanwhile
         for (const [id, modified] of Object.entries(sent)) {
@@ -676,6 +711,11 @@ async function runSync({ loud = false } = {}) {
           for (const [id, modified] of Object.entries(sentLists)) if (sync.dirtyLists[id] === modified) delete sync.dirtyLists[id];
           await applyRemoteLists(res.lists);
           sync.listsCursor = res.cursor;
+        }
+        if (res.terms) {   // a server from before terms leaves them waiting
+          for (const [id, modified] of Object.entries(sentTerms)) if (sync.dirtyTerms[id] === modified) delete sync.dirtyTerms[id];
+          await applyRemoteTerms(res.terms);
+          sync.termsCursor = res.cursor;
         }
         await applyRemote(res.changes || []);
         sync.cursor = res.cursor;
@@ -770,14 +810,34 @@ async function applyRemoteLists(changes) {
   renderLibrary();
 }
 
+async function applyRemoteTerms(changes) {
+  if (!changes.length) return;
+  for (const c of changes) {
+    if (sync.dirtyTerms[c.id] && time(sync.dirtyTerms[c.id]) >= time(c.modified)) continue;
+    const local = terms.find((term) => term.id === c.id);
+    if (c.deleted) {
+      if (!local) continue;
+      terms = terms.filter((term) => term !== local);
+      await DB.terms.del(c.id).catch(storageFailed);
+    } else {
+      const { value, ...term } = { ...c.term, id: c.id, modified: c.modified };
+      if (local) { for (const k of Object.keys(local)) delete local[k]; Object.assign(local, term); } else terms.push(term);
+      await DB.terms.put(local || term).catch(storageFailed);
+    }
+  }
+  termsChanged();
+  renderLibrary();
+}
+
 async function signIn(username, password) {
   const res = await api('login', { username, password });
   sync.user = res.user;
-  sync.cursor = sync.listsCursor = null;
+  sync.cursor = sync.listsCursor = sync.termsCursor = null;
   sync.error = '';
   // Offer everything on this device; books the server has newer copies of come back from it.
   for (const b of books) sync.dirty[b.id] ??= b.modified || b.added;
   for (const l of lists) sync.dirtyLists[l.id] ??= l.modified || EPOCH;
+  for (const term of terms) sync.dirtyTerms[term.id] ??= term.modified || EPOCH;
   saveSyncState();
   renderAccount();
   await runSync();
@@ -785,7 +845,7 @@ async function signIn(username, password) {
 }
 
 function forgetAccount() {
-  Object.assign(sync, { user: null, cursor: null, listsCursor: null, last: null, error: '' });
+  Object.assign(sync, { user: null, cursor: null, listsCursor: null, termsCursor: null, last: null, error: '' });
   clearTimeout(sync.timer);
   saveSyncState();
   renderAccount();
@@ -802,12 +862,15 @@ async function signOut({ clearShelf }) {
   try { await api('logout', {}); } catch {}
   forgetAccount();
   if (clearShelf) {
-    const gone = books, goneLists = lists;
+    const gone = books, goneLists = lists, goneTerms = terms;
     books = [];
+    terms = [];
+    termsChanged();
     sync.dirty = {};
     sync.dirtyLists = {};
+    sync.dirtyTerms = {};
     saveSyncState();
-    await Promise.all([...gone.map((b) => DB.del(b.id)), ...goneLists.map((l) => DB.lists.del(l.id))]).catch(storageFailed);
+    await Promise.all([...gone.map((b) => DB.del(b.id)), ...goneLists.map((l) => DB.lists.del(l.id)), ...goneTerms.map((term) => DB.terms.del(term.id))]).catch(storageFailed);
     await seedLists().catch(storageFailed);   // back to the lists a new device starts with
     renderLibrary();
   }
@@ -1350,7 +1413,7 @@ function editionLine(e, book) {
       const row = by.find(([role]) => role === person.role);
       if (row) row[1].push(person.name); else by.push([person.role, [person.name]]);
       return by;
-    }, []) : contributorsIn(e.people || [])).map(([role, names]) => `${role}: ${names.join(', ')}`)]
+    }, []) : contributorsIn(e.people || [])).map(([role, names]) => `${roleText(role)}: ${names.join(', ')}`)]
     .filter(Boolean).join(' · ');
 }
 
@@ -3099,7 +3162,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     source,
     field(t('Title'), f.title),
     h('div', { class: 'field' }, h('span', { text: whole ? t('Authors and others') : t('Authors') }), who.el),
-    h('p', { class: 'sheet-note people-hint', text: whole ? t('No role for an author. For anyone else, what they did: beeld, kleur, stem, vertaling…') : t('No role for an author. Someone on only one edition (a voice, a translator) is on that edition.') }),
+    h('p', { class: 'sheet-note people-hint', text: whole ? t('No role for an author. For anyone else, what they did: artist, colourist, narrator, translator…') : t('No role for an author. Someone on only one edition (a voice, a translator) is on that edition.') }),
     whole && facts.publisherRow,
     whole && facts.formatRow,
     whole && facts.extentRow,
@@ -4354,7 +4417,7 @@ function openBook(book, rows) {
         // Each name leads to all of that person's books.
         book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', personLink(name)])),
         others.length > 0 && h('p', { class: 'page-people' },
-          others.flatMap(([role, names], i) => [i > 0 && ' · ', `${role}: `, ...names.flatMap((name, j) => [j > 0 && ', ', personLink(name)])])),
+          others.flatMap(([role, names], i) => [i > 0 && ' · ', `${roleText(role)}: `, ...names.flatMap((name, j) => [j > 0 && ', ', personLink(name)])])),
         seriesLine(book) && h('button', {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
           onclick: () => closeLayersThen(() => setView({ series: book.series })),
@@ -4727,6 +4790,284 @@ function openExport(kind = 'json') {
       navigator.clipboard && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: copy }, icon('copy'), t('Copy to clipboard')))));
 }
 
+/* ───────────────────────── Roles (words in two languages) ───────────────────────── */
+
+// Settings → Roles: every role in English and in Dutch, how the shelf writes them, and the words
+// on books that are no role yet. Books keep a role's Dutch word (the booklog's); renaming one,
+// merging a word into a role or writing them all the same way rewrites the books that have it,
+// which publishes those that are on the booklog. Each such change can be undone from its toast.
+// With an account and the assistant, missing names can be suggested; nothing suggested is kept
+// until you save it.
+
+const otherLang = () => (lang === 'nl' ? 'en' : 'nl');
+const canTranslate = () => !!(sync.user && sync.assistant && navigator.onLine !== false);
+const LANG_LABEL = { en: () => t('English'), nl: () => t('Dutch') };
+
+/** Saves a term record (your version of a role). */
+async function saveTerm(record) {
+  const clean = { ...record };
+  delete clean.standard;
+  const i = terms.findIndex((term) => term.id === clean.id);
+  if (i >= 0) terms[i] = clean; else terms.push(clean);
+  termsChanged();
+  touchTerm(clean.id, clean);
+  await DB.terms.put(clean).catch(storageFailed);
+  return clean;
+}
+async function forgetTerm(id) {
+  terms = terms.filter((term) => term.id !== id);
+  termsChanged();
+  touchTerm(id);
+  await DB.terms.del(id).catch(storageFailed);
+}
+
+/** Saves books whose people were rewritten (terms.js rewrite), and offers to undo it. */
+async function saveRewritten(changed, message, undoTerms) {
+  for (const { book } of changed) touch(book.id, book);
+  renderLibrary();
+  await Promise.all(changed.map(({ book }) => DB.put(book))).catch(storageFailed);
+  const undo = async () => {
+    for (const { book, before } of changed) for (const e of editionsOf(book)) if (e.id in before) e.people = before[e.id];
+    await undoTerms?.();
+    await saveRewritten(changed, null);
+    toast(t('Undone'));
+    if (sheet.isOpen && $('sheetBody').querySelector('.roles-sheet')) openRoles();
+  };
+  if (message) toast(message, { action: t('Undo'), onAction: undo, ms: 8000 });
+}
+
+/** "12 books, 9 of them on boeken.tsuk.org": what a rewrite of these books reaches. */
+function reach(bookList) {
+  const published = bookList.filter((b) => b.boeken).length;
+  const n = plural(bookList.length, 'book');
+  return published ? t('{n}, {m} of them on {host}', { n, m: published, host: booklogHost() || 'the booklog' }) : n;
+}
+/** A few titles of books where a role is used. */
+function booksWithRole(word) {
+  const key = T.fold(word);
+  return books.filter((b) => editionsOf(b).some((e) => (e.people || []).some((person) => T.split(person.role).some((part) => T.fold(part) === key))));
+}
+
+function openRoles() {
+  const { all } = roleVocab();
+  const s = T.survey(books, all);
+  const ask = otherLang();
+  const lacking = T.missing(all, 'en').length + T.missing(all, 'nl').length;
+
+  const tidy = s.differently.length > 0 && (() => {
+    const affected = books.filter((b) => s.differently.some((d) => d.books.includes(b.id)));
+    return h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Written differently') }),
+      h('div', { class: 'list-rows' }, s.differently.slice(0, 12).map((d) => h('div', { class: 'list-row' },
+        h('div', { class: 'list-name' }, h('span', { text: `${d.from} → ${d.to}` }), h('small', { text: plural(d.count, 'person') }))))),
+      s.differently.length > 12 && h('p', { class: 'sheet-note', text: t('And {n} more.', { n: s.differently.length - 12 }) }),
+      h('button', {
+        class: 'btn btn-primary btn-block', type: 'button',
+        onclick: async () => {
+          const changed = T.tidyOnBooks(books, roleVocab().all);
+          await saveRewritten(changed, t('Roles written the same way on {n}', { n: reach(changed.map((c) => c.book)) }));
+          openRoles();
+        },
+      }, icon('check'), t('Write them the same way')),
+      h('p', { class: 'sheet-note', text: t('Changes {n}.', { n: reach(affected) }) }));
+  })();
+
+  const unknown = s.unknown.length > 0 && h('div', { class: 'sheet-section' },
+    h('h3', { text: t('Not a role yet') }),
+    h('p', { class: 'sheet-note', text: t('Words on your books that are no role. Tap one to make it the same as a role, or a role of its own.') }),
+    h('div', { class: 'list-rows' }, s.unknown.map((u) => h('div', { class: 'list-row' },
+      h('button', { class: 'list-name', type: 'button', onclick: () => openUnknownRole(u) },
+        h('span', { text: u.word }),
+        h('small', { text: [plural(u.count, 'person'), u.books.slice(0, 2).join(', ')].join(' · ') }))))));
+
+  const rows = all.map((term) => {
+    const mine = term[lang], theirs = term[ask];
+    return h('div', { class: 'list-row' },
+      h('button', { class: 'list-name', type: 'button', onclick: () => openRoleForm(term) },
+        h('span', { text: mine || T.valueOf(term) }),
+        h('small', { text: [theirs ? `${LANG_LABEL[ask]()}: ${theirs}` : ask === 'en' ? t('No English name yet') : t('No Dutch name yet'),
+          s.used.get(term.id) && plural(s.used.get(term.id), 'person')].filter(Boolean).join(' · ') })));
+  });
+
+  sheet.open(h('div', { class: 'roles-sheet' },
+    sheetHead(t('Roles'), t('What people did on a book, in English and in Dutch. Books keep the Dutch word, as the booklog has it.')),
+    tidy,
+    unknown,
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Roles') }),
+      lacking > 0 && canTranslate() && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: suggestMissing }, icon('sparkles'),
+        t('Suggest the {n} missing names', { n: lacking })),
+      h('div', { class: 'list-rows' }, rows),
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openRoleForm() }, icon('plus'), t('New role')))));
+}
+
+/** A word on books that is no role: the same as a role, or a role of its own. */
+function openUnknownRole(u) {
+  const { all } = roleVocab();
+  const merge = async (term) => {
+    const before = terms.find((x) => x.id === term.id);
+    const prior = before ? { ...before } : null;
+    const aliases = [...new Set([...(term.aliases || []), u.word])];
+    await saveTerm({ ...term, aliases });
+    const changed = T.renameOnBooks(books, u.word, T.valueOf(term));
+    await saveRewritten(changed, t('“{word}” is now {role} on {n}', { word: u.word, role: term[lang] || T.valueOf(term), n: reach(changed.map((c) => c.book)) }),
+      async () => { if (prior) await saveTerm(prior); else await forgetTerm(term.id); });
+    openRoles();
+  };
+  sheet.open(h('div', null,
+    sheetHead(u.word, [plural(u.count, 'person'), u.books.slice(0, 3).join(', ')].join(' · ')),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: t('The same as') }),
+      h('div', { class: 'chips' }, all.map((term) => h('button', { class: 'chip', type: 'button', text: term[lang] || T.valueOf(term), onclick: () => merge(term) }))),
+      h('p', { class: 'sheet-note', text: t('Writes it as that role on {n}, and remembers “{word}” as another way of writing it.', { n: reach(booksWithRole(u.word)), word: u.word }) })),
+    h('div', { class: 'sheet-section' },
+      h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openRoleForm(null, u.word) }, icon('plus'), t('Make it a role of its own'))),
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Back'), 'data-cancel': true, onclick: () => openRoles() }))));
+}
+
+/** Asks the assistant for the missing names of every role, and shows them to accept one by one. */
+async function suggestMissing() {
+  const { all } = roleVocab();
+  const asks = ['en', 'nl'].map((to) => {
+    const from = to === 'en' ? 'nl' : 'en';
+    return { to, terms: T.missing(all, to).filter((term) => term[from] || T.valueOf(term)) };
+  }).filter((x) => x.terms.length);
+  const body = h('div', { class: 'list-rows' }, h('p', { class: 'sheet-note', text: t('Asking the assistant…') }));
+  sheet.open(h('div', { class: 'roles-sheet' },
+    sheetHead(t('Suggested names'), t('Nothing is kept until you accept it.')),
+    body,
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Back'), 'data-cancel': true, onclick: () => openRoles() }))));
+  const proposals = [];
+  try {
+    for (const { to, terms: these } of asks) {
+      const from = to === 'en' ? 'nl' : 'en';
+      const words = these.map((term) => ({ word: term[from] || T.valueOf(term), books: booksWithRole(T.valueOf(term)).slice(0, 3).map((b) => b.title) }));
+      const res = await api('translate', { kind: 'role', to, words });
+      for (const w of res.words || []) {
+        const term = these.find((x) => (x[from] || T.valueOf(x)) === w.word);
+        if (term) proposals.push({ term, to, value: w.translation });
+      }
+    }
+  } catch (err) {
+    fill(body, h('p', { class: 'field-error', text: err.message }));
+    return;
+  }
+  if (!body.isConnected) return;
+  if (!proposals.length) { fill(body, h('p', { class: 'sheet-note', text: t('The assistant had nothing to suggest.') })); return; }
+  const accept = async (p, row, input) => {
+    const value = input.value.replace(/\s+/g, ' ').trim();
+    if (!value) return;
+    const current = roleVocab().all.find((x) => x.id === p.term.id) || p.term;
+    await saveTerm({ ...current, [p.to]: value });
+    row.remove();
+    if (!body.querySelector('.list-row')) openRoles();
+  };
+  fill(body, proposals.map((p) => {
+    const input = h('input', { value: p.value, 'aria-label': LANG_LABEL[p.to](), autocomplete: 'off', autocapitalize: 'none' });
+    const row = h('div', { class: 'list-row suggestion-row' },
+      h('div', { class: 'list-name' }, h('span', { text: p.term[p.to === 'en' ? 'nl' : 'en'] || T.valueOf(p.term) }), h('small', { text: LANG_LABEL[p.to]() })),
+      h('label', { class: 'field' }, input),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Accept'), title: t('Accept'), onclick: () => accept(p, row, input) }, icon('check')),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Skip'), title: t('Skip'), onclick: () => { row.remove(); if (!body.querySelector('.list-row')) openRoles(); } }, icon('x')));
+    return row;
+  }));
+}
+
+/** Add a role, or change one. `word`: a word found on books, for a new role. */
+function openRoleForm(term, word) {
+  const isNew = !term;
+  const value0 = term ? T.valueOf(term) : '';
+  const inUse = term ? booksWithRole(value0) : word ? booksWithRole(word) : [];
+  const field = (code) => h('input', { name: code, value: term?.[code] || (code === 'nl' && word) || '', autocomplete: 'off', autocapitalize: 'none', lang: code });
+  const inputs = { nl: field('nl'), en: field('en') };
+  const notes = { nl: h('p', { class: 'sheet-note', hidden: true }), en: h('p', { class: 'sheet-note', hidden: true }) };
+  const error = h('p', { class: 'field-error', hidden: true });
+  let aliases = [...(term?.aliases || [])];
+  const aliasChips = h('div', { class: 'chips' });
+  const drawAliases = () => fill(aliasChips, aliases.map((a) => h('button', {
+    class: 'chip', type: 'button', 'aria-label': t('Forget “{word}”', { word: a }), onclick: () => { aliases = aliases.filter((x) => x !== a); drawAliases(); },
+  }, a, ' ', icon('x'))));
+  drawAliases();
+
+  // The assistant fills in the other language; it stays a proposal until saved.
+  const suggest = (to) => canTranslate() && h('button', {
+    class: 'link-btn', type: 'button',
+    onclick: async (e) => {
+      const button = e.currentTarget;
+      const from = to === 'en' ? 'nl' : 'en';
+      const source = inputs[from].value.trim();
+      if (!source) { inputs[from].focus(); return; }
+      button.disabled = true;
+      try {
+        const res = await api('translate', { kind: 'role', to, words: [{ word: source, books: inUse.slice(0, 3).map((b) => b.title) }] });
+        const got = res.words?.[0]?.translation;
+        if (got) { inputs[to].value = got; notes[to].textContent = t('Suggested by the assistant. Change it if it isn’t right; it is kept only when you save.'); notes[to].hidden = false; inputs[to].focus(); }
+        else toast(t('The assistant had nothing to suggest.'));
+      } catch (err) { toast(err.message); }
+      finally { button.disabled = false; }
+    },
+  }, icon('sparkles'), t('Suggest'));
+
+  async function submit(e) {
+    e.preventDefault();
+    const clean = (input) => input.value.replace(/\s+/g, ' ').trim();
+    const data = { nl: clean(inputs.nl), en: clean(inputs.en) };
+    const fail = (message, input) => { error.textContent = message; error.hidden = false; input.focus(); };
+    if (!data.nl && !data.en) return fail(t('A role needs a name in at least one language.'), inputs.nl);
+    const others = roleVocab().all.filter((x) => x.id !== term?.id);
+    const clash = others.find((x) => [data.nl, data.en].filter(Boolean).some((w) => T.index([x]).has(T.fold(w))));
+    if (clash) return fail(t('That is already the role “{role}”.', { role: clash[lang] || T.valueOf(clash) }), inputs.nl);
+    // The word books had stays a way of writing it, so the booklog's older posts still say this role.
+    const kept = value0 && T.fold(value0) !== T.fold(data.nl || data.en) && ![data.nl, data.en].some((w) => T.fold(w) === T.fold(value0)) ? [value0] : [];
+    const record = { ...(term || { id: newId(), kind: 'role' }), ...data, aliases: [...new Set([...aliases, ...kept])] };
+    const prior = term && terms.find((x) => x.id === term.id);
+    const priorCopy = prior ? { ...prior } : null;
+    await saveTerm(record);
+    // The word books keep changed (a new Dutch name), or a found word became a role: the books follow.
+    const value1 = T.valueOf(record);
+    const from = isNew ? word : value0;
+    if (from && from !== value1) {
+      const changed = T.renameOnBooks(books, from, value1);
+      if (changed.length) {
+        await saveRewritten(changed, t('{role} changed on {n}', { role: record[lang] || value1, n: reach(changed.map((c) => c.book)) }),
+          async () => { if (priorCopy) await saveTerm(priorCopy); else await forgetTerm(record.id); });
+      }
+    }
+    openRoles();
+  }
+
+  async function remove() {
+    const prior = terms.find((x) => x.id === term.id);
+    if (term.standard) await saveTerm({ id: term.id, kind: 'role', gone: true });
+    else await forgetTerm(term.id);
+    openRoles();
+    toast(t('Deleted the role “{role}”', { role: term[lang] || value0 }), {
+      action: t('Undo'), onAction: async () => { if (prior) await saveTerm(prior); else await forgetTerm(term.id); openRoles(); },
+    });
+  }
+
+  const languages = lang === 'nl' ? ['nl', 'en'] : ['en', 'nl'];
+  sheet.open(h('form', { novalidate: true, onsubmit: submit },
+    sheetHead(isNew ? t('New role') : t('Edit role'), inUse.length ? t('On {n}', { n: reach(inUse) }) : ''),
+    languages.map((code) => h('div', { class: 'field' },
+      h('span', { text: LANG_LABEL[code]() }),
+      inputs[code],
+      notes[code],
+      !inputs[code].value && suggest(code))),
+    h('p', { class: 'sheet-note', text: t('Books keep the Dutch word, as the booklog has it. Changing it changes the books that have this role.') }),
+    aliases.length > 0 && h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Also written as') }),
+      aliasChips,
+      h('p', { class: 'sheet-note', text: t('What you type, and what comes from a lookup or the assistant, is written as this role when it is one of these.') })),
+    error,
+    h('div', { class: 'btn-row sheet-actions' },
+      !isNew && !inUse.length && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete role'), onclick: remove }, icon('trash')),
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => openRoles() }),
+      h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), isNew ? t('Add role') : t('Save')))));
+}
+
 /* ───────────────────────── Settings sheet ───────────────────────── */
 
 /** Offered only on a phone or tablet (a touch screen): on a desktop the browser tab does fine,
@@ -4736,6 +5077,22 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   if (matchMedia('(pointer: coarse)').matches) installPrompt = e;
 });
+
+/** Settings → the words the app keeps in two languages. Roles for now; lists, categories and tags to follow. */
+function wordsSection() {
+  const { all } = roleVocab();
+  const s = T.survey(books, all);
+  const open = s.unknown.length + (s.differently.length ? 1 : 0);
+  return h('div', { class: 'sheet-section' },
+    h('h3', { text: t('Words') }),
+    h('div', { class: 'list-rows' }, h('div', { class: 'list-row' },
+      h('button', { class: 'list-name', type: 'button', onclick: openRoles },
+        h('span', { text: t('Roles') }),
+        h('small', { text: [plural(all.length, 'role'), s.unknown.length && t('{n} to sort out', { n: plural(s.unknown.length, 'word') }),
+          s.differently.length && t('written differently on {n}', { n: plural(new Set(s.differently.flatMap((d) => d.books)).size, 'book') })].filter(Boolean).join(' · ') })),
+      open > 0 && h('span', { class: 'list-flag', 'aria-hidden': 'true' }, icon('dot')),
+      h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')))));
+}
 
 function openSettings() {
   const key = h('input', { type: 'text', value: settings.googleKey, placeholder: t('Optional'), autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
@@ -4755,6 +5112,7 @@ function openSettings() {
       onclick: async () => { const p = installPrompt; installPrompt = null; sheet.close(); await p.prompt(); },
     }, icon('download'), t('Install Folio on this phone')),
     sync.box,
+    wordsSection(),
     h('div', { class: 'sheet-section' },
       h('h3', { text: t('Language') }),
       h('div', { class: 'chips' }, langChip('auto', t('Same as this device')), Object.entries(LANGS).map(([code, label]) => langChip(code, label)))),
@@ -5599,6 +5957,8 @@ async function init() {
   showMoved();
   try {
     await loadLists();
+    terms = await DB.terms.all();
+    termsChanged();
     // Books kept here in the shape from before editions are made new (works.js), and written back
     // as they are now without counting as a change: the server makes them new the same way.
     books = (await DB.all()).map((b) => {

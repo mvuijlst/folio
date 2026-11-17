@@ -6,6 +6,7 @@
 | --- | --- |
 | `index.html`, `styles.css`, `app.js` | the whole app; `theme.js` sets the theme before first paint |
 | `works.js` | a book and its editions: the pure functions for them (upgrading an old record, which edition a row shows, finding the book a find is another edition of, combining, splitting), shared in spirit with `server/shelf/works.py` |
+| `terms.js` | words kept in two languages (for now the roles of people on a book): the standard ones, yours on top, and how a role is stored, shown and tidied |
 | `tests/` | the app's tests (`node --test "tests/*.test.mjs"`, Node 22), and `tests/fixtures/works/`: old records and what each must become, which the server is tested against too |
 | `lang-nl.js` | the app's text in Dutch |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |

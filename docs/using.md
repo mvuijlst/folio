@@ -180,6 +180,19 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   artist); a voice or a translator of one edition is named with that edition. They are edited
   as rows of name and role, in a book's details and on an edition's sheet. Any name leads to
   all of that person's books (`#/author/<name>`), whatever they did on them.
+- **Roles, in two languages.** Settings → *Words* → *Roles* lists every role with its English
+  and its Dutch name; a book shows a role in the language of the app, and a role can be typed
+  in either (*narrator* or *stem*). Books keep the Dutch word, as the booklog has it, so
+  several roles are written *tekst, beeld*, whatever was typed (*tekst en beeld*, *tekst &
+  beeld*). The page shows what the shelf writes otherwise (*Written differently*, with one
+  button to write them all the same way) and the words on books that are no role yet: tap one
+  to make it the same as a role (it is then remembered as another way of writing it) or a role
+  of its own. Renaming a role's Dutch word changes the books that have it. Each of these says
+  how many books it changes, and how many of them are in the booklog, where it is published;
+  its toast can undo it. Roles of your own sync like lists. With an account and the assistant,
+  a missing name can be suggested (in a role's form, or for all missing names at once); a
+  suggestion is kept only when you save or accept it. Without them everything else works the
+  same.
 - **Language, categories and tags.** A book's details say what language its edition is in,
   which of the booklog's categories it belongs to, and its tags (a comma between them). Its
   page shows them quietly under the other details. For a book in the booklog they are
