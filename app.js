@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.11.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.12.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1703,19 +1703,45 @@ const readWithin = (b, [from, to]) => readYears(b).some((y) => Number(y) >= from
 /** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons. */
 const lengthOf = (b) => (formatOf(b) === 'audiobook' && minutesOf(b.duration) != null ? Math.round((minutesOf(b.duration) * 2) / 3) : b.pages || null);
 
+const seriesPlace = (b) => String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0');
+/** On a writer's page: the series by when their first book came out (on the whole shelf), each in
+ *  its own order, and the books in no series after them, by when they came out. */
+function seriesByStart() {
+  const begun = new Map();
+  for (const [name, members] of seriesMap()) begun.set(name, members.map(W.firstOut).filter(Boolean).sort()[0] || '9999-99-99');
+  return {
+    value: (b) => (b.series ? `${begun.get(b.series)} ${sortKey(b.series)} ${seriesPlace(b)}` : null),
+    within: (b) => W.firstOut(b) || '9999-99-99',
+  };
+}
+/** Each book's place among its writer's books (W.writerOrder), reckoned over the whole shelf, so
+ *  that a filter doesn't move a series: → (book) → a key that sorts in that order. */
+function writerPlaces() {
+  const byWriter = new Map();
+  for (const b of books) {
+    const who = surnameFirst(authorsOf(b)[0]);
+    (byWriter.get(who) || byWriter.set(who, []).get(who)).push(b);
+  }
+  const places = new Map();
+  for (const own of byWriter.values()) for (const [b, place] of W.writerOrder(own)) places.set(b, place);
+  return (b) => places.get(b) ?? '';
+}
+
 // Each order: what it is called, which way it runs when first chosen (1 up, -1 down), the
-// value it sorts by (null or '' sorts last, whichever way), and the heading books share.
+// value it sorts by (null or '' sorts last, whichever way), and the heading books share. An
+// order with `prepare` reckons, once per drawing, a `value` of its own for the place it is in
+// and/or a `within`: the order of books that share a value, always forwards.
 const dateHeading = (iso) => (iso ? { list: dayLabel, cards: monthLabel, covers: yearLabel }[view.mode](iso) : t('No date'));
 const SORTS = {
   added: { name: () => t('Date added'), dir: -1, value: (b, on) => on(b), heading: (v) => dateHeading(v) },
   read: { name: () => t('Date read'), dir: -1, value: (b) => lastRead(b), heading: (v) => (v ? { list: monthLabel, cards: monthLabel, covers: yearLabel }[view.mode](v) : t('No date')) },
   changed: { name: () => t('Last changed'), dir: -1, value: (b) => b.modified || b.added, heading: (v) => dateHeading(v) },
-  author: { name: () => t('Author'), dir: 1, value: (b) => surnameFirst(authorsOf(b)[0]), heading: (v) => (v ? v[0].toUpperCase() : t('No author')) },
+  author: { name: () => t('Author'), dir: 1, value: (b) => surnameFirst(authorsOf(b)[0]), prepare: () => ({ within: writerPlaces() }), heading: (v) => (v ? v[0].toUpperCase() : t('No author')) },
   title: { name: () => t('Title'), dir: 1, value: (b) => titleKey(b), heading: (v) => (v ? v[0].toUpperCase() : '') },
   rating: { name: () => t('Rating'), dir: -1, value: (b) => b.rating ?? null, heading: (v) => (v == null ? t('Not rated') : `★ ${v}`) },
   year: { name: () => t('Year published'), dir: -1, value: (b) => yearOf(W.mainEdition(b).date) || null, heading: (v) => v || t('No year') },
   length: { name: () => t('Length'), dir: 1, value: (b) => lengthOf(look(b)), heading: () => '' },
-  series: { name: () => t('Series'), dir: 1, value: (b) => (b.series ? `${sortKey(b.series)} ${String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0')}` : null), heading: (v, b) => b.series || t('Not in a series') },
+  series: { name: () => t('Series'), dir: 1, value: (b) => (b.series ? `${sortKey(b.series)} ${seriesPlace(b)}` : null), prepare: () => (view.author ? seriesByStart() : {}), heading: (v, b) => b.series || t('Not in a series') },
 };
 
 /** What the order is kept under: each place has its own. */
@@ -2139,10 +2165,12 @@ function renderLibrary() {
   let rowsInOrder;
   if (view.series) rowsInOrder = [...found].sort(bySeriesOrder);
   else {
-    const keyed = found.map((b) => [by.value(b, since), b]);
+    const { value = by.value, within = () => '' } = by.prepare?.() || {};
+    const keyed = found.map((b) => [value(b, since), b, within(b)]);
     const empty = (v) => v == null || v === '';
-    keyed.sort(([x, a], [y, b]) => (empty(x) - empty(y))
+    keyed.sort(([x, a, p], [y, b, q]) => (empty(x) - empty(y))
       || (x < y ? -sort.dir : x > y ? sort.dir : 0)
+      || (p < q ? -1 : p > q ? 1 : 0)
       || (titleKey(a) < titleKey(b) ? -1 : 1));
     rowsInOrder = keyed.map(([, b]) => b);
   }

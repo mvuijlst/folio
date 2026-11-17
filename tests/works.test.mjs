@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, twinsOf, setApart, flatView, fold,
+  firstOut, writerOrder,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -217,4 +218,34 @@ test('flatView is the book as one edition', () => {
   assert.equal(flatView(book).format, 'audiobook');
   assert.equal(flatView(book, book.editions[0]).publisher, 'Avon');
   assert.equal(fold('Jerzy  Kosiński!'), 'jerzy kosinski');
+});
+
+// A writer's books: series together, series by their first book, books on their own by date,
+// except one that came out while a series ran, which waits until it is done.
+const book = (title, year, series, n) => ({ title, ...(series ? { series, seriesNumber: n } : {}), editions: year ? [{ id: 'e1', date: String(year) }] : [] });
+const inOrder = (works) => { const at = writerOrder(works); return [...works].sort((a, b) => (at.get(a) < at.get(b) ? -1 : 1)).map((w) => w.title); };
+
+test('writerOrder: a book that came out while two series ran waits for both', () => {
+  // published A1, A2, C, B1, A3, B2, B3, D, E
+  const out = [book('A1', 2001, 'A', 1), book('A2', 2002, 'A', 2), book('C', 2003), book('B1', 2004, 'B', 1), book('A3', 2005, 'A', 3),
+    book('B2', 2006, 'B', 2), book('B3', 2007, 'B', 3), book('D', 2008), book('E', 2009)];
+  assert.deepEqual(inOrder([...out].reverse()), ['A1', 'A2', 'A3', 'B1', 'B2', 'B3', 'C', 'D', 'E']);
+});
+
+test('writerOrder: a book between two series stays between them', () => {
+  // published A1, A2, A3, C, B1, D, B2, E, B3
+  const out = [book('A1', 2001, 'A', 1), book('A2', 2002, 'A', 2), book('A3', 2003, 'A', 3), book('C', 2004), book('B1', 2005, 'B', 1),
+    book('D', 2006), book('B2', 2007, 'B', 2), book('E', 2008), book('B3', 2009, 'B', 3)];
+  assert.deepEqual(inOrder([...out].reverse()), ['A1', 'A2', 'A3', 'C', 'B1', 'B2', 'B3', 'D', 'E']);
+});
+
+test('writerOrder: numbers order a series even when a reprint came out first; undated books come last', () => {
+  const out = [book('X2', 1990, 'X', 2), book('X1', 2015, 'X', 1), book('Solo', 1995), book('Undated'), book('Y1', 1980, 'Y', 1)];
+  assert.deepEqual(inOrder(out), ['Y1', 'X1', 'X2', 'Solo', 'Undated']);
+});
+
+test('firstOut: the earliest edition, whatever its date looks like', () => {
+  assert.equal(firstOut({ editions: [{ date: '2008-07-06' }, { date: '1994' }, { date: 'c1999' }] }), '1994-00-00');
+  assert.equal(firstOut({ editions: [{ date: '' }, {}] }), '');
+  assert.equal(firstOut({ editions: [{ date: '2001-3' }] }), '2001-03-00');
 });

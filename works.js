@@ -85,6 +85,56 @@ export function mainEdition(work) {
 }
 
 /**
+ * When a book came out, as far as its editions tell: the earliest edition's date as YYYY-MM-DD
+ * (a part not known is 00), or '' when none says. A later reprint is all some books know of.
+ */
+export function firstOut(work) {
+  let first = '';
+  for (const e of work.editions || []) {
+    const m = String(e?.date || '').match(/(?:^|\D)(\d{4})(?:-(\d{1,2}))?(?:-(\d{1,2}))?/);
+    if (!m) continue;
+    const day = `${m[1]}-${(m[2] || '0').padStart(2, '0')}-${(m[3] || '0').padStart(2, '0')}`;
+    if (!first || day < first) first = day;
+  }
+  return first;
+}
+
+/**
+ * One writer's books in the order of their work: each series together and in its own order, the
+ * series by when their first book came out, and the books on their own by when they came out,
+ * except that one that came out while a series was still running waits until that series is done
+ * (and any series running on when it is). → Map(book → a key that sorts so, as a string).
+ */
+export function writerOrder(works) {
+  const NEVER = '9999-99-99';
+  const runs = new Map();   // series → [first, last]: when it began and when its last book came out
+  for (const w of works) {
+    const day = firstOut(w);
+    if (!w.series || !day) continue;
+    const run = runs.get(fold(w.series));
+    if (!run) runs.set(fold(w.series), [day, day]);
+    else { if (day < run[0]) run[0] = day; if (day > run[1]) run[1] = day; }
+  }
+  const number = (w) => { const n = parseFloat(w.seriesNumber); return String(Number.isFinite(n) ? Math.round(n * 100) : 99999999).padStart(8, '0'); };
+  const out = new Map();
+  for (const w of works) {
+    const day = firstOut(w) || NEVER;
+    if (w.series) {
+      const begun = runs.get(fold(w.series))?.[0] || NEVER;
+      out.set(w, `${begun} 0 ${fold(w.series)} ${number(w)} ${day}`);
+      continue;
+    }
+    let at = day;
+    for (let moved = true; moved && at !== NEVER;) {
+      moved = false;
+      for (const [begun, done] of runs.values()) if (begun <= at && at < done) { at = done; moved = true; }
+    }
+    out.set(w, `${at} 1 ${day}`);
+  }
+  return out;
+}
+
+/**
  * The edition a row shows. Among the editions on `list` (when it is a list of where a copy is)
  * that pass `test`: the main one if it is among them, else the first; null when none is, and
  * the book is not in that place. On Read and Did not finish the latest read's edition comes
