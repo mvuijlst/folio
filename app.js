@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.5.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.6.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -540,6 +540,11 @@ function readRoute() {
   else if (/^#\/series\/?$/.test(path)) view.seriesIndex = true;
   // What narrows the view is in the address too: ?format=audiobook&in:Plaats=<list id>
   for (const [key, value] of new URLSearchParams(query)) (view.filters[key] ||= []).push(value);
+  // Years read are one span; an older address with years one by one becomes the span they cover.
+  if (view.filters.year) {
+    const span = yearRange(view.filters.year);
+    if (span) view.filters.year = [spanValue(span)]; else delete view.filters.year;
+  }
 }
 
 /** The address of what is showing: the scope, and the filters on it. */
@@ -1559,6 +1564,15 @@ const titleKey = (b) => sortKey(b.title);
 const lastRead = (b) => (b.reviews || []).reduce((latest, r) => (r.date && r.date > latest ? r.date : latest), '');
 /** The years a book was read in. */
 const readYears = (b) => [...new Set((b.reviews || []).map((r) => String(r.date || '').slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))];
+/** The span of years a Year read filter holds ("2009-2015", or "2015" for one), as [from, to]; null when there is none. */
+function yearRange(values) {
+  const years = (values || []).flatMap((v) => String(v).match(/\d{4}/g) || []).map(Number);
+  return years.length ? [Math.min(...years), Math.max(...years)] : null;
+}
+const spanValue = ([from, to]) => (from === to ? String(from) : `${from}-${to}`);
+const spanName = ([from, to]) => (from === to ? String(from) : `${from}–${to}`);
+/** Whether `b` was read within the span [from, to]. */
+const readWithin = (b, [from, to]) => readYears(b).some((y) => Number(y) >= from && Number(y) <= to);
 /** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons. */
 const lengthOf = (b) => (formatOf(b) === 'audiobook' && minutesOf(b.duration) != null ? Math.round((minutesOf(b.duration) * 2) / 3) : b.pages || null);
 
@@ -1644,8 +1658,11 @@ function facetsOf() {
   const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
   facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
   if (view.list !== 'to-read' && view.list !== 'reading') {
-    // Every year it was read in: a book read in 2015 and again in 2020 is among the books of both.
-    facets.push({ ...having('year', readYears, (v) => v, (a, b) => b.localeCompare(a)), name: t('Year read') });
+    // A span of years, from–to (openFilterSheet draws it as a slider). A book is in it when it
+    // was read in any year of it: read in 2015 and again in 2020, it is among the books of both.
+    facets.push({ key: 'year', name: t('Year read'), span: true, values: [],
+      match: (b, chosen) => { const span = yearRange(chosen); return !span || readWithin(b, span); },
+      label: (value) => spanName(yearRange([value])) });
     facets.push({ key: 'rating', name: t('Rating'), values: RATINGS.map(([value, name, fits]) => ({ value, name: typeof name === 'function' ? name() : name, test: (b) => fits(b.rating ?? null) })) });
   }
   const host = booklogHost();
@@ -1669,7 +1686,7 @@ function facetsOf() {
  */
 function faceOf(b, facets, except, filters = view.filters) {
   const active = (facets || []).filter((facet) => facet.key !== except && filters[facet.key]?.length);
-  const fits = (facet) => facet.values.some((v) => filters[facet.key].includes(v.value) && v.test(b));
+  const fits = (facet) => (facet.match ? facet.match(b, filters[facet.key]) : facet.values.some((v) => filters[facet.key].includes(v.value) && v.test(b)));
   if (!active.filter((facet) => !facet.edition).every(fits)) return null;
   const test = copyTest(facets, except, filters);
   return W.faceEdition(b, { list: view.list, status: statusIds(), test: test && ((e) => test(b, e)) });
@@ -1694,6 +1711,10 @@ function openFilterSheet(inScope) {
       ...facets.map((facet) => {
         // What each value would give, with the other filters as they are.
         const others = inScope.filter((b) => passes(b, facets, facet.key, draft));
+        if (facet.span) return spanSlider(facet, inScope, others, draft, (span) => {
+          draft = { ...draft, [facet.key]: span ? [spanValue(span)] : [] };
+          draw();
+        });
         const chosen = draft[facet.key] || [];
         const values = facet.values.map((v) => ({ ...v, count: others.filter((b) => passes(b, facets, null, { ...draft, [facet.key]: [v.value] })).length }))
           .filter((v) => v.count > 0 || chosen.includes(v.value));
@@ -1714,10 +1735,64 @@ function openFilterSheet(inScope) {
   sheet.open(body, () => refine({ filters: draft }));
 }
 
+/**
+ * Years read as a span: a slider with a handle at each end, over a small column per year of
+ * how many books (with the other filters as they are) were read in it. The whole span is no
+ * filter at all. `choose(span)` is called when a handle is let go (null: every year).
+ */
+function spanSlider(facet, inScope, others, draft, choose) {
+  const years = inScope.flatMap(readYears).map(Number);
+  if (!years.length) return null;
+  const min = Math.min(...years), max = Math.max(...years);
+  if (min === max) return null;
+  const chosen = yearRange(draft[facet.key]);
+  let from = Math.max(min, Math.min(max, chosen?.[0] ?? min)), to = Math.max(from, Math.min(max, chosen?.[1] ?? max));
+  const counts = new Map();
+  for (const b of others) for (const y of readYears(b)) counts.set(Number(y), (counts.get(Number(y)) || 0) + 1);
+  const most = Math.max(1, ...counts.values());
+  const columns = [];
+  for (let y = min; y <= max; y++) columns.push(h('span', { title: `${y}: ${plural(counts.get(y) || 0, 'book')}`, style: `height: ${Math.max(counts.get(y) ? 6 : 0, ((counts.get(y) || 0) / most) * 100)}%` }));
+  const readout = h('span', { class: 'span-readout' });
+  const fill = h('span', { class: 'span-fill' });
+  const at = (y) => (y - min) / (max - min);
+  // While a handle moves, only what shows the span follows it; letting go chooses it.
+  const show = () => {
+    readout.textContent = from === min && to === max ? t('All years') : spanName([from, to]);
+    fill.style.left = `calc(10px + (100% - 20px) * ${at(from)})`;
+    fill.style.right = `calc(10px + (100% - 20px) * ${1 - at(to)})`;
+    columns.forEach((c, i) => c.classList.toggle('in', min + i >= from && min + i <= to));
+    // Two handles on one spot: the one that can still move away from the end it is near is on top.
+    fromHandle.style.zIndex = from > (min + max) / 2 ? 3 : 2;
+  };
+  const handle = (which) => h('input', {
+    type: 'range', min, max, step: 1, value: which === 'from' ? from : to, 'data-handle': which,
+    'aria-label': `${facet.name}: ${which === 'from' ? t('From') : t('To')}`,
+    oninput: (e) => {
+      const y = Number(e.target.value);
+      if (which === 'from') from = Math.min(y, to); else to = Math.max(y, from);
+      e.target.value = which === 'from' ? from : to;
+      show();
+    },
+    onchange: () => {
+      choose(from === min && to === max ? null : [from, to]);
+      // Drawn again, the sheet keeps the handle in hand for the keyboard.
+      document.querySelector(`.span-slider input[data-handle="${which}"]`)?.focus();
+    },
+  });
+  const fromHandle = handle('from'), toHandle = handle('to');
+  const el = h('div', { class: 'sheet-section facet span-slider' },
+    h('div', { class: 'span-head' }, h('h3', { text: facet.name }), readout),
+    h('div', { class: 'span-columns', 'aria-hidden': 'true' }, columns),
+    h('div', { class: 'span-range' }, h('span', { class: 'span-track' }), fill, fromHandle, toHandle),
+    h('div', { class: 'span-ends', 'aria-hidden': 'true' }, h('span', { text: String(min) }), h('span', { text: String(max) })));
+  show();
+  return el;
+}
+
 /** Under the search box: what the view is narrowed by, each to be taken off again. */
 function drawActiveFilters(facets) {
   const chips = facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
-    const name = facet.values.find((v) => v.value === value)?.name || value;
+    const name = facet.label ? facet.label(value) : facet.values.find((v) => v.value === value)?.name || value;
     return h('button', {
       class: 'chip active-filter', type: 'button', title: t('Remove'),
       onclick: () => refine({ filters: { ...view.filters, [facet.key]: view.filters[facet.key].filter((x) => x !== value) } }),
@@ -1974,11 +2049,13 @@ function toggleFilter(key, value) {
 /** The dated reads of `rows` that count with the filters on, oldest first. → [{book, review, flat}] */
 function readsIn(rows, facets) {
   const test = copyTest(facets);
-  const years = facets.some((facet) => facet.key === 'year') ? view.filters.year || [] : [];
+  const span = facets.some((facet) => facet.key === 'year') ? yearRange(view.filters.year) : null;
   const out = [];
   for (const book of rows) {
     for (const review of book.reviews || []) {
-      if (!/^\d{4}/.test(review.date || '') || (years.length && !years.includes(review.date.slice(0, 4)))) continue;
+      if (!/^\d{4}/.test(review.date || '')) continue;
+      const year = Number(review.date.slice(0, 4));
+      if (span && (year < span[0] || year > span[1])) continue;
       const edition = W.editionOf(book, review.ed) || W.mainEdition(book);
       if (test && edition && !test(book, edition)) continue;
       out.push({ book, review, flat: look(book, edition) });
@@ -2039,7 +2116,7 @@ function yearChart(finished, facets) {
   const years = Array.from({ length: last - first + 1 }, (_, i) => first + i);
   const used = STAT_FORMATS.filter((format) => [...byYear.values()].some((per) => per[format]));
   const canPick = facets.some((facet) => facet.key === 'year');
-  const chosen = view.filters.year || [];
+  const span = yearRange(view.filters.year);
   const every = last - first > 16 ? 5 : last - first > 8 ? 2 : 1;
   const formatLabel = (format) => formatName(format) || t('Not said');
   // What a year holds, said in full: "2015: 45 books · Paper 12 · E-book 30 · Audiobook 3".
@@ -2048,13 +2125,16 @@ function yearChart(finished, facets) {
     const per = byYear.get(year) || {};
     return [`${year}: ${amountText(sum(per))}`, ...used.filter((f) => per[f]).map((f) => `${formatLabel(f)} ${statNumber(per[f])}`)].join(' · ');
   };
-  const pick = (year) => (canPick && sum(byYear.get(year) || {}) ? () => toggleFilter('year', String(year)) : null);
-  const isChosen = (year) => chosen.includes(String(year));
+  // Tapping a year narrows to it; tapping it again, to every year. (A span is the filter's slider.)
+  const pick = (year) => (canPick && sum(byYear.get(year) || {}) ? () => {
+    const again = span && span[0] === year && span[1] === year;
+    refine({ filters: { ...view.filters, year: again ? [] : [spanValue([year, year])] } });
+  } : null);
   // A stream needs a few years to flow through; with fewer, columns it is.
   const shape = store.get('statsShape', 'columns') === 'stream' && years.length >= 3 ? 'stream' : 'columns';
   const chart = shape === 'stream'
-    ? yearStream({ years, used, values: (format, year) => byYear.get(year)?.[format] || 0, tipOf, pick, isChosen, every })
-    : yearColumns({ years, used, byYear, sum, tipOf, pick, isChosen, canPick, every });
+    ? yearStream({ years, used, values: (format, year) => byYear.get(year)?.[format] || 0, tipOf, pick, every })
+    : yearColumns({ years, used, byYear, sum, tipOf, pick, canPick, every });
   const choice = (key, options, now) => h('div', { class: 'seg', role: 'group', 'aria-label': options.label },
     options.values.map(([value, label]) => h('button', {
       type: 'button', 'aria-pressed': String(now === value), text: label,
@@ -2073,13 +2153,13 @@ function yearChart(finished, facets) {
 }
 
 /** The years as columns, each made up of its formats. */
-function yearColumns({ years, used, byYear, sum, tipOf, pick, isChosen, canPick, every }) {
+function yearColumns({ years, used, byYear, sum, tipOf, pick, canPick, every }) {
   const max = Math.max(1, ...[...byYear.values()].map(sum));
   return h('div', { class: 'cols' }, years.map((year) => {
     const per = byYear.get(year) || {}, total = sum(per), tip = tipOf(year);
     return h(canPick ? 'button' : 'div', {
       class: 'col', type: canPick ? 'button' : null, title: tip, 'aria-label': tip, disabled: canPick && !total,
-      'aria-pressed': canPick ? String(isChosen(year)) : null, onclick: pick(year),
+      onclick: pick(year),
     },
     h('span', { class: 'col-space' }, h('span', { class: 'col-bar', style: `height: ${(total / max) * 100}%` },
       used.map((format) => (per[format] ? h('span', { style: `flex: ${per[format]} 0 0; background: ${STAT_COLOURS[format]}` }) : null)))),
@@ -2093,7 +2173,7 @@ function yearColumns({ years, used, byYear, sum, tipOf, pick, isChosen, canPick,
  * d3.stackOffsetWiggle has it), drawn as B-splines so that bands never cross. A strip per
  * year, as wide as the year, tells what it holds and chooses it.
  */
-function yearStream({ years, used, values, tipOf, pick, isChosen, every }) {
+function yearStream({ years, used, values, tipOf, pick, every }) {
   const width = Math.max(280, $('library').clientWidth || 640), height = 230, bottom = 22, pad = 4;
   const v = used.map((format) => years.map((year) => values(format, year)));
   const m = years.length;
@@ -2141,14 +2221,13 @@ function yearStream({ years, used, values, tipOf, pick, isChosen, every }) {
     return svg('path', { class: 'band', d: `${basis(top, 'M')}${basis(under, 'L')}Z`, fill: STAT_COLOURS[format] });
   });
   const column = (j) => ({ x: round(pad + step * j), y: 0, width: round(step), height: height - bottom });
-  // Behind the bands, a tint over the years chosen; over them, a strip per year to point at and tap.
-  const tints = years.map((year, j) => isChosen(year) && svg('rect', { class: 'chosen', ...column(j) }));
+  // Over the bands, a strip per year to point at and tap. (Years chosen need no mark: only they have reads.)
   const strips = years.map((year, j) => svg('rect', { class: pick(year) ? 'strip pickable' : 'strip', ...column(j), onclick: pick(year) },
     svg('title', null, tipOf(year))));
   const labels = years.map((year, j) => year % every === 0
-    && svg('text', { x: round(X(j)), y: height - 6, 'text-anchor': 'middle', class: isChosen(year) ? 'chosen' : null }, String(year)));
+    && svg('text', { x: round(X(j)), y: height - 6, 'text-anchor': 'middle' }, String(year)));
   return svg('svg', { class: 'stream', viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': t('Read per year') },
-    tints, bands, labels, strips);
+    bands, labels, strips);
 }
 
 /** A step for the ticks of an axis that spans `span`: some five or six of them. */

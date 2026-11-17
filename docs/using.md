@@ -94,8 +94,10 @@ What you see is decided in three steps.
    not on the booklog). A set of lists of your own is a filter too: lists that share a set
    (the places your books stand in, say: *Bureau*, *Bibliotheek*) are not in the menu but
    narrow whatever you are looking at. Within one filter any chosen value will do; between
-   filters all must hold. What is chosen shows under the search box, to be taken off again,
-   and is in the address (`#/list/read?format=audiobook&year=2024`).
+   filters all must hold. *Year read* is a span instead, from one year to another: a slider
+   with a handle at each end, over a small column per year of how many books were read in it.
+   What is chosen shows under the search box, to be taken off again, and is in the address
+   (`#/list/read?format=audiobook&year=2015-2024`; a single year is `year=2024`).
 3. **In an order.** The button beside *Filter* names it and changes it: date added, date read,
    last changed, author (by surname), title (without its article), rating, year published,
    length, series. Choosing the same one again turns it round. Each place keeps its own, and
@@ -111,8 +113,9 @@ edition that is in the library, under a filter on format the edition in that for
 the edition you read last, elsewhere the edition the book is about (see *main edition* below).
 Filters on where a copy is, its format, its language and its cover test the editions: a book
 passes when one edition is there and passes all of them. Filters on reading status, category,
-year read and rating test the book; *year read* is every year a book was read in, so a book
-read in 2015 and again in 2020 is among the books of both. Counts are always books. *Filter → Other → Possibly the
+year read and rating test the book; a book is within a span of years read when it was read in
+any year of it, so a book read in 2015 and again in 2020 is among the books of both. Counts
+are always books. *Filter → Other → Possibly the
 same book* shows books that share an Open Library work or a title and first author with
 another: the way to find books that should be one (*Combine with another book…*).
 
@@ -157,10 +160,11 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   stream (each format a band flowing through the years); a dot per read of
   the year the edition came out against when it was read (a dot opens the book); categories,
   languages, ratings and the writers with the most books. Tapping a year, a category, a
-  language or a rating narrows the place by it, as the filter would; tapping a writer opens
+  language or a rating narrows the place by it, as the filter would (tapping it again lets it
+  go; a span of years is chosen with the filter's slider); tapping a writer opens
   their books. A read counts in the year it is dated, of the edition it was of: with a filter
-  on copies (format, language) only reads of an edition that passes it count, and with years
-  chosen only the reads of those years. Reads given up are counted apart and are in no chart.
+  on copies (format, language) only reads of an edition that passes it count, and with a span
+  of years only the reads within it. Reads given up are counted apart and are in no chart.
 - **Covers keep their own proportions**: a square audiobook cover is square, everywhere.
 - **Tapping a book opens its page**: cover, details, the lists it is on and its reviews.
   *Edit details* leads to the form with its fields and lists. From there, swiping left or

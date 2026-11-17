@@ -511,6 +511,9 @@ export default {
   'Shape': 'Vorm',
   'Columns': 'Kolommen',
   'Stream': 'Stroom',
+  'All years': 'Alle jaren',
+  'From': 'Van',
+  'To': 'Tot',
   // Roles, in two languages (Settings → Words → Roles)
   'Words': 'Woorden',
   'Roles': 'Rollen',

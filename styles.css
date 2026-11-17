@@ -209,6 +209,35 @@ img { display: block; max-width: 100%; }
 .active-filter .icon { width: 14px; height: 14px; }
 .chip b { margin-left: 7px; font-weight: 500; font-size: .8em; opacity: .6; font-variant-numeric: tabular-nums; }
 .facet { margin-top: 20px; }
+/* Years read: a span, with a handle at each end, over a column per year */
+.span-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.span-head h3 { margin-bottom: 0; }
+.span-readout { color: var(--accent); font-size: .9rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.span-columns { display: flex; align-items: flex-end; gap: 1px; height: 40px; margin: 10px 10px 0; }
+.span-columns span { flex: 1 1 0; min-width: 0; background: var(--border); }
+.span-columns span.in { background: var(--series-1); }
+.span-range { position: relative; height: 30px; }
+.span-track, .span-fill { position: absolute; top: 50%; height: 4px; margin-top: -2px; }
+.span-track { left: 10px; right: 10px; background: var(--surface-2); }
+.span-fill { background: var(--accent); }
+.span-range input {
+  position: absolute; inset: 0; width: 100%; height: 30px; margin: 0;
+  -webkit-appearance: none; appearance: none; background: none; pointer-events: none; z-index: 2;
+}
+.span-range input::-webkit-slider-runnable-track { background: none; border: none; }
+.span-range input::-moz-range-track { background: none; border: none; }
+.span-range input::-webkit-slider-thumb {
+  -webkit-appearance: none; pointer-events: auto; cursor: grab;
+  width: 20px; height: 20px; border-radius: 50%; background: var(--accent-fill); border: 3px solid var(--surface);
+}
+.span-range input::-moz-range-thumb {
+  pointer-events: auto; cursor: grab;
+  width: 14px; height: 14px; border-radius: 50%; background: var(--accent-fill); border: 3px solid var(--surface);
+}
+.span-range input:focus { outline: none; }
+.span-range input:focus-visible::-webkit-slider-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.span-range input:focus-visible::-moz-range-thumb { outline: 2px solid var(--accent); outline-offset: 2px; }
+.span-ends { display: flex; justify-content: space-between; margin: 0 2px; color: var(--faint); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .sort-ways .way[aria-pressed="true"] .way-text span { color: var(--accent); }
 .sort-ways .way > .icon:first-child { color: var(--accent); }
 .view-seg button { display: grid; place-items: center; padding: 8px 11px; }
@@ -426,7 +455,6 @@ button.bar-row:hover .bar-fill, .bar-row[aria-pressed="true"] .bar-fill { backgr
 .col-bar > span { min-height: 1px; }
 button.col:hover .col-bar { opacity: .75; }
 .col-label { display: flex; justify-content: center; height: 20px; padding-top: 5px; font-size: .7rem; line-height: 1; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.col[aria-pressed="true"] .col-label { color: var(--accent); font-weight: 600; }
 
 .legend { display: flex; flex-wrap: wrap; gap: 4px 18px; margin-top: 12px; font-size: .82rem; color: var(--muted); }
 .legend span { display: inline-flex; align-items: center; gap: 7px; }
@@ -441,9 +469,7 @@ button.col:hover .col-bar { opacity: .75; }
 .stat-choices { display: flex; flex-wrap: wrap; gap: 8px; }
 .stream { display: block; width: 100%; height: auto; margin-top: 14px; }
 .stream text { fill: var(--faint); font-family: var(--sans); font-size: 11px; font-variant-numeric: tabular-nums; }
-.stream text.chosen { fill: var(--accent); font-weight: 600; }
 .stream .band { stroke: var(--bg); stroke-width: 1.5; }
-.stream .chosen:not(text) { fill: var(--accent-tint); }
 .stream .strip { fill: transparent; }
 .stream .strip.pickable { cursor: pointer; }
 .stream .strip:hover { fill: var(--text); fill-opacity: .07; }
@@ -583,7 +609,7 @@ button.col:hover .col-bar { opacity: .75; }
 .sheet-head .icon-btn { margin: -8px -10px 0 0; flex: none; }
 .sheet-head .cover { margin-top: 2px; }
 .sheet-section { margin-top: 26px; }
-.sheet-section > h3 { font-size: .76rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin-bottom: 10px; }
+.sheet-section > h3, .span-head h3 { font-size: .76rem; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--faint); margin-bottom: 10px; }
 .sheet-note { color: var(--muted); font-size: .88rem; margin-top: 8px; }
 .sheet-note a { color: var(--accent); }
 .from-site { margin: -8px 0 18px; }
