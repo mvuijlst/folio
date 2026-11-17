@@ -723,9 +723,10 @@ div.list-name { cursor: default; }
 .list-row .icon-btn:disabled { opacity: .3; }
 .list-go { display: inline-flex; color: var(--faint); }
 .list-go .icon { width: 18px; height: 18px; }
-.suggestion-row { gap: 8px; }
-.suggestion-row .list-name { flex: 0 1 40%; }
-.suggestion-row .field { flex: 1; margin: 0; }
+.suggestion-row { flex-wrap: wrap; gap: 0 8px; padding-bottom: 12px; }
+.suggestion-row .list-name { flex: 1 0 100%; padding-bottom: 6px; }
+.suggestion-row .field { flex: 1 1 0; min-width: 0; margin: 0; }
+.suggestion-row .field input { width: 100%; min-width: 0; }
 .chip .icon { width: 12px; height: 12px; margin-left: 4px; vertical-align: -1px; opacity: .6; }
 
 /* Account (optional sync) */
