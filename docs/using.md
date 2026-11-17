@@ -111,7 +111,8 @@ edition that is in the library, under a filter on format the edition in that for
 the edition you read last, elsewhere the edition the book is about (see *main edition* below).
 Filters on where a copy is, its format, its language and its cover test the editions: a book
 passes when one edition is there and passes all of them. Filters on reading status, category,
-year read and rating test the book. Counts are always books. *Filter → Other → Possibly the
+year read and rating test the book; *year read* is every year a book was read in, so a book
+read in 2015 and again in 2020 is among the books of both. Counts are always books. *Filter → Other → Possibly the
 same book* shows books that share an Open Library work or a title and first author with
 another: the way to find books that should be one (*Combine with another book…*).
 
@@ -145,9 +146,20 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 
 ## Views, covers and reviews
 
-- **Three views** of every list, chosen with the buttons beside the search box: the *list*
-  (as it always was), *covers* (a shelf of covers with their ratings, grouped by year) and
-  *cards* (larger cover, details, lists and the start of the latest review, grouped by month).
+- **Four views** of every list, chosen with the buttons beside the search box: the *list*
+  (as it always was), *covers* (a shelf of covers with their ratings, grouped by year),
+  *cards* (larger cover, details, lists and the start of the latest review, grouped by month)
+  and *statistics*.
+- **Statistics** count what the place shows with its filters and search on, so an author's
+  books, *Read* in Dutch or one year each get their own: how many books and reads, pages read,
+  hours listened, writers and the average rating; reads per year by format, in books or in
+  pages (an audiobook counts forty pages an hour, as the booklog reckons); a dot per read of
+  the year the edition came out against when it was read (a dot opens the book); categories,
+  languages, ratings and the writers with the most books. Tapping a year, a category, a
+  language or a rating narrows the place by it, as the filter would; tapping a writer opens
+  their books. A read counts in the year it is dated, of the edition it was of: with a filter
+  on copies (format, language) only reads of an edition that passes it count, and with years
+  chosen only the reads of those years. Reads given up are counted apart and are in no chart.
 - **Covers keep their own proportions**: a square audiobook cover is square, everywhere.
 - **Tapping a book opens its page**: cover, details, the lists it is on and its reviews.
   *Edit details* leads to the form with its fields and lists. From there, swiping left or

@@ -7,6 +7,14 @@
       "runtimeArgs": ["server/manage.py", "runserver", "127.0.0.1:8765", "--noreload"],
       "env": { "DJANGO_DEBUG": "1" },
       "port": 8765
+    },
+    {
+      "name": "folio-dev-2",
+      "runtimeExecutable": "server/venv/Scripts/python.exe",
+      "runtimeArgs": ["server/manage.py", "runserver", "127.0.0.1:8777", "--noreload"],
+      "env": { "DJANGO_DEBUG": "1" },
+      "port": 8777,
+      "autoPort": false
     }
   ]
 }

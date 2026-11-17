@@ -33,8 +33,8 @@ releases; the server and the app's book logic have automated tests, the interfac
   or describing is added to the book it is an edition of, without asking (*Keep separate* if
   not). A book can be read more than once, each read of one edition, with its date, rating and
   a review in Markdown. Series, authors and others with their roles, language, categories, tags.
-- **Finding and changing.** Filters, orders, three views (list, covers, cards), and editing
-  many books at once.
+- **Finding and changing.** Filters, orders, four views (list, covers, cards, statistics that
+  follow the filters), and editing many books at once.
 - **Covers.** Taken from the catalogues, photographed and straightened, pasted or shared in.
 - **Offline** once installed, in English or Dutch.
 - **Your reading, public.** An export in the CSV layout of Goodreads, which StoryGraph,

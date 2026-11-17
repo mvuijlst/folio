@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.6'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.3.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -81,8 +81,8 @@ function t(text, values) {
 }
 
 const COUNTED = {
-  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'] },
-  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'] },
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'] },
 };
 const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
 
@@ -299,7 +299,7 @@ const FIXED = new Map(STANDARD_LISTS.filter((l) => l.group === READING).map((l) 
 /** The user's lists, in their order. */
 let lists = [];
 /** What the library shows: one list, or every book when `list` is null. */
-const VIEWS = ['list', 'covers', 'cards'];
+const VIEWS = ['list', 'covers', 'cards', 'stats'];
 // Where you are (the scope): every book, a list (`list`), all series (`seriesIndex`), one
 // series (`series`, its name) or one person's books (`author`, the name). Within it, `filters`
 // narrow what is shown ({facet: [values]}, see facetsOf) and `sort` orders it ({key, dir};
@@ -1494,6 +1494,8 @@ const sortKey = (s) => fold(s).replace(/^[^\p{L}\p{N}]+/u, '')
 const titleKey = (b) => sortKey(b.title);
 /** The day a book was last read ('' if it wasn't, or it isn't said when). */
 const lastRead = (b) => (b.reviews || []).reduce((latest, r) => (r.date && r.date > latest ? r.date : latest), '');
+/** The years a book was read in. */
+const readYears = (b) => [...new Set((b.reviews || []).map((r) => String(r.date || '').slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))];
 /** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons. */
 const lengthOf = (b) => (formatOf(b) === 'audiobook' && minutesOf(b.duration) != null ? Math.round((minutesOf(b.duration) * 2) / 3) : b.pages || null);
 
@@ -1579,7 +1581,8 @@ function facetsOf() {
   const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
   facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
   if (view.list !== 'to-read' && view.list !== 'reading') {
-    facets.push({ ...having('year', (b) => [lastRead(b).slice(0, 4)].filter(Boolean), (v) => v, (a, b) => b.localeCompare(a)), name: t('Year read') });
+    // Every year it was read in: a book read in 2015 and again in 2020 is among the books of both.
+    facets.push({ ...having('year', readYears, (v) => v, (a, b) => b.localeCompare(a)), name: t('Year read') });
     facets.push({ key: 'rating', name: t('Rating'), values: RATINGS.map(([value, name, fits]) => ({ value, name: typeof name === 'function' ? name() : name, test: (b) => fits(b.rating ?? null) })) });
   }
   const host = booklogHost();
@@ -1603,12 +1606,18 @@ function facetsOf() {
  */
 function faceOf(b, facets, except, filters = view.filters) {
   const active = (facets || []).filter((facet) => facet.key !== except && filters[facet.key]?.length);
-  const fits = (facet, e) => facet.values.some((v) => filters[facet.key].includes(v.value) && (v.edition ? v.test(b, e) : v.test(b)));
-  if (!active.filter((facet) => !facet.edition).every((facet) => fits(facet))) return null;
-  const copies = active.filter((facet) => facet.edition);
-  return W.faceEdition(b, { list: view.list, status: statusIds(), test: copies.length ? (e) => copies.every((facet) => fits(facet, e)) : null });
+  const fits = (facet) => facet.values.some((v) => filters[facet.key].includes(v.value) && v.test(b));
+  if (!active.filter((facet) => !facet.edition).every(fits)) return null;
+  const test = copyTest(facets, except, filters);
+  return W.faceEdition(b, { list: view.list, status: statusIds(), test: test && ((e) => test(b, e)) });
 }
 const passes = (b, facets, except, filters) => !!faceOf(b, facets, except, filters);
+/** The filters on copies (where it is, format, language, cover) as a test of an edition `e` of `b`; null when there are none. */
+function copyTest(facets, except, filters = view.filters) {
+  const copies = (facets || []).filter((facet) => facet.edition && facet.key !== except && filters[facet.key]?.length);
+  if (!copies.length) return null;
+  return (b, e) => copies.every((facet) => facet.values.some((v) => filters[facet.key].includes(v.value) && (v.edition ? v.test(b, e) : v.test(b))));
+}
 
 function openFilterSheet(inScope) {
   const facets = facetsOf();
@@ -1788,7 +1797,8 @@ function renderLibrary() {
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
-  $('viewSeg').hidden = $('filterBtn').hidden = $('sortBtn').hidden = $('pickBtn').hidden = view.seriesIndex;
+  $('viewSeg').hidden = $('filterBtn').hidden = view.seriesIndex;
+  $('pickBtn').hidden = view.seriesIndex || view.mode === 'stats';
   $('activeFilters').hidden = true;
   if (view.seriesIndex) { renderSeriesIndex(query); drawPicking(); return; }
 
@@ -1810,7 +1820,7 @@ function renderLibrary() {
   // 3. In order. A series has its own; anything else the one chosen for the place. Books
   //    without what is sorted by come last, whichever way the order runs.
   const sort = sortOf(), by = SORTS[sort.key];
-  $('sortBtn').hidden = !!view.series;
+  $('sortBtn').hidden = !!view.series || view.mode === 'stats';
   $('sortName').textContent = by.name();
   let rowsInOrder;
   if (view.series) rowsInOrder = [...found].sort(bySeriesOrder);
@@ -1844,12 +1854,237 @@ function renderLibrary() {
     // A list that is a filter elsewhere, opened by its address: say where you are.
     $('library').append(h('div', { class: 'series-head' }, h('h2', { text: listName(current) })));
   }
+  if (view.mode === 'stats') {
+    $('library').append(found.length ? statsOf(found, faces, facets)
+      : h('p', { class: 'no-results', text: query || Object.keys(view.filters).length ? t('No books match that.') : t('No books here yet.') }));
+    drawPicking();
+    return;
+  }
   appendRows(rows);
   if ((query || Object.keys(view.filters).length) && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that.') }));
   else if (current && !found.length && books.length) {
     $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Add a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
   }
   drawPicking();
+}
+
+/* ───────────────────────── Statistics: a place, counted ─────────────────────────
+
+   The fourth view, beside the list, the covers and the cards: it counts the books the place
+   shows with its filters and search, so choosing an author or a language redraws every chart
+   for those books. Tapping a bar narrows the place by it, as the filter would. A read counts
+   in the year it is dated, of the edition it was of: with a filter on copies (format,
+   language) only the reads of an edition that passes it count, and with years chosen only
+   the reads of those years. */
+
+const STAT_FORMATS = [...FORMATS, ''];
+const STAT_COLOURS = { paper: 'var(--teal)', ebook: 'var(--mint)', audiobook: 'var(--gold)', '': 'var(--faint)' };
+const statNumber = (n, digits = 0) => n.toLocaleString(LOCALE, { maximumFractionDigits: digits, minimumFractionDigits: digits });
+
+/** An SVG element, as h() makes an HTML one. */
+function svg(tag, attrs, ...kids) {
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid);
+  return e;
+}
+
+/** How many times each key comes up, most first. → [[key, n]] */
+function tally(keys) {
+  const counts = new Map();
+  for (const key of keys) counts.set(key, (counts.get(key) || 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), LOCALE));
+}
+
+/** Tapping a bar: that value of a filter on, or off again. */
+function toggleFilter(key, value) {
+  const chosen = view.filters[key] || [];
+  refine({ filters: { ...view.filters, [key]: chosen.includes(value) ? chosen.filter((x) => x !== value) : [...chosen, value] } });
+}
+
+/** The dated reads of `rows` that count with the filters on, oldest first. → [{book, review, flat}] */
+function readsIn(rows, facets) {
+  const test = copyTest(facets);
+  const years = facets.some((facet) => facet.key === 'year') ? view.filters.year || [] : [];
+  const out = [];
+  for (const book of rows) {
+    for (const review of book.reviews || []) {
+      if (!/^\d{4}/.test(review.date || '') || (years.length && !years.includes(review.date.slice(0, 4)))) continue;
+      const edition = W.editionOf(book, review.ed) || W.mainEdition(book);
+      if (test && edition && !test(book, edition)) continue;
+      out.push({ book, review, flat: look(book, edition) });
+    }
+  }
+  return out.sort((a, b) => (a.review.date < b.review.date ? -1 : a.review.date > b.review.date ? 1 : 0));
+}
+
+/** Rows of bars: a name, a bar as long as its number, the number. `items`: [{key, label, value}]. */
+function barList(items, { onPick, pressed } = {}) {
+  const max = Math.max(1, ...items.map((item) => item.value));
+  return h('div', { class: 'bars' }, items.map((item) => h(onPick ? 'button' : 'div', {
+    class: 'bar-row', type: onPick ? 'button' : null,
+    'aria-pressed': pressed ? String(pressed(item.key)) : null,
+    onclick: onPick ? () => onPick(item.key) : null,
+  },
+  h('span', { class: 'bar-label', text: item.label }),
+  h('span', { class: 'bar-track' }, h('span', { class: 'bar-fill', style: `width: ${(item.value / max) * 100}%` })),
+  h('span', { class: 'bar-value', text: statNumber(item.value) }))));
+}
+
+/** The few numbers that say the most: books, reads, pages, hours, writers, the average rating. */
+function statFigures(rows, reads) {
+  const finished = reads.filter((x) => !x.review.dnf);
+  let pages = 0, minutes = 0;
+  for (const { flat } of finished) {
+    if (formatOf(flat) === 'audiobook') minutes += minutesOf(flat.duration) || 0;
+    else pages += Number(flat.pages) || 0;
+  }
+  const writers = new Set(rows.flatMap(authorsOf).map(fold)).size;
+  const rated = rows.filter((b) => b.rating != null && Number.isFinite(Number(b.rating)));
+  const word = (n, key) => COUNTED[lang][key][n === 1 ? 0 : 1];
+  const figures = [
+    [statNumber(rows.length), word(rows.length, 'book')],
+    finished.length > 0 && [statNumber(finished.length), word(finished.length, 'read')],
+    reads.length > finished.length && [statNumber(reads.length - finished.length), t('given up')],
+    pages > 0 && [statNumber(pages), t('pages read')],
+    minutes > 0 && [statNumber(minutes / 60), t('hours listened')],
+    writers > 0 && [statNumber(writers), word(writers, 'writer')],
+    rated.length > 0 && [`★ ${statNumber(rated.reduce((sum, b) => sum + Number(b.rating), 0) / rated.length, 1)}`, t('average rating')],
+  ].filter(Boolean);
+  return h('div', { class: 'stat-figures' }, figures.map(([value, label]) => h('p', null, h('b', { text: value }), h('span', { text: label }))));
+}
+
+/** Reads per year, each year's column made up of its formats; in books or in pages. */
+function yearChart(finished, facets) {
+  const measure = store.get('statsMeasure', 'books') === 'pages' ? 'pages' : 'books';
+  const amount = (x) => (measure === 'pages' ? lengthOf(x.flat) || 0 : 1);
+  const byYear = new Map();
+  for (const x of finished) {
+    const year = Number(x.review.date.slice(0, 4));
+    const per = byYear.get(year) || byYear.set(year, {}).get(year);
+    const format = formatOf(x.flat) || '';
+    per[format] = (per[format] || 0) + amount(x);
+  }
+  const sum = (per) => Object.values(per).reduce((n, v) => n + v, 0);
+  const first = Math.min(...byYear.keys()), last = Math.max(...byYear.keys());
+  const max = Math.max(1, ...[...byYear.values()].map(sum));
+  const used = STAT_FORMATS.filter((format) => [...byYear.values()].some((per) => per[format]));
+  const canPick = facets.some((facet) => facet.key === 'year');
+  const chosen = view.filters.year || [];
+  const every = last - first > 16 ? 5 : last - first > 8 ? 2 : 1;
+  const columns = [];
+  for (let year = first; year <= last; year++) {
+    const per = byYear.get(year) || {}, total = sum(per);
+    const tip = `${year}: ${measure === 'pages' ? t('{n} pages', { n: statNumber(total) }) : plural(total, 'book')}`;
+    columns.push(h(canPick ? 'button' : 'div', {
+      class: 'col', type: canPick ? 'button' : null, title: tip, 'aria-label': tip, disabled: canPick && !total,
+      'aria-pressed': canPick ? String(chosen.includes(String(year))) : null,
+      onclick: canPick && total ? () => toggleFilter('year', String(year)) : null,
+    },
+    h('span', { class: 'col-space' }, h('span', { class: 'col-bar', style: `height: ${(total / max) * 100}%` },
+      used.map((format) => (per[format] ? h('span', { style: `flex: ${per[format]} 0 0; background: ${STAT_COLOURS[format]}` }) : null)))),
+    h('span', { class: 'col-label', text: year % every === 0 || first === last ? String(year) : '' })));
+  }
+  const switchTo = (to) => () => { store.set('statsMeasure', to); renderLibrary(); };
+  return h('section', { class: 'stat stat-wide' },
+    h('div', { class: 'stat-head' },
+      h('h2', { text: t('Read per year') }),
+      h('div', { class: 'seg', role: 'group', 'aria-label': t('Count') },
+        h('button', { type: 'button', 'aria-pressed': String(measure === 'books'), onclick: switchTo('books'), text: t('Books') }),
+        h('button', { type: 'button', 'aria-pressed': String(measure === 'pages'), onclick: switchTo('pages'), text: t('Pages') }))),
+    measure === 'pages' && h('p', { class: 'stat-note', text: t('An audiobook counts forty pages an hour.') }),
+    h('div', { class: 'cols' }, columns),
+    used.length > 1 && h('p', { class: 'legend' }, used.map((format) => h('span', null,
+      h('i', { style: `background: ${STAT_COLOURS[format]}` }), formatName(format) || t('Not said')))));
+}
+
+/** A step for the ticks of an axis that spans `span`: some five or six of them. */
+function tickStep(span) {
+  return [1, 2, 5, 10, 20, 25, 50, 100, 200, 500].find((step) => span / step <= 6) || 1000;
+}
+
+/** A dot per read: the year the edition came out, against the day it was read. */
+function ageChart(finished) {
+  const dots = finished.map((x) => ({ x, when: Number(x.review.date.slice(0, 4)) + ((Number(x.review.date.slice(5, 7)) || 7) - .5) / 12, year: Number(yearOf(x.flat.date)) }))
+    .filter((d) => d.year);
+  if (dots.length < 3) return null;
+  const width = Math.max(280, $('library').clientWidth || 640), height = 270;
+  const left = 42, right = 10, top = 10, bottom = 24;
+  const x0 = Math.floor(Math.min(...dots.map((d) => d.when))), x1 = Math.ceil(Math.max(...dots.map((d) => d.when)));
+  // The axes fit the dots, with a little room around them; the ticks fall where they fall.
+  const ys = dots.map((d) => d.year), ySpan = Math.max(...ys) - Math.min(...ys), yStep = tickStep(ySpan);
+  const yPad = Math.max(1, Math.round(ySpan * .03));
+  const y0 = Math.min(...ys) - yPad, y1 = Math.max(...ys) + yPad;
+  const X = (v) => left + ((v - x0) / Math.max(1, x1 - x0)) * (width - left - right);
+  const Y = (v) => top + ((y1 - v) / (y1 - y0)) * (height - top - bottom);
+  const xStep = tickStep(x1 - x0);
+  const ticks = [];
+  for (let y = Math.ceil(y0 / yStep) * yStep; y <= y1; y += yStep) {
+    ticks.push(svg('line', { class: 'grid', x1: left, x2: width - right, y1: Y(y), y2: Y(y) }),
+      svg('text', { x: left - 6, y: Y(y) + 4, 'text-anchor': 'end' }, String(y)));
+  }
+  for (let x = Math.ceil(x0 / xStep) * xStep; x <= x1; x += xStep) ticks.push(svg('text', { x: X(x), y: height - 6, 'text-anchor': 'middle' }, String(x)));
+  const trail = [...new Set(dots.map((d) => d.x.book))];
+  const when = (date) => (/^\d{4}-\d\d/.test(date) ? monthLabel(`${date.slice(0, 7)}-15`) : date.slice(0, 4));
+  const label = (d) => `${d.x.book.title} (${d.year}) · ${when(d.x.review.date)}`;
+  return h('section', { class: 'stat stat-wide' },
+    h('h2', { text: t('Published, and read') }),
+    h('p', { class: 'stat-note', text: t('A dot per read: the year the edition read came out, against when it was read.') }),
+    svg('svg', { class: 'scatter', viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': t('Published, and read') },
+      ticks,
+      dots.map((d) => svg('circle', { class: 'dot', cx: X(d.when).toFixed(1), cy: Y(d.year).toFixed(1), r: 3.5, onclick: () => openBook(d.x.book, trail) },
+        svg('title', null, label(d))))));
+}
+
+/** The statistics of the books `rows` (each shown as its edition in `faces`), with the filters `facets`. */
+function statsOf(rows, faces, facets) {
+  const reads = readsIn(rows, facets);
+  const finished = reads.filter((x) => !x.review.dnf);
+  const has = (key) => facets.some((facet) => facet.key === key);
+  const pressed = (key) => (value) => (view.filters[key] || []).includes(value);
+  const panel = (title, note, body) => h('section', { class: 'stat' }, h('h2', { text: title }), note && h('p', { class: 'stat-note', text: note }), body);
+
+  const categories = tally(rows.flatMap((b) => b.categories || []));
+  const languages = tally(rows.map((b) => faces.get(b)?.language).filter(Boolean));
+  const ratingBucket = (r) => RATINGS.find(([, , fits]) => fits(r))?.[0];
+  const ratings = tally(rows.map((b) => b.rating).filter((r) => r != null && Number.isFinite(Number(r))).map((r) => Math.round(Number(r))))
+    .sort((a, b) => b[0] - a[0]);
+  const writers = new Map();
+  for (const b of rows) for (const name of authorsOf(b)) {
+    const entry = writers.get(fold(name)) || writers.set(fold(name), { name, n: 0 }).get(fold(name));
+    entry.n++;
+  }
+  const topWriters = [...writers.values()].sort((a, b) => b.n - a.n || surnameFirst(a.name).localeCompare(surnameFirst(b.name))).slice(0, 15);
+
+  return h('div', { class: 'stats' },
+    statFigures(rows, reads),
+    finished.length > 0 && yearChart(finished, facets),
+    ageChart(finished),
+    categories.length > 1 && panel(t('Categories'), null, barList(categories.map(([key, value]) => ({ key, label: key, value })),
+      has('category') ? { onPick: (key) => toggleFilter('category', key), pressed: pressed('category') } : {})),
+    languages.length > 1 && panel(t('Languages'), t('Of the edition each book is shown as.'), barList(languages.map(([key, value]) => ({ key, label: languageName(key), value })),
+      has('language') ? { onPick: (key) => toggleFilter('language', key), pressed: pressed('language') } : {})),
+    ratings.length > 1 && panel(t('Ratings'), null, barList(ratings.map(([key, value]) => ({ key, label: `★ ${key}`, value })),
+      has('rating') ? { onPick: (key) => toggleFilter('rating', ratingBucket(key)), pressed: (key) => pressed('rating')(ratingBucket(key)) } : {})),
+    !view.author && topWriters.length > 1 && panel(t('Writers'), t('Most books first.'), barList(topWriters.map(({ name, n }) => ({ key: name, label: name, value: n })),
+      { onPick: (name) => setView({ author: name }) })));
+}
+
+// A chart is drawn to the width there is: drawn again when that changes.
+{
+  let width = 0, timer = 0;
+  window.addEventListener('resize', () => {
+    clearTimeout(timer);
+    timer = setTimeout(() => {
+      const now = $('library').clientWidth;
+      if (now !== width && view.mode === 'stats' && !view.seriesIndex && books.length) renderLibrary();
+      width = now;
+    }, 200);
+  });
 }
 
 /* ───────────────────────── Selecting books, and changing them all at once ─────────────────────────
