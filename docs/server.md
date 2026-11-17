@@ -79,7 +79,9 @@ conversion of a shelf is `manage.py to_works` (see [booklog.md](booklog.md#books
 `manage.py fill_original --user NAME` gives books the language they were first written in and
 their original title (`originalLanguage`, `originalTitle`), from Wikidata (through each book's
 Open Library work) and Open Library's record of an ISBN; `--assistant` also asks the assistant,
-forty books a question, for the rest. Without `--write` it only says what it found, and
-`--report FILE` lists it to read first. Nothing is published: the booklog doesn't have these
+forty books a question, about every book (what a catalogue says goes first; where the two
+differ, the report says so). Without `--write` it only says what it found, and `--report FILE`
+lists every book with what each source said and why it may need a look; that file, corrected,
+is what `--apply FILE` stores. Nothing is published: the booklog doesn't have these
 fields. Wikidata's query service may be rate-limited; the command then waits as long as it is
 told to and tries again.

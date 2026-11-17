@@ -102,6 +102,27 @@ class FillOriginalTests(TestCase):
         self.assertIn('Found for 2', self.run_it())
         self.assertNotIn('originalLanguage', Book.objects.get(uid='a').data)
 
+    def test_a_corrected_report_is_stored_as_it_says(self):
+        import csv
+        import os
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), 'report.tsv')
+        self.run_it('--report', path)
+        with open(path, encoding='utf-8', newline='') as f:
+            rows = list(csv.DictReader(f, delimiter='\t'))
+        self.assertEqual({r['id']: (r['language'], r['doubt']) for r in rows}, {'a': ('ja', 'translated'), 'b': ('nl', '')})
+        for r in rows:
+            if r['id'] == 'b':
+                r['language'], r['original title'] = 'fr', 'Le Titre'   # corrected by hand
+        with open(path, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, list(rows[0]), delimiter='\t')
+            writer.writeheader()
+            writer.writerows(rows)
+        call_command('fill_original', '--user', 'reader', '--apply', path, stdout=StringIO())
+        b = Book.objects.get(uid='b').data
+        self.assertEqual((b['originalLanguage'], b['originalTitle'], b['olid']), ('fr', 'Le Titre', 'OL9W'))
+        self.assertEqual(Book.objects.get(uid='a').data['originalLanguage'], 'ja')
+
     def test_writing_fills_in_language_and_a_new_olid_only_for_a_book_only_in_the_app(self):
         before = Book.objects.get(uid='a').modified
         self.run_it('--write')
