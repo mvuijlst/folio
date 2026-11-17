@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.4.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.5.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1941,7 +1941,9 @@ function renderLibrary() {
    the reads of those years. */
 
 const STAT_FORMATS = [...FORMATS, ''];
-const STAT_COLOURS = { paper: 'var(--teal)', ebook: 'var(--mint)', audiobook: 'var(--gold)', '': 'var(--faint)' };
+// Three hues apart in lightness and hue, checked for colour blindness on both themes' ground
+// (styles.css: --series-*); a format that isn't said is grey.
+const STAT_COLOURS = { paper: 'var(--series-1)', ebook: 'var(--series-2)', audiobook: 'var(--series-3)', '': 'var(--series-none)' };
 const statNumber = (n, digits = 0) => n.toLocaleString(LOCALE, { maximumFractionDigits: digits, minimumFractionDigits: digits });
 
 /** An SVG element, as h() makes an HTML one. */
@@ -2034,35 +2036,119 @@ function yearChart(finished, facets) {
   }
   const sum = (per) => Object.values(per).reduce((n, v) => n + v, 0);
   const first = Math.min(...byYear.keys()), last = Math.max(...byYear.keys());
-  const max = Math.max(1, ...[...byYear.values()].map(sum));
+  const years = Array.from({ length: last - first + 1 }, (_, i) => first + i);
   const used = STAT_FORMATS.filter((format) => [...byYear.values()].some((per) => per[format]));
   const canPick = facets.some((facet) => facet.key === 'year');
   const chosen = view.filters.year || [];
   const every = last - first > 16 ? 5 : last - first > 8 ? 2 : 1;
-  const columns = [];
-  for (let year = first; year <= last; year++) {
-    const per = byYear.get(year) || {}, total = sum(per);
-    const tip = `${year}: ${measure === 'pages' ? t('{n} pages', { n: statNumber(total) }) : plural(total, 'book')}`;
-    columns.push(h(canPick ? 'button' : 'div', {
-      class: 'col', type: canPick ? 'button' : null, title: tip, 'aria-label': tip, disabled: canPick && !total,
-      'aria-pressed': canPick ? String(chosen.includes(String(year))) : null,
-      onclick: canPick && total ? () => toggleFilter('year', String(year)) : null,
-    },
-    h('span', { class: 'col-space' }, h('span', { class: 'col-bar', style: `height: ${(total / max) * 100}%` },
-      used.map((format) => (per[format] ? h('span', { style: `flex: ${per[format]} 0 0; background: ${STAT_COLOURS[format]}` }) : null)))),
-    h('span', { class: 'col-label', text: year % every === 0 || first === last ? String(year) : '' })));
-  }
-  const switchTo = (to) => () => { store.set('statsMeasure', to); renderLibrary(); };
+  const formatLabel = (format) => formatName(format) || t('Not said');
+  // What a year holds, said in full: "2015: 45 books · Paper 12 · E-book 30 · Audiobook 3".
+  const amountText = (n) => (measure === 'pages' ? t('{n} pages', { n: statNumber(n) }) : plural(n, 'book'));
+  const tipOf = (year) => {
+    const per = byYear.get(year) || {};
+    return [`${year}: ${amountText(sum(per))}`, ...used.filter((f) => per[f]).map((f) => `${formatLabel(f)} ${statNumber(per[f])}`)].join(' · ');
+  };
+  const pick = (year) => (canPick && sum(byYear.get(year) || {}) ? () => toggleFilter('year', String(year)) : null);
+  const isChosen = (year) => chosen.includes(String(year));
+  // A stream needs a few years to flow through; with fewer, columns it is.
+  const shape = store.get('statsShape', 'columns') === 'stream' && years.length >= 3 ? 'stream' : 'columns';
+  const chart = shape === 'stream'
+    ? yearStream({ years, used, values: (format, year) => byYear.get(year)?.[format] || 0, tipOf, pick, isChosen, every })
+    : yearColumns({ years, used, byYear, sum, tipOf, pick, isChosen, canPick, every });
+  const choice = (key, options, now) => h('div', { class: 'seg', role: 'group', 'aria-label': options.label },
+    options.values.map(([value, label]) => h('button', {
+      type: 'button', 'aria-pressed': String(now === value), text: label,
+      onclick: () => { store.set(key, value); renderLibrary(); },
+    })));
   return h('section', { class: 'stat stat-wide' },
     h('div', { class: 'stat-head' },
       h('h2', { text: t('Read per year') }),
-      h('div', { class: 'seg', role: 'group', 'aria-label': t('Count') },
-        h('button', { type: 'button', 'aria-pressed': String(measure === 'books'), onclick: switchTo('books'), text: t('Books') }),
-        h('button', { type: 'button', 'aria-pressed': String(measure === 'pages'), onclick: switchTo('pages'), text: t('Pages') }))),
+      h('div', { class: 'stat-choices' },
+        years.length >= 3 && choice('statsShape', { label: t('Shape'), values: [['columns', t('Columns')], ['stream', t('Stream')]] }, shape),
+        choice('statsMeasure', { label: t('Count'), values: [['books', t('Books')], ['pages', t('Pages')]] }, measure))),
     measure === 'pages' && h('p', { class: 'stat-note', text: t('An audiobook counts forty pages an hour.') }),
-    h('div', { class: 'cols' }, columns),
+    chart,
     used.length > 1 && h('p', { class: 'legend' }, used.map((format) => h('span', null,
-      h('i', { style: `background: ${STAT_COLOURS[format]}` }), formatName(format) || t('Not said')))));
+      h('i', { style: `background: ${STAT_COLOURS[format]}` }), formatLabel(format)))));
+}
+
+/** The years as columns, each made up of its formats. */
+function yearColumns({ years, used, byYear, sum, tipOf, pick, isChosen, canPick, every }) {
+  const max = Math.max(1, ...[...byYear.values()].map(sum));
+  return h('div', { class: 'cols' }, years.map((year) => {
+    const per = byYear.get(year) || {}, total = sum(per), tip = tipOf(year);
+    return h(canPick ? 'button' : 'div', {
+      class: 'col', type: canPick ? 'button' : null, title: tip, 'aria-label': tip, disabled: canPick && !total,
+      'aria-pressed': canPick ? String(isChosen(year)) : null, onclick: pick(year),
+    },
+    h('span', { class: 'col-space' }, h('span', { class: 'col-bar', style: `height: ${(total / max) * 100}%` },
+      used.map((format) => (per[format] ? h('span', { style: `flex: ${per[format]} 0 0; background: ${STAT_COLOURS[format]}` }) : null)))),
+    h('span', { class: 'col-label', text: year % every === 0 || years.length === 1 ? String(year) : '' }));
+  }));
+}
+
+/**
+ * The years as a streamgraph: each format a band flowing through them, the bands stacked
+ * around a baseline that moves as little as it can (Byron and Wattenberg's "wiggle", as
+ * d3.stackOffsetWiggle has it), drawn as B-splines so that bands never cross. A strip per
+ * year, as wide as the year, tells what it holds and chooses it.
+ */
+function yearStream({ years, used, values, tipOf, pick, isChosen, every }) {
+  const width = Math.max(280, $('library').clientWidth || 640), height = 230, bottom = 22, pad = 4;
+  const v = used.map((format) => years.map((year) => values(format, year)));
+  const m = years.length;
+  // The baseline: each year's moves from the last by what minimises the bands' slopes, weighted by their size.
+  const base = [0];
+  for (let j = 1; j < m; j++) {
+    let s1 = 0, s2 = 0;
+    for (let i = 0; i < v.length; i++) {
+      let s3 = (v[i][j] - v[i][j - 1]) / 2;
+      for (let k = 0; k < i; k++) s3 += v[k][j] - v[k][j - 1];
+      s1 += v[i][j];
+      s2 += s3 * v[i][j];
+    }
+    base.push(base[j - 1] - (s1 ? s2 / s1 : 0));
+  }
+  const lower = v.map(() => new Array(m));
+  for (let j = 0; j < m; j++) {
+    let y = base[j];
+    for (let i = 0; i < v.length; i++) { lower[i][j] = y; y += v[i][j]; }
+  }
+  const lo = Math.min(...base), hi = Math.max(...years.map((_, j) => lower[v.length - 1][j] + v[v.length - 1][j]));
+  const step = (width - pad * 2) / m;
+  const X = (j) => pad + step * (j + .5);
+  const Y = (value) => pad + ((hi - value) / Math.max(1e-9, hi - lo)) * (height - bottom - pad * 2);
+  // d3.curveBasis: a B-spline through the points' hull, from the first point to the last.
+  const basis = (points, start) => {
+    if (points.length < 3) return `${start}${points.map(([x, y]) => `${x},${y}`).join('L')}`;
+    let d = `${start}${points[0][0]},${points[0][1]}`;
+    const [p0, p1] = points;
+    d += `L${(5 * p0[0] + p1[0]) / 6},${(5 * p0[1] + p1[1]) / 6}`;
+    for (let n = 2; n <= points.length; n++) {
+      const a = points[n - 2], b = points[n - 1], c = points[Math.min(n, points.length - 1)];
+      if (n === points.length) {
+        d += `C${(2 * a[0] + b[0]) / 3},${(2 * a[1] + b[1]) / 3},${(a[0] + 2 * b[0]) / 3},${(a[1] + 2 * b[1]) / 3},${b[0]},${b[1]}`;
+      } else {
+        d += `C${(2 * a[0] + b[0]) / 3},${(2 * a[1] + b[1]) / 3},${(a[0] + 2 * b[0]) / 3},${(a[1] + 2 * b[1]) / 3},${(a[0] + 4 * b[0] + c[0]) / 6},${(a[1] + 4 * b[1] + c[1]) / 6}`;
+      }
+    }
+    return d;
+  };
+  const round = (n) => Math.round(n * 10) / 10;
+  const bands = used.map((format, i) => {
+    const top = years.map((_, j) => [round(X(j)), round(Y(lower[i][j] + v[i][j]))]);
+    const under = years.map((_, j) => [round(X(j)), round(Y(lower[i][j]))]).reverse();
+    return svg('path', { class: 'band', d: `${basis(top, 'M')}${basis(under, 'L')}Z`, fill: STAT_COLOURS[format] });
+  });
+  const column = (j) => ({ x: round(pad + step * j), y: 0, width: round(step), height: height - bottom });
+  // Behind the bands, a tint over the years chosen; over them, a strip per year to point at and tap.
+  const tints = years.map((year, j) => isChosen(year) && svg('rect', { class: 'chosen', ...column(j) }));
+  const strips = years.map((year, j) => svg('rect', { class: pick(year) ? 'strip pickable' : 'strip', ...column(j), onclick: pick(year) },
+    svg('title', null, tipOf(year))));
+  const labels = years.map((year, j) => year % every === 0
+    && svg('text', { x: round(X(j)), y: height - 6, 'text-anchor': 'middle', class: isChosen(year) ? 'chosen' : null }, String(year)));
+  return svg('svg', { class: 'stream', viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': t('Read per year') },
+    tints, bands, labels, strips);
 }
 
 /** A step for the ticks of an axis that spans `span`: some five or six of them. */

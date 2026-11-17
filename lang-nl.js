@@ -508,6 +508,9 @@ export default {
   'Ratings': 'Scores',
   'Writers': 'Schrijvers',
   'Most books first.': 'Meeste boeken eerst.',
+  'Shape': 'Vorm',
+  'Columns': 'Kolommen',
+  'Stream': 'Stroom',
   // Roles, in two languages (Settings → Words → Roles)
   'Words': 'Woorden',
   'Roles': 'Rollen',

@@ -73,6 +73,12 @@
   --mint: #85e5b5;
   --danger: #ff8196;
   --ok: #85e5b5;
+  /* Chart series: three hues apart in lightness and hue, checked for colour blindness against
+     this ground (the dataviz palette's first three, its dark steps); grey for "not said". */
+  --series-1: #3987e5;
+  --series-2: #199e70;
+  --series-3: #d95926;
+  --series-none: #77729f;
   --shadow: 0 12px 34px rgba(10, 6, 36, .55);
   --radius: 8px;
   --radius-sm: 6px;
@@ -101,6 +107,10 @@
   --mint: #2fae84;
   --danger: #c22d4b;
   --ok: #1f8a63;
+  --series-1: #2a78d6;
+  --series-2: #1baf7a;
+  --series-3: #eb6834;
+  --series-none: #aaa5c6;
   --shadow: 0 12px 34px rgba(40, 30, 100, .16);
   color-scheme: light;
 }
@@ -403,7 +413,7 @@ button.page-series { padding: 2px 0; font-size: .93rem; text-align: left; }
 }
 .bar-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bar-track { height: 10px; }
-.bar-fill { display: block; height: 100%; min-width: 2px; background: var(--teal); transition: background .15s ease; }
+.bar-fill { display: block; height: 100%; min-width: 2px; background: var(--series-1); transition: background .15s ease; }
 .bar-value { text-align: right; color: var(--muted); font-size: .84rem; font-variant-numeric: tabular-nums; }
 button.bar-row:hover .bar-fill, .bar-row[aria-pressed="true"] .bar-fill { background: var(--accent); }
 .bar-row[aria-pressed="true"] .bar-label { color: var(--accent); font-weight: 600; }
@@ -412,10 +422,9 @@ button.bar-row:hover .bar-fill, .bar-row[aria-pressed="true"] .bar-fill { backgr
 .col { flex: 1 1 0; min-width: 0; max-width: 56px; display: grid; grid-template-rows: 1fr auto; padding: 0; }
 .col:disabled { cursor: default; }
 .col-space { position: relative; }
-.col-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column-reverse; transition: opacity .15s ease; }
+.col-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; flex-direction: column-reverse; gap: 2px; transition: opacity .15s ease; }
 .col-bar > span { min-height: 1px; }
 button.col:hover .col-bar { opacity: .75; }
-.col[aria-pressed="true"] .col-bar { outline: 2px solid var(--accent); outline-offset: 1px; }
 .col-label { display: flex; justify-content: center; height: 20px; padding-top: 5px; font-size: .7rem; line-height: 1; color: var(--faint); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .col[aria-pressed="true"] .col-label { color: var(--accent); font-weight: 600; }
 
@@ -427,8 +436,17 @@ button.col:hover .col-bar { opacity: .75; }
 .scatter text { fill: var(--faint); font-family: var(--sans); font-size: 11px; font-variant-numeric: tabular-nums; }
 .scatter .grid { stroke: var(--border); stroke-width: 1; }
 .scatter .grid-break { stroke-dasharray: 3 4; }
-.scatter .dot { fill: var(--accent); fill-opacity: .5; cursor: pointer; transition: fill-opacity .15s ease; }
+.scatter .dot { fill: var(--series-1); fill-opacity: .5; cursor: pointer; transition: fill-opacity .15s ease; }
 .scatter .dot:hover { fill-opacity: 1; }
+.stat-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.stream { display: block; width: 100%; height: auto; margin-top: 14px; }
+.stream text { fill: var(--faint); font-family: var(--sans); font-size: 11px; font-variant-numeric: tabular-nums; }
+.stream text.chosen { fill: var(--accent); font-weight: 600; }
+.stream .band { stroke: var(--bg); stroke-width: 1.5; }
+.stream .chosen:not(text) { fill: var(--accent-tint); }
+.stream .strip { fill: transparent; }
+.stream .strip.pickable { cursor: pointer; }
+.stream .strip:hover { fill: var(--text); fill-opacity: .07; }
 
 /* Cards view */
 .library.mode-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; align-items: start; }

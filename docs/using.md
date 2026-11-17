@@ -153,7 +153,8 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 - **Statistics** count what the place shows with its filters and search on, so an author's
   books, *Read* in Dutch or one year each get their own: how many books and reads, pages read,
   hours listened, writers and the average rating; reads per year by format, in books or in
-  pages (an audiobook counts forty pages an hour, as the booklog reckons); a dot per read of
+  pages (an audiobook counts forty pages an hour, as the booklog reckons), as columns or as a
+  stream (each format a band flowing through the years); a dot per read of
   the year the edition came out against when it was read (a dot opens the book); categories,
   languages, ratings and the writers with the most books. Tapping a year, a category, a
   language or a rating narrows the place by it, as the filter would; tapping a writer opens
