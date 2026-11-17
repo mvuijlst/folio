@@ -460,6 +460,8 @@ export default {
   'Its editions and reads come to “{title}”, and it goes.': 'Zijn kopieën en lezingen gaan naar “{title}”, en het boek zelf verdwijnt.',
   'Search for the book that is this one in another edition.': 'Zoek het boek dat dit boek is, in een andere kopie.',
   'Combined: “{title}” has {n} editions': 'Samengevoegd: “{title}” heeft {n} kopieën',
+  'Which title does the book go by?': 'Onder welke titel staat het boek?',
+  'The other stays the title of its own copy, as with a translation.': 'De andere blijft de titel van die kopie, zoals bij een vertaling.',
   'Possibly the same book': 'Misschien hetzelfde boek',
   'Each edition has its own details, under Editions.': 'De gegevens van elke kopie staan onder Kopieën.',
   'No role for an author. Someone on only one edition (a voice, a translator) is on that edition.': 'Geen rol voor een auteur. Wie bij maar één kopie hoort (een stem, een vertaler), staat bij die kopie.',

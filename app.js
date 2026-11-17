@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.4'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.5'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1685,7 +1685,7 @@ function renderSeriesIndex(query) {
 const searchCache = new WeakMap();
 function searchText(b) {
   const cached = searchCache.get(b);
-  if (cached?.modified === b.modified) return cached.text;
+  if (cached && cached.modified === b.modified) return cached.text;
   const text = fold([b.title, b.author, b.series, ...listsOf(b).map((m) => m.note), ...(b.reviews || []).map((r) => r.text),
     ...editionsOf(b).flatMap((e) => [e.title, e.publisher, e.isbn, e.date, ...(e.people || []).map((person) => person.name)])].join(' '));
   searchCache.set(b, { modified: b.modified, text });
@@ -3312,10 +3312,21 @@ function openCombine(book, back) {
   search.focus();
 }
 
-async function combineWith(book, other, back) {
+async function combineWith(book, other, back, title) {
   const [survivor, absorbed] = other.boeken && !book.boeken ? [other, book] : [book, other];
+  // Two titles (a translation): which one the book goes by; the other stays its copy's title.
+  // A book in the booklog keeps its own.
+  if (!title && !survivor.boeken && absorbed.title && !W.sameTitle(survivor.title, absorbed.title)) {
+    const pick = (b, which) => { const row = bookRow(b, () => combineWith(book, other, back, which)); row.classList.add('cand'); return row; };
+    sheet.open(h('div', null,
+      sheetHead(t('Which title does the book go by?'), t('The other stays the title of its own copy, as with a translation.')),
+      h('div', { class: 'cand-list' }, pick(survivor, 'mine'), pick(absorbed, 'theirs')),
+      h('div', { class: 'btn-row sheet-actions' },
+        h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }))));
+    return;
+  }
   const before = [structuredClone(survivor), structuredClone(absorbed)];
-  W.combine(survivor, absorbed);
+  W.combine(survivor, absorbed, { title: title || 'mine' });
   // Reads of the other book that are in the booklog are pages there of another group: the
   // booklog is regrouped with the next publish (shelf/publish.py, plan_regroup).
   if (absorbed.boeken || inBooklog(absorbed)) {

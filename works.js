@@ -76,10 +76,12 @@ export function latestRead(work, { finished = false } = {}) {
 /**
  * The edition the reading status and progress are about, the one a new read starts from, and
  * the face of the book where nothing else decides: `main` when it names one, else the edition
- * of the latest dated read, else the first.
+ * of the latest dated read, else the first under the book's own title (not a translation), else
+ * the first.
  */
 export function mainEdition(work) {
-  return editionOf(work, work.main) || latestRead(work) || (work.editions || [])[0];
+  const editions = work.editions || [];
+  return editionOf(work, work.main) || latestRead(work) || editions.find((e) => !e.title) || editions[0];
 }
 
 /**
@@ -302,10 +304,14 @@ export function addEdition(work, flat, { status, added } = {}) {
 
 /** A title as it is compared: folded, and without what follows a colon or a dash (the subtitle). */
 const mainTitle = (title) => fold(String(title || '').split(/\s*[:—–]\s*|\s+-\s+/)[0]);
-function sameTitle(a, b) {
+export function sameTitle(a, b) {
   const fa = fold(a), fb = fold(b);
   if (!fa || !fb) return false;
   return fa === fb || mainTitle(a) === fb || fa === mainTitle(b);
+}
+/** An edition's own title is dropped where it is the book's (it says nothing then). */
+function tidyTitles(work) {
+  for (const e of work.editions || []) if (e.title && fold(e.title) === fold(work.title)) delete e.title;
 }
 const firstWriter = (author) => fold(String(author || '').split(',')[0]);
 const number = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
@@ -365,15 +371,27 @@ const PROGRESS = ['pagesRead', 'durationLeft', 'percentRead', 'progressUnit'];
  * `absorbed`'s editions and reads in `survivor` (both changed in place; → survivor). The
  * reading status of the absorbed book wins when a read of it is planned or running and none of
  * the survivor is; its edition is then the one being read.
+ *
+ * Two books with different titles (a translation): each edition keeps the title of the book it
+ * came from, and the combined book goes by the survivor's title, or with `title: 'theirs'` by the
+ * absorbed book's (with its place in a series).
  */
-export function combine(survivor, absorbed) {
+export function combine(survivor, absorbed, { title = 'mine' } = {}) {
   const ids = new Map();
+  const differ = !!absorbed.title && !sameTitle(survivor.title, absorbed.title);
+  if (differ && title === 'theirs') {
+    for (const e of survivor.editions) if (!e.title) e.title = survivor.title;
+    survivor.title = absorbed.title;
+    for (const key of ['series', 'seriesNumber', 'seriesLabel', 'olid']) if (!empty(absorbed[key])) survivor[key] = clone(absorbed[key]);
+  }
   for (const e of absorbed.editions || []) {
     const copy = clone(e);
     copy.id = editionOf(survivor, e.id) || [...ids.values()].includes(e.id) ? nextEditionId(survivor) : e.id;
+    if (differ && !copy.title) copy.title = absorbed.title;
     ids.set(e.id, copy.id);
     survivor.editions.push(copy);
   }
+  tidyTitles(survivor);
   for (const r of absorbed.reviews || []) {
     if (!isObj(r)) continue;
     (survivor.reviews ||= []).push({ ...clone(r), ed: ids.get(r.ed) || mainEdition(survivor).id });
@@ -430,6 +448,11 @@ export function split(work, edId, { id, added, status } = {}) {
   }
   const rest = byDate(work.reviews || []).filter((r) => r.rating != null).pop();
   if (rest) work.rating = rest.rating; else delete work.rating;
+  // What is left goes by its editions' own title when they all have the same one (the
+  // translation that was split off took the book's title along).
+  const left = new Set(work.editions.map((e) => e.title || ''));
+  if (left.size === 1 && [...left][0]) work.title = [...left][0];
+  tidyTitles(work);
   piece.v = 2;
   settle(work, status);
   settle(piece, status);

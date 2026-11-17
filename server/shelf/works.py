@@ -10,6 +10,7 @@ level and each review carrying its edition. `flat` gives them that view of a new
 """
 import copy
 import json
+import re
 
 from .boeken import fold, tidy_people
 
@@ -73,9 +74,11 @@ def latest_read(data, finished=False):
 
 
 def main_edition(data):
-    """`main` when it names an edition, else the edition of the latest dated read, else the first."""
+    """`main` when it names an edition, else the edition of the latest dated read, else the first
+    under the book's own title (not a translation), else the first."""
     editions = [e for e in data.get('editions') or [] if isinstance(e, dict)]
-    return edition_of(data, data.get('main')) or latest_read(data) or (editions[0] if editions else None)
+    own = next((e for e in editions if not e.get('title')), None)
+    return edition_of(data, data.get('main')) or latest_read(data) or own or (editions[0] if editions else None)
 
 
 def next_edition_id(data):
@@ -292,15 +295,47 @@ def status_lists(user):
 PROGRESS = ('pagesRead', 'durationLeft', 'percentRead', 'progressUnit')
 
 
-def combine(survivor, absorbed):
-    """`absorbed`'s editions and reads in `survivor` (in place; → survivor), as works.js does it."""
+def main_title(title):
+    """A title as it is compared: folded, without what follows a colon or a dash (as works.js)."""
+    return fold(re.split(r'\s*[:—–]\s*|\s+-\s+', str(title or ''))[0])
+
+
+def same_title(a, b):
+    fa, fb = fold(a or ''), fold(b or '')
+    if not fa or not fb:
+        return False
+    return fa == fb or main_title(a) == fb or fa == main_title(b)
+
+
+def tidy_titles(work):
+    """An edition's own title is dropped where it is the book's."""
+    for edition in work.get('editions') or []:
+        if edition.get('title') and fold(edition['title']) == fold(work.get('title') or ''):
+            del edition['title']
+
+
+def combine(survivor, absorbed, title='mine'):
+    """`absorbed`'s editions and reads in `survivor` (in place; → survivor), as works.js does it:
+    with different titles (a translation) each edition keeps its book's title, and the combined
+    book goes by the survivor's title, or with title='theirs' by the absorbed book's."""
     ids = {}
+    differ = bool(absorbed.get('title')) and not same_title(survivor.get('title'), absorbed.get('title'))
+    if differ and title == 'theirs':
+        for edition in survivor['editions']:
+            edition.setdefault('title', survivor.get('title'))
+        survivor['title'] = absorbed['title']
+        for key in ('series', 'seriesNumber', 'seriesLabel', 'olid'):
+            if not empty(absorbed.get(key)):
+                survivor[key] = copy.deepcopy(absorbed[key])
     for edition in absorbed.get('editions') or []:
         new = copy.deepcopy(edition)
         if edition_of(survivor, edition['id']) or edition['id'] in ids.values():
             new['id'] = next_edition_id(survivor)
+        if differ and not new.get('title'):
+            new['title'] = absorbed['title']
         ids[edition['id']] = new['id']
         survivor['editions'].append(new)
+    tidy_titles(survivor)
     for review in absorbed.get('reviews') or []:
         if isinstance(review, dict):
             survivor.setdefault('reviews', []).append({**copy.deepcopy(review), 'ed': ids.get(review.get('ed')) or main_edition(survivor)['id']})

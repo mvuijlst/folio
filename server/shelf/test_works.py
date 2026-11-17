@@ -56,6 +56,19 @@ class UpgradeTests(SimpleTestCase):
         works.settle(book)
         self.assertNotIn('main', book)
 
+    def test_combine_of_a_translation_keeps_each_title(self):
+        def nl():
+            return {'id': 'nl', 'title': 'Hoeksteen van de Foundation', 'seriesNumber': 2, 'lists': {}, 'editions': [{'id': 'e1', 'language': 'nl'}]}
+
+        def en():
+            return {'id': 'en', 'title': "Foundation's Edge", 'seriesNumber': 6, 'lists': {}, 'editions': [{'id': 'e1', 'language': 'en'}]}
+        mine = works.combine(nl(), en())
+        self.assertEqual(mine['title'], 'Hoeksteen van de Foundation')
+        self.assertEqual([e.get('title') for e in mine['editions']], [None, "Foundation's Edge"])
+        theirs = works.combine(nl(), en(), title='theirs')
+        self.assertEqual((theirs['title'], theirs['seriesNumber']), ("Foundation's Edge", 6))
+        self.assertEqual([e.get('title') for e in theirs['editions']], ['Hoeksteen van de Foundation', None])
+
     def test_combine_as_the_app_does(self):
         read = fixtures()['folio-read-another-edition']['after']
         planned = fixtures()['scanned-paper-book']['after']

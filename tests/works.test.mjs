@@ -146,6 +146,30 @@ test('split takes a planned read along when it is of that edition', () => {
   assert.equal(work.pagesRead, undefined);
 });
 
+test('combine of a translation: each copy keeps its title, and split gives the rest its own back', () => {
+  const nl = () => ({ id: 'nl', title: 'Hoeksteen van de Foundation', author: 'Isaac Asimov', series: 'Foundation', seriesNumber: 2, lists: {},
+    editions: [{ id: 'e1', format: 'paper', language: 'nl' }], v: 2 });
+  const en = () => ({ id: 'en', title: "Foundation's Edge", author: 'Isaac Asimov', series: 'Foundation', seriesNumber: 6, lists: {},
+    editions: [{ id: 'e1', format: 'paper', language: 'en' }], v: 2 });
+  // Opened on the Dutch one, the book goes by its title unless the other is chosen.
+  const mine = combine(nl(), en());
+  assert.equal(mine.title, 'Hoeksteen van de Foundation');
+  assert.deepEqual(mine.editions.map((e) => [e.language, e.title]), [['nl', undefined], ['en', "Foundation's Edge"]]);
+  const theirs = combine(nl(), en(), { title: 'theirs' });
+  assert.equal(theirs.title, "Foundation's Edge");
+  assert.equal(theirs.seriesNumber, 6);
+  assert.deepEqual(theirs.editions.map((e) => [e.language, e.title]), [['nl', 'Hoeksteen van de Foundation'], ['en', undefined]]);
+  assert.equal(mainEdition(theirs).language, 'en');   // the face is the copy under the book's own title
+  // Splitting the Dutch copy off again: each book has its own title.
+  const { work, piece } = split(mine, 'e1', { id: 'p', added: 'now' });
+  assert.equal(piece.title, 'Hoeksteen van de Foundation');
+  assert.equal(work.title, "Foundation's Edge");
+  assert.deepEqual(work.editions.map((e) => e.title), [undefined]);
+  // Same title (a subtitle more or less): nothing changes.
+  const plain = combine(en(), { ...en(), title: "Foundation's Edge: Foundation 4" });
+  assert.deepEqual(plain.editions.map((e) => e.title), [undefined, undefined]);
+});
+
 test('flatView is the book as one edition', () => {
   const book = fx('paper-then-audiobook');
   assert.equal(flatView(book).format, 'audiobook');
