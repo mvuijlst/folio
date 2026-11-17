@@ -5082,7 +5082,6 @@ window.addEventListener('beforeinstallprompt', (e) => {
 function wordsSection() {
   const { all } = roleVocab();
   const s = T.survey(books, all);
-  const open = s.unknown.length + (s.differently.length ? 1 : 0);
   return h('div', { class: 'sheet-section' },
     h('h3', { text: t('Words') }),
     h('div', { class: 'list-rows' }, h('div', { class: 'list-row' },
@@ -5090,7 +5089,6 @@ function wordsSection() {
         h('span', { text: t('Roles') }),
         h('small', { text: [plural(all.length, 'role'), s.unknown.length && t('{n} to sort out', { n: plural(s.unknown.length, 'word') }),
           s.differently.length && t('written differently on {n}', { n: plural(new Set(s.differently.flatMap((d) => d.books)).size, 'book') })].filter(Boolean).join(' · ') })),
-      open > 0 && h('span', { class: 'list-flag', 'aria-hidden': 'true' }, icon('dot')),
       h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')))));
 }
 

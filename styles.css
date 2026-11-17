@@ -721,10 +721,8 @@ a.link-btn { text-decoration: none; }
 .list-name small:empty { display: none; }
 div.list-name { cursor: default; }
 .list-row .icon-btn:disabled { opacity: .3; }
-.list-go, .list-flag { display: inline-flex; color: var(--faint); }
+.list-go { display: inline-flex; color: var(--faint); }
 .list-go .icon { width: 18px; height: 18px; }
-.list-flag { color: var(--accent); }
-.list-flag .icon { width: 10px; height: 10px; }
 .suggestion-row { gap: 8px; }
 .suggestion-row .list-name { flex: 0 1 40%; }
 .suggestion-row .field { flex: 1; margin: 0; }
