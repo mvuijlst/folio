@@ -93,10 +93,14 @@ test('categories and tags are named from the booklog, your records on top', () =
 });
 
 test('tag suggestions: two spellings, a category, a series', () => {
-  const books = [{ tags: ['vampieren', 'fantasy'] }, { tags: ['vampieren'] }, { tags: ['vampiers', 'discworld'] }, { tags: ['robot'] }, { tags: ['robots'] }, { tags: ['robots'] }];
-  const s = T.tagSuggestions(books, { categories: ['fantasy'], series: ['Discworld'] });
+  const books = [{ tags: ['vampieren', 'fantasy'], categories: ['fantasy'] }, { tags: ['vampieren', 'fantasy'] }, { tags: ['vampiers', 'discworld'], series: 'Discworld' },
+    { tags: ['robot'] }, { tags: ['robots'] }, { tags: ['robots', 'taal'] }];
+  const s = T.tagSuggestions(books, { categories: ['fantasy', 'taal'], series: ['Discworld'] });
   assert.deepEqual(s.filter((x) => x.kind === 'alike').map((x) => [x.from, x.to]), [['vampiers', 'vampieren'], ['robot', 'robots']]);
-  assert.deepEqual(s.filter((x) => x.kind !== 'alike').map((x) => [x.kind, x.tag]), [['category', 'fantasy'], ['series', 'discworld']]);
+  // Only where the category or series says it: fantasy on one of its two books, taal on none.
+  assert.deepEqual(s.filter((x) => x.kind !== 'alike').map((x) => [x.kind, x.tag, x.books, x.everywhere]), [['category', 'fantasy', 1, false], ['series', 'discworld', 1, true]]);
+  T.removeTagWhere(books, 'fantasy', (b) => T.redundant('category', b, 'fantasy'));
+  assert.deepEqual(books.slice(0, 2).map((b) => b.tags), [['vampieren'], ['vampieren', 'fantasy']]);
 });
 
 test('merging and removing tags, with what was there', () => {

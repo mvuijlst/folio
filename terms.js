@@ -267,13 +267,18 @@ export function tagSuggestions(books, { categories = [], series = [] } = {}) {
     group.sort((a, b) => n.get(b) - n.get(a) || a.localeCompare(b));
     for (const from of group.slice(1)) out.push({ kind: 'alike', from, to: group[0], books: n.get(from) });
   }
+  // Only where it says nothing more: on the books that have that category, or are in that series.
   const cats = new Set(categories), named = new Set(series.map(slugify));
   for (const slug of n.keys()) {
-    if (cats.has(slug)) out.push({ kind: 'category', tag: slug, books: n.get(slug) });
-    else if (named.has(slug)) out.push({ kind: 'series', tag: slug, books: n.get(slug) });
+    const kind = cats.has(slug) ? 'category' : named.has(slug) ? 'series' : '';
+    const said = kind && (books || []).filter((b) => (b?.tags || []).includes(slug) && redundant(kind, b, slug)).length;
+    if (said) out.push({ kind, tag: slug, books: said, everywhere: said === n.get(slug) });
   }
   return out;
 }
+
+/** Whether book `b` says what tag `slug` says already: it has that category, or is in that series. */
+export const redundant = (kind, b, slug) => (kind === 'category' ? (b?.categories || []).includes(slug) : slugify(b?.series) === slug);
 
 /** Rewrites `key` ('tags') on books with fn(list) → list; returns [{book, before}] of those that changed. Changes them in place. */
 export function rewriteList(books, key, fn) {
@@ -292,3 +297,5 @@ export function rewriteList(books, key, fn) {
 export const mergeTag = (books, from, to) => rewriteList(books, 'tags', (list) => (list.includes(from) ? [...new Set(list.map((x) => (x === from ? to : x)))] : list));
 /** Tag `slug` off every book. */
 export const removeTag = (books, slug) => rewriteList(books, 'tags', (list) => list.filter((x) => x !== slug));
+/** Tag `slug` off the books for which where(book) holds. */
+export const removeTagWhere = (books, slug, where) => rewriteList((books || []).filter(where), 'tags', (list) => list.filter((x) => x !== slug));

@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.10.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.10.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -5700,6 +5700,7 @@ async function saveListed(changed, key, message, undoTerms, again) {
   renderLibrary();
   await Promise.all(changed.map(({ book }) => DB.put(book))).catch(storageFailed);
   if (!message) return;
+  again?.();
   toast(message, {
     ms: 8000, action: t('Undo'),
     onAction: async () => {
@@ -5737,11 +5738,13 @@ async function mergeTags(pairs, again) {
 }
 
 /** Tags off every book; each one's page in the booklog goes once no post has it. One Undo for all. */
-async function dropTags(slugs, again) {
+async function dropTags(slugs, again, kind) {
+  // `kind` ('category' or 'series'): only off the books where that says it already; else off every book.
   const undoTerms = await keepTagRecords(slugs);
   const changed = [];
   for (const slug of slugs) {
-    changed.push(...T.removeTag(books, slug));
+    changed.push(...(kind ? T.removeTagWhere(books, slug, (b) => T.redundant(kind, b, slug)) : T.removeTag(books, slug)));
+    if (books.some((b) => (b.tags || []).includes(slug))) continue;   // still on a book: its page stays
     const id = `tag:${slug}`, prior = terms.find((x) => x.id === id);
     await saveTerm({ ...(prior || { id, kind: 'tag', value: slug }), gone: true });
   }
@@ -5794,10 +5797,10 @@ function openTags() {
     group(t('Two spellings'), alike.slice(0, 3).map((s) => `${tagName(s.from)} → ${tagName(s.to)}`).join(', ') + (alike.length > 3 ? '…' : ''),
       { label: t('Merge all'), run: () => mergeTags(pairsOf(alike), again) }, alike,
       (s) => item(`${tagName(s.from)} → ${tagName(s.to)}`, plural(s.books, 'book'), t('Merge'), () => mergeTags([{ froms: [s.from], to: s.to }], again), () => dismiss(s))),
-    group(t('Also a category'), t('The category says it already.'), { label: t('Remove all'), run: () => dropTags(asCategory.map((s) => s.tag), again) }, asCategory,
-      (s) => item(tagName(s.tag), plural(s.books, 'book'), t('Remove'), () => dropTags([s.tag], again), () => dismiss(s))),
-    group(t('Also a series'), t('The series says it already.'), { label: t('Remove all'), run: () => dropTags(asSeries.map((s) => s.tag), again) }, asSeries,
-      (s) => item(tagName(s.tag), plural(s.books, 'book'), t('Remove'), () => dropTags([s.tag], again), () => dismiss(s))),
+    group(t('Also a category'), t('The category says it already.'), { label: t('Remove all'), run: () => dropTags(asCategory.map((s) => s.tag), again, 'category') }, asCategory,
+      (s) => item(tagName(s.tag), plural(s.books, 'book'), t('Remove'), () => dropTags([s.tag], again, 'category'), () => dismiss(s))),
+    group(t('Also a series'), t('The series says it already.'), { label: t('Remove all'), run: () => dropTags(asSeries.map((s) => s.tag), again, 'series') }, asSeries,
+      (s) => item(tagName(s.tag), plural(s.books, 'book'), t('Remove'), () => dropTags([s.tag], again, 'series'), () => dismiss(s))),
     group(t('Same meaning'), t('Proposed by the assistant.'), { label: t('Merge all'), run: () => { const all = aiMerges; aiMerges = null; mergeTags(all.map((g) => ({ froms: g.merge.filter((s) => n.has(s)), to: g.keep })), again); } }, aiMerges || [],
       (g) => item(`${g.merge.map(tagName).join(', ')} → ${tagName(g.keep)}`, g.why, t('Merge'),
         () => { aiMerges = aiMerges.filter((x) => x !== g); mergeTags([{ froms: g.merge.filter((s) => n.has(s)), to: g.keep }], again); },
@@ -5890,7 +5893,7 @@ function openWordForm(kind, slug, back) {
     const go = h('button', { class: 'btn btn-outline', type: 'button', text: t('Merge'), disabled: true });
     const pick = () => T.canonicalTags([into.value], map).find((x) => others.includes(x));
     into.addEventListener('input', () => { const target = pick(); go.disabled = !target; go.textContent = target ? t('Merge into {tag}', { tag: tagName(target) }) : t('Merge'); });
-    go.addEventListener('click', () => { const target = pick(); if (target) { mergeTags([{ froms: [slug], to: target }], back); back(); } });
+    go.addEventListener('click', () => { const target = pick(); if (target) mergeTags([{ froms: [slug], to: target }], back); });
     return h('div', { class: 'sheet-section' },
       h('h3', { text: t('Merge into another tag') }),
       h('div', { class: 'merge-row' }, into, go),
@@ -5908,7 +5911,7 @@ function openWordForm(kind, slug, back) {
       h('h3', { text: t('Its books') }),
       h('p', { class: 'word-books' }, on.slice(0, 12).map((b) => b.title).join(' · ') + (on.length > 12 ? ` · ${t('and {n} more', { n: on.length - 12 })}` : ''))),
     h('div', { class: 'btn-row sheet-actions' },
-      kind === 'tag' && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Take this tag off every book'), title: t('Take this tag off every book'), onclick: () => { dropTags([slug], back); back(); } }, icon('trash')),
+      kind === 'tag' && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Take this tag off every book'), title: t('Take this tag off every book'), onclick: () => dropTags([slug], back) }, icon('trash')),
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save')))));
 }
