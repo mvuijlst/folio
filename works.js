@@ -340,8 +340,9 @@ const otherVolume = (n, m) => n != null && m != null && n !== m;
  * The book on the shelf that `candidate` (a flat proposal) is another edition of, or undefined:
  * the same Open Library work, or the same title by the same first writer, unless both say where
  * they stand in a series (or which volume they are) and that differs: Open Library has works
- * that hold every volume of a set. A differing olid doesn't veto a title: Open Library has
- * duplicate works. Translations are never found this way.
+ * that hold every volume of a set. Two different olids are two books, even with one title:
+ * catalogues give the volumes of a set a bare title of the set. Open Library's duplicate works
+ * then stay apart, to be combined (twins still finds them). Translations are never found this way.
  */
 export function findWork(candidate, books) {
   const olid = String(candidate.olid || '');
@@ -351,7 +352,7 @@ export function findWork(candidate, books) {
   const writer = firstWriter(candidate.author);
   if (!writer || !fold(candidate.title)) return undefined;
   return books.find((b) => {
-    if (firstWriter(b.author) !== writer) return false;
+    if (firstWriter(b.author) !== writer || (olid && b.olid && b.olid !== olid)) return false;
     return [b.title, ...(b.editions || []).map((e) => e.title)].some((title) => title && sameTitle(title, candidate.title)
       && !otherVolume(n, placeOf(b, title)));
   });

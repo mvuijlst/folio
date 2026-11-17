@@ -207,11 +207,13 @@ belongs to (`putOn(work, edition, listId, entry)` / `takeOff(…)`), never by as
 - **Same edition**: the same ISBN.
 - **Same work** (`findWork(candidate)` in the client): the same `olid` when both have one; or
   the same title (compared with the work's title *and* each edition's title) by the same
-  first writer, unless both say where they stand in a series and that differs. Titles are
-  compared without case, accents or punctuation, and one may be the other with a subtitle
-  after it (*Ash* and *Ash: A Secret History*): catalogues add subtitles, the booklog mostly
-  does not. A differing `olid` does not veto a title match: Open Library has duplicate work
-  records.
+  first writer, unless both say where they stand in a series (or which volume they are) and
+  that differs. Titles are compared without case, accents or punctuation, and one may be the
+  other with a subtitle after it (*Ash* and *Ash: A Secret History*): catalogues add
+  subtitles, the booklog mostly does not. Since 2.9.2 a differing `olid` does veto a title
+  match: catalogues give the volumes of a set one bare title (Delbrück's *History of the Art
+  of War*, 2026-11-17). Open Library's duplicate work records then stay two books, which
+  Combine suggests (`twins` still pairs them by title) and joins.
 - Anything else, translations included, is the same work only when Michel says so.
 
 ## 5. What Michel sees

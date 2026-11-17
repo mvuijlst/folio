@@ -114,6 +114,11 @@ test('findWork: two volumes of a set are two books, even as one Open Library wor
   assert.equal(findWork({ title: 'The Barbarian Invasions: History of the Art of War, Volume II', author: 'Hans Delbrück', olid: 'OL1104614W' }, shelf), undefined);
   assert.equal(findWork({ title: 'History of the Art of War: Volume II', author: 'Hans Delbrück' }, [{ ...shelf[0], title: 'History of the Art of War: Volume I', olid: '' }]), undefined);
   assert.equal(findWork({ title: 'Warfare in Antiquity', author: 'Hans Delbrück', olid: 'OL1104614W' }, shelf)?.id, 'v1');   // says no volume: may be the same
+  // The scan of 2026-11-17: both volumes came back as the bare title of the set, with their own Open Library works.
+  const bare = [{ id: 'b1', title: 'History of the art of war', author: 'Hans Delbrück', olid: 'OL8418663W', editions: [] }];
+  assert.equal(findWork({ title: 'History of the art of war', author: 'Hans Delbrück', olid: 'OL8418657W' }, bare), undefined);
+  assert.equal(findWork({ title: 'History of the art of war', author: 'Hans Delbrück' }, bare)?.id, 'b1');   // no olid: the title decides
+  assert.deepEqual([...twins([...bare, { id: 'b2', title: 'History of the art of war', author: 'Hans Delbrück', olid: 'OL8418657W', editions: [] }])].sort(), ['b1', 'b2']);   // Combine still suggests it
   assert.equal(findWork({ title: 'The Way of Kings: Book One of the Stormlight Archive', author: 'Brandon Sanderson' },
     [{ id: 'k', title: 'The Way of Kings', author: 'Brandon Sanderson', seriesNumber: 1, editions: [] }])?.id, 'k');
   assert.deepEqual([...twins([...shelf, { id: 'v2', title: 'The Barbarian Invasions: History of the Art of War, Volume II', author: 'Hans Delbrück', olid: 'OL1104614W', editions: [] }])], []);
