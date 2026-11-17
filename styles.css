@@ -971,6 +971,26 @@ div.list-name { cursor: default; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast button { font-weight: 700; color: inherit; text-decoration: underline; text-underline-offset: 3px; }
 
+/* A phone has little height to give: the name and the count share one line beside a small mark,
+   filter, order and the views keep to one line (the order's name is cut short if it must be),
+   and adding a book is a plus in the corner instead of a band across the covers. */
+@media (max-width: 639px) {
+  .app { padding-top: calc(var(--safe-t) + 8px); padding-bottom: calc(var(--safe-b) + 140px); }
+  .top { align-items: center; padding: 0 0 8px; }
+  .brand { gap: 10px; }
+  .brand > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+  .mark { width: 36px; height: 36px; box-shadow: 0 3px 10px rgba(10, 6, 36, .35); }
+  .wordmark { font-size: 1.6rem; }
+  .count { margin-top: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sortBtn { flex: 1 1 0; max-width: max-content; }
+  .view-seg button { padding: 8px 9px; }
+  .day:first-child { padding-top: 8px; }
+  .dock { justify-content: flex-end; padding: 0 20px 12px; background: none; }
+  .fab { position: relative; width: 52px; height: 52px; padding: 0; justify-content: center; border-radius: var(--radius); }
+  .fab .icon { width: 24px; height: 24px; }
+  .fab span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+@media (max-width: 359px) { #sortBtn span { display: none; } }
 @media (min-width: 640px) {
   .app { padding-left: 28px; padding-right: 28px; padding-top: calc(var(--safe-t) + 44px); }
   .lists { margin-left: -28px; margin-right: -28px; padding-left: 28px; padding-right: 28px; }

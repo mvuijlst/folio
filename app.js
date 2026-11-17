@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.8.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.8.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
