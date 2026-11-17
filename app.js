@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.7.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.7.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -540,6 +540,8 @@ function readRoute() {
   else if (/^#\/series\/?$/.test(path)) view.seriesIndex = true;
   // What narrows the view is in the address too: ?format=audiobook&in:Plaats=<list id>
   for (const [key, value] of new URLSearchParams(query)) (view.filters[key] ||= []).push(value);
+  // "Not on the booklog" became "On the booklog": an older address says it the other way round.
+  if (view.filters.other) view.filters.other = view.filters.other.map((v) => ({ local: `${NOT}booklog`, [`${NOT}local`]: 'booklog' })[v] || v);
   // Years read are one span; an older address with years one by one becomes the span they cover.
   if (view.filters.year) {
     const span = yearRange(view.filters.year);
@@ -1667,11 +1669,12 @@ function facetsOf() {
   }
   const host = booklogHost();
   const alike = W.twins(books);
+  // These are said in full, so each also says how it reads when it is left out (`notName`).
   facets.push({ key: 'other', name: t('Other'), values: [
-    { value: 'nocover', name: t('No cover'), ...ofCopy((b, e) => !e.cover && !e.thumb) },
-    { value: 'photo', name: t('Own photo as cover'), ...ofCopy((b, e) => !e.cover && !!e.thumb) },
-    host && { value: 'local', name: t('Not on {host}', { host }), test: (b) => !b.boeken },
-    alike.size > 0 && { value: 'twins', name: t('Possibly the same book'), test: (b) => alike.has(b.id) },
+    { value: 'nocover', name: t('No cover'), notName: t('With a cover'), ...ofCopy((b, e) => !e.cover && !e.thumb) },
+    { value: 'photo', name: t('Own photo as cover'), notName: t('No own photo as cover'), ...ofCopy((b, e) => !e.cover && !!e.thumb) },
+    host && { value: 'booklog', name: t('On {host}', { host }), notName: t('Not on {host}', { host }), test: (b) => !!b.boeken },
+    alike.size > 0 && { value: 'twins', name: t('Possibly the same book'), notName: t('Not possibly the same book'), test: (b) => alike.has(b.id) },
   ].filter(Boolean) });
   for (const facet of facets) facet.edition = facet.values.some((v) => v.edition);
   return facets;
@@ -1760,7 +1763,7 @@ function openFilterSheet(inScope) {
           h('div', { class: 'chips' }, values.map((v) => h('button', {
             class: 'chip', type: 'button', 'aria-pressed': String(state(v) === 'in'), 'data-state': state(v) || null,
             'data-choice': `${facet.key}=${v.value}`, disabled: !v.count && !state(v),
-            'aria-label': state(v) === 'out' ? t('not {name}', { name: v.name }) : null,
+            'aria-label': state(v) === 'out' ? v.notName || t('not {name}', { name: v.name }) : null,
             onclick: () => {
               const then = next[state(v)](v);
               draft = { ...draft, [facet.key]: [...chosen.filter((x) => x !== v.value && x !== NOT + v.value), ...(then ? [then] : [])] };
@@ -1837,8 +1840,9 @@ function spanSlider(facet, inScope, others, draft, choose) {
 function drawActiveFilters(facets) {
   const chips = facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
     const out = !facet.match && value.startsWith(NOT), plain = out ? value.slice(NOT.length) : value;
-    const named = facet.label ? facet.label(value) : facet.values.find((v) => v.value === plain)?.name || plain;
-    const name = out ? t('not {name}', { name: named }) : named;
+    const found = facet.values.find((v) => v.value === plain);
+    const named = facet.label ? facet.label(value) : found?.name || plain;
+    const name = out ? found?.notName || t('not {name}', { name: named }) : named;
     return h('button', {
       class: 'chip active-filter', type: 'button', title: t('Remove'), 'data-state': out ? 'out' : null,
       onclick: () => refine({ filters: { ...view.filters, [facet.key]: view.filters[facet.key].filter((x) => x !== value) } }),

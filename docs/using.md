@@ -91,7 +91,7 @@ What you see is decided in three steps.
 2. **Narrowed by filters.** *Filter* opens what the books of that place can be told apart by,
    each with how many it would leave: reading status, read as (paper, e-book, audiobook),
    category, language, year read, rating, the lists you keep, and a few odd ones (no cover,
-   not on the booklog). A set of lists of your own is a filter too: lists that share a set
+   on the booklog). A set of lists of your own is a filter too: lists that share a set
    (the places your books stand in, say: *Bureau*, *Bibliotheek*) are not in the menu but
    narrow whatever you are looking at. A tap on a choice shows only the books that have it; a
    second tap leaves those books out instead (the choice is struck through, with ⊘), and a
