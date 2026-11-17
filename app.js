@@ -11,7 +11,7 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 
-const APP_VERSION = '2.2.5'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.2.6'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3400,7 +3400,7 @@ function openDescribe(shared, found) {
   const hasStatus = () => lists.some((l) => l.group === READING && on[l.id]);
   // One book seen on a photograph: until its catalogue cover is known, the photograph shows it.
   const photo = found && found.books.length === 1 && !found.books[0].cover ? { thumb: found.thumb } : null;
-  let proposals = (found?.books || []).map((p) => ({ ...p, ...photo, picked: !onShelfAlready(p) })), toBooklog = true, saved = false;
+  let proposals = (found?.books || []).map((p) => ({ ...p, ...photo, picked: !onShelfAlready(p) })), toBooklog = false, saved = false;
 
   function drawResults() {
     const picked = proposals.filter((p) => p.picked);
