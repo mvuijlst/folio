@@ -280,13 +280,23 @@ def tag_merges(tags):
         if t.get('name') and t['name'] != t['slug']:
             line += f" = {t['name']}"
         lines.append(line)
+    # A few hundred tags take the model minutes to think through at its own pace; on low effort it
+    # answers in about twenty seconds (measured on 658 tags, 2026-11-17), within a request's minute.
     question = {
         'model': settings.OPENAI_MODEL,
         'messages': [{'role': 'system', 'content': MERGE_PROMPT}, {'role': 'user', 'content': '\n'.join(lines)}],
         'response_format': {'type': 'json_schema', 'json_schema': {'name': 'groups', 'strict': True, 'schema': MERGE_SCHEMA}},
+        'reasoning_effort': 'low',
     }
     try:
-        answer = post_json('https://api.openai.com/v1/chat/completions', question, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
+        try:
+            answer = post_json('https://api.openai.com/v1/chat/completions', question, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
+        except urllib.error.HTTPError as err:
+            if err.code != 400:
+                raise
+            # A model that doesn't take the setting: ask without it.
+            question.pop('reasoning_effort')
+            answer = post_json('https://api.openai.com/v1/chat/completions', question, {'Authorization': f'Bearer {settings.OPENAI_API_KEY}'})
         got = json.loads(answer['choices'][0]['message']['content'])['groups']
     except urllib.error.HTTPError as err:
         raise IntakeError(f'The assistant answered with an error ({err.code}).')
@@ -294,13 +304,17 @@ def tag_merges(tags):
         raise IntakeError(f'The assistant could not be reached: {err}')
     except (ValueError, KeyError, IndexError, TypeError) as err:
         raise IntakeError(f'The assistant gave an answer that could not be read: {err}')
-    known = {t['slug'] for t in tags}
-    out = []
+    # What is kept is the tag on most books (the model doesn't always keep to that), and a tag is in
+    # one group at most: a chain (mythology → mythologie → mythe) is left at its first link.
+    books = {t['slug']: int(t.get('books') or 0) for t in tags}
+    out, taken = [], set()
     for g in got if isinstance(got, list) else []:
-        keep = str(g.get('keep') or '')
-        merge = [s for s in dict.fromkeys(str(m) for m in g.get('merge') or []) if s in known and s != keep]
-        if keep in known and merge:
-            out.append({'keep': keep, 'merge': merge, 'why': ' '.join(str(g.get('why') or '').split())[:200]})
+        slugs = [s for s in dict.fromkeys([str(g.get('keep') or ''), *(str(m) for m in g.get('merge') or [])]) if s in books and s not in taken]
+        if len(slugs) < 2:
+            continue
+        keep = max(slugs, key=lambda s: (books[s], s == str(g.get('keep'))))
+        taken.update(slugs)
+        out.append({'keep': keep, 'merge': [s for s in slugs if s != keep], 'why': ' '.join(str(g.get('why') or '').split())[:200]})
     return out
 
 

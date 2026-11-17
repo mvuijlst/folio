@@ -66,6 +66,16 @@ class EndpointTests(TestCase):
                                    content_type='application/json')
         self.assertEqual(res.json(), {'groups': [{'keep': 'draken', 'merge': ['dragons'], 'why': 'Dutch and English'}]})
 
+    def test_the_tag_on_most_books_is_kept_and_a_chain_stops_at_its_first_link(self):
+        said = [{'keep': 'comedy', 'merge': ['humor'], 'why': 'x'}, {'keep': 'mythologie', 'merge': ['mythology'], 'why': 'y'},
+                {'keep': 'mythe', 'merge': ['mythologie'], 'why': 'z'}]
+        tags = [{'slug': 'humor', 'books': 16}, {'slug': 'comedy', 'books': 1}, {'slug': 'mythologie', 'books': 17},
+                {'slug': 'mythology', 'books': 1}, {'slug': 'mythe', 'books': 1}]
+        with mock.patch.object(intake, 'post_json', return_value=model_says(said)) as asked:
+            got = intake.tag_merges(tags)
+        self.assertEqual(got, [{'keep': 'humor', 'merge': ['comedy'], 'why': 'x'}, {'keep': 'mythologie', 'merge': ['mythology'], 'why': 'y'}])
+        self.assertEqual(asked.call_args[0][1]['reasoning_effort'], 'low')
+
     def test_the_booklog_names_its_pages(self):
         repo = tempfile.mkdtemp()
         page(repo, 'tags', 'belgie', 'title: "België"\nslug: "belgie"')
