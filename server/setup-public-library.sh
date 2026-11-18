@@ -17,7 +17,9 @@
 set -euo pipefail
 
 HOST="${FOLIO_HOST:-folio.yusupov.cloud}"
-APP_DIR="${FOLIO_DIR:-/home/django/folio-yusupov}"
+# The app is the folder this script is in, one up (…/server/setup-public-library.sh); FOLIO_DIR overrides.
+APP_DIR="${FOLIO_DIR:-$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)}"
+[ -f "$APP_DIR/server/manage.py" ] || { echo "No Folio server in $APP_DIR (set FOLIO_DIR)." >&2; exit 1; }
 ACCOUNT="${1:-}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
