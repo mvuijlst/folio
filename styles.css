@@ -129,7 +129,10 @@ body {
   -webkit-tap-highlight-color: transparent;
   transition: background .2s ease, color .2s ease;
 }
-body.locked { overflow: hidden; }
+/* While a sheet stops the page scrolling, its scrollbar goes; the page takes its width as
+   padding (--scrollbar, app.js: relock), so the books don't shift sideways behind the sheet. */
+body.locked { overflow: hidden; padding-right: var(--scrollbar, 0px); }
+body.locked .dock { right: var(--scrollbar, 0px); }
 button, input, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; background: none; border: none; touch-action: manipulation; }
 img { display: block; max-width: 100%; }

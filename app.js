@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.19.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.19.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1359,7 +1359,12 @@ function openLayer(onClose, { scrolls = false } = {}) {
   history.pushState({ layer: layers.length }, '');
   relock();
 }
-const relock = () => document.body.classList.toggle('locked', layers.some((layer) => !layer.scrolls));
+function relock() {
+  const lock = layers.some((layer) => !layer.scrolls);
+  // The width of the scrollbar that locking takes away (none on a phone, or with overlay scrollbars).
+  if (lock && !document.body.classList.contains('locked')) document.body.style.setProperty('--scrollbar', `${Math.max(0, window.innerWidth - document.documentElement.clientWidth)}px`);
+  document.body.classList.toggle('locked', lock);
+}
 function closeLayer() { if (layers.length) history.back(); }
 /** Close whatever is open on top, then do `next`: going back in history takes a moment, and a
  *  new view must not be pushed onto the entry that is on its way out. Everything that is open
