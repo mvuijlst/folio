@@ -1101,54 +1101,57 @@ div.list-name { cursor: default; }
   .sheet-actions { bottom: -24px; padding-bottom: 24px; margin-bottom: -24px; }
 }
 /* Three panes (app.js: initPanes): the lists, the books and the open book, side by side, each
-   scrolling by itself in a page the height of the window. For now in a public library. */
-@media (min-width: 1200px) {
-  .pane {
-    --base-bg: var(--bg); --base-surface: var(--surface); --base-surface-2: var(--surface-2); --base-border: var(--border);
-    transition: background-color .35s ease, border-color .35s ease;
-  }
-  body.panes { overflow: hidden; }
-  .panes .app {
-    max-width: 1800px; height: 100dvh; padding-bottom: 0; animation: none;
-    grid-template-columns: 216px var(--books-w, 420px) 14px minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr); column-gap: 0;
-  }
-  .panes .top { grid-column: 1 / -1; grid-row: 1; }
-  .panes .lists { grid-column: 1; grid-row: 2; position: static; align-self: stretch; overflow-y: auto; padding: 0 28px 28px 0; }
-  .panes .books-col {
-    display: block; grid-column: 2; grid-row: 2; min-width: 0;
-    overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
-    padding: 0 8px 40px 0;
-  }
-  .panes .tools { margin: 0 -8px 0; padding: 0 8px 10px; }
-  .panes .library.mode-covers { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 18px 14px; }
-  .panes .splitter {
-    display: block; grid-column: 3; grid-row: 2; cursor: col-resize; position: relative; touch-action: none; outline: none;
-  }
-  .panes .splitter::before {
-    content: ''; position: absolute; top: 0; bottom: 0; left: 6px; width: 1px; background: var(--border);
-    transition: background .15s ease, width .15s ease, left .15s ease;
-  }
-  .panes .splitter:hover::before, .panes .splitter:focus-visible::before, .dragging .splitter::before { left: 5px; width: 3px; background: var(--accent); }
-  .dragging, .dragging * { cursor: col-resize !important; user-select: none !important; }
-  .panes .pane {
-    display: block; grid-column: 4; grid-row: 2; min-width: 0; overflow: hidden;
-    border-radius: 12px 12px 0 0; border: 1px solid transparent; border-bottom: none;
-  }
-  .panes .pane-body { height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: 6px 32px 48px 28px; outline: none; }
-  .panes .pane.tinted { background: color-mix(in oklab, var(--bg) 74%, var(--cover-deep)); border-color: color-mix(in oklab, var(--border) 70%, var(--cover)); }
-  .panes .pane.tinted .pane-body { padding-top: 24px; }
-  .panes .pane-body > .book-page { max-width: 780px; }
-  .pane-rest { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--muted); text-align: center; padding-bottom: 12vh; }
-  .pane-rest .empty-art { width: 140px; opacity: .7; }
-  /* The open book's row, in each view. */
-  .panes .library .is-open { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
-  .panes .library.mode-covers .is-open { background: none; box-shadow: none; }
-  .panes .library.mode-covers .is-open > .cover, .panes .library.mode-covers .is-open > .cover-stack > .cover:last-child { outline: 2px solid var(--accent); outline-offset: 3px; }
-  /* Statistics need the room: the books' column and the pane's together. */
-  .panes .app.stats-wide .books-col { grid-column: 2 / -1; padding-right: 0; }
-  .panes .app.stats-wide .pane, .panes .app.stats-wide .splitter { display: none; }
+   scrolling by itself in a page the height of the window. */
+/* (Not in a media query: body.panes is set by the script from 1200 px, and kept a while longer
+   by a form with changes in it, arrangePanes.) */
+.pane {
+  --base-bg: var(--bg); --base-surface: var(--surface); --base-surface-2: var(--surface-2); --base-border: var(--border);
+  transition: background-color .35s ease, border-color .35s ease;
 }
+body.panes { overflow: hidden; }
+.panes .app {
+  max-width: 1800px; height: 100dvh; padding-bottom: 0; animation: none;
+  grid-template-columns: 216px var(--books-w, 420px) 14px minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr); column-gap: 0;
+}
+.panes .top { grid-column: 1 / -1; grid-row: 1; }
+.panes .lists { grid-column: 1; grid-row: 2; position: static; align-self: stretch; overflow-y: auto; padding: 0 28px 28px 0; }
+.panes .books-col {
+  display: block; grid-column: 2; grid-row: 2; min-width: 0;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+  padding: 0 8px 40px 0;
+}
+.panes .tools { margin: 0 -8px 0; padding: 0 8px 10px; }
+.panes .library.mode-covers { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 18px 14px; }
+.panes .splitter {
+  display: block; grid-column: 3; grid-row: 2; cursor: col-resize; position: relative; touch-action: none; outline: none;
+}
+.panes .splitter::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 6px; width: 1px; background: var(--border);
+  transition: background .15s ease, width .15s ease, left .15s ease;
+}
+.panes .splitter:hover::before, .panes .splitter:focus-visible::before, .dragging .splitter::before { left: 5px; width: 3px; background: var(--accent); }
+.dragging, .dragging * { cursor: col-resize !important; user-select: none !important; }
+/* The pane is the sheet's surface, beside the books instead of over them: its forms and their
+   buttons look as they do there (and take a little of the cover's colour, .pane.tinted). */
+.panes .pane {
+  display: block; grid-column: 4; grid-row: 2; min-width: 0; overflow: hidden;
+  background: var(--surface); border-radius: 12px 12px 0 0; border: 1px solid var(--border); border-bottom: none;
+}
+.panes .pane-body { height: 100%; overflow-y: auto; overscroll-behavior: contain; padding: 24px 32px 24px 28px; outline: none; }
+.panes .pane-body > * { max-width: 780px; }
+.pane-rest { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--muted); text-align: center; padding-bottom: 12vh; }
+.pane-rest .empty-art { width: 140px; opacity: .7; }
+/* The open book's row, in each view. */
+.panes .library .is-open { background: var(--surface-2); box-shadow: inset 3px 0 0 var(--accent); }
+.panes .library.mode-covers .is-open { background: none; box-shadow: none; }
+.panes .library.mode-covers .is-open > .cover, .panes .library.mode-covers .is-open > .cover-stack > .cover:last-child { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Adding a book, and the bar of selected books: at the foot of the books' column, as at the foot of the page otherwise. */
+.panes .dock { left: calc(max(0px, (100vw - 1800px) / 2) + 28px + 216px); right: auto; width: var(--books-w, 420px); padding: 32px 8px calc(var(--safe-b) + 18px) 0; }
+/* Statistics need the room: the books' column and the pane's together. */
+.panes .app.stats-wide .books-col { grid-column: 2 / -1; padding-right: 0; }
+.panes .app.stats-wide .pane, .panes .app.stats-wide .splitter { display: none; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
