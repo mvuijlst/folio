@@ -51,7 +51,9 @@ sync server (see [Updating](#updating)); the deploy user `django` may restart on
 
 A public library (`/u/<name>`, see [the plan](public-library-plan.md)) is the app's page as
 Django sends it, with a `<base>` and a request not to be indexed, so nginx passes `/u/` on as
-well. Its data comes from `/api/public/<name>`, open to anyone, which is limited per address:
+well. Its data comes from `/api/public/<name>`, open to anyone, which is limited per address.
+`server/setup-public-library.sh` (as root) makes both changes, copying the site's own
+`location /api/` block, and can allow an account at the same time; by hand it is:
 
 ```nginx
 # in the http block
