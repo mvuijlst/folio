@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.19.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.19.4'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3045,29 +3045,26 @@ function fullCover(subject) {
 /** Is the cover a picture of your own (one a canvas may read, to straighten it)? */
 const ownCover = (subject) => !!(subject.coverFull || (!subject.cover && subject.thumb) || String(subject.cover || '').startsWith('covers/own/'));
 
-/** A cover large, only to look at (a public library): the large copy the server keeps, the small one while it comes. Tap it to see it at full size; Back, Escape or Close close it. */
+/** A cover large, only to look at (a public library): a lightbox, the cover in the middle of the
+    darkened page, as large as fits. The large copy the server keeps, the small one while it
+    comes. A click anywhere (on the cover too), Escape or Back closes it. */
 function openCoverLarge(subject, title) {
   const small = subject.cover ? abs(subject.cover) : subject.thumb || '';
   const large = fullCover(subject);
-  const picture = h('img', { class: 'room-picture', alt: t('The cover, large'), src: small || large });
-  const stage = h('div', { class: 'room-stage', onclick: (e) => { if (e.target === picture) stage.classList.toggle('zoomed'); else closeLayer(); } }, picture);
+  const picture = h('img', { class: 'lightbox-picture', alt: title ? t('Cover of {title}', { title }) : t('Cover'), src: small || large });
   if (large && large !== small) {
     const full = new Image();
     full.onload = () => { if (full.naturalWidth > 8) picture.src = large; };
     full.src = large;
   }
-  const room = h('div', { class: 'cover-room cover-large', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('The cover, large') },
-    h('div', { class: 'room-bar' },
-      h('h2', { class: 'room-title', text: title || t('Cover') }),
-      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => closeLayer() }, icon('x'))),
-    stage);
-  document.body.append(room);
-  coverRoom = room;
-  requestAnimationFrame(() => room.classList.add('open'));
+  const box = h('div', { class: 'lightbox', role: 'dialog', 'aria-modal': 'true', 'aria-label': title || t('Cover'), tabindex: '-1', onclick: () => closeLayer() }, picture);
+  document.body.append(box);
+  coverRoom = box;   // what is on top: Escape closes it (there is no Cancel in it), the page under it keeps its keys to itself
+  requestAnimationFrame(() => { box.classList.add('open'); box.focus({ preventScroll: true }); });
   openLayer(() => {
-    if (coverRoom === room) coverRoom = null;
-    room.classList.remove('open');
-    setTimeout(() => room.remove(), 220);
+    if (coverRoom === box) coverRoom = null;
+    box.classList.remove('open');
+    setTimeout(() => box.remove(), 200);
   });
 }
 
