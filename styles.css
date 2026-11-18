@@ -1089,15 +1089,18 @@ div.list-name { cursor: default; }
   .nav-edit { justify-content: flex-start; color: var(--faint); font-size: .9rem; }
   .day:first-child { padding-top: 10px; }
 
-  /* The sheet is a dialog in the middle of the window, not something that rises from the
-     bottom: rounded all round, no handle, fading in. Same element, same code. */
+  /* The sheet is a dialog over the window, not something that rises from the bottom: rounded
+     all round, no handle, fading in. Same element, same code. Its top is always at the same
+     height, whatever it holds, so going from one book to the next (or a book to its form) does
+     not make it jump; a short one simply ends sooner. */
   .sheet {
-    top: 50%; bottom: auto; max-height: min(88dvh, 920px);
+    --sheet-top: clamp(24px, 7dvh, 80px);
+    top: var(--sheet-top); bottom: auto; max-height: calc(100dvh - 2 * var(--sheet-top));
     border-bottom: 1px solid var(--border); border-radius: 12px;
-    opacity: 0; transform: translateY(calc(-50% + 14px)) scale(.985);
+    opacity: 0; transform: translateY(14px) scale(.985); transform-origin: top center;
     transition: transform .2s cubic-bezier(.2, .8, .2, 1), opacity .18s ease, background-color .35s ease, border-color .35s ease;
   }
-  .sheet.open { opacity: 1; transform: translateY(-50%); }
+  .sheet.open { opacity: 1; transform: none; }
   .sheet-handle { display: none; }
   .sheet-body { padding: 24px 28px 24px; border-radius: inherit; }
   .sheet-actions { bottom: -24px; padding-bottom: 24px; margin-bottom: -24px; }
