@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.16.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.17.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -578,7 +578,7 @@ function readRoute() {
 
 /** The address of what is showing: the scope, the filters on it and, given its id, the open
     `book`. Always with the page's own path: a public library's page has a <base> elsewhere. */
-function addressOf({ book } = {}) {
+function addressOf({ book = pane.isOpen ? pane.book?.id : null } = {}) {
   const path = view.list ? `#/list/${encodeURIComponent(view.list)}`
     : view.series ? `#/series/${encodeURIComponent(view.series)}`
       : view.author ? `#/author/${encodeURIComponent(view.author)}`
@@ -606,7 +606,8 @@ function setView(target) {
   // (and only leaves the app from where you came in). Opening the view you are on adds nothing.
   if (new URL(address, location.href).href !== location.href) history.pushState({ view: true }, '', address);
   renderLibrary();
-  if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
+  if (inPanes()) $('booksCol').scrollTop = 0;
+  else if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
 }
 
 /** The same place, narrowed or ordered differently. It is still that place: no new step in history. */
@@ -1382,11 +1383,14 @@ window.addEventListener('popstate', (e) => {
   // Nothing was open on top: Back or Forward moved between views.
   readRoute();
   renderLibrary();
+  paneFollowsRoute();
 });
 
 const sheet = {
   isOpen: false,
   onClose: null,
+  get el() { return $('sheet'); },
+  get body() { return $('sheetBody'); },
   /** Opens the sheet, or swaps its content if it is already open. */
   open(content, onClose) {
     $('sheet').classList.remove('tinted');   // a book's page puts its colour back on (tintSheet)
@@ -2070,36 +2074,42 @@ function searchText(b) {
 // are added as you scroll towards the end.
 const PAGE = 120;
 let shown = { rows: [], next: 0, lastDay: '', key: '', current: null, query: '', heading: () => '' };
-window.addEventListener('scroll', () => {
+const moreSoon = () => {
   const more = $('more');
   if (more && more.getBoundingClientRect().top < window.innerHeight + 800) appendRows();
-}, { passive: true });
+};
+window.addEventListener('scroll', moreSoon, { passive: true });
+$('booksCol').addEventListener('scroll', moreSoon, { passive: true });   // three panes: the books scroll by themselves
 
 // On a wide screen the tools stay at the top of the window. The chips of the filters that are
 // on can fill a few rows there, so they step aside while you scroll down through the books and
 // come back as soon as you scroll up (or reach the top, or tab into them).
 {
   const wide = matchMedia('(min-width: 900px)');
-  let lastY = window.scrollY, travel = 0;
+  // What scrolls the books: the window, or in three panes their own column.
+  const scroller = () => (inPanes() ? $('booksCol') : window);
+  const scrolled = () => (inPanes() ? $('booksCol').scrollTop : window.scrollY);
+  const isStuck = (tools) => tools.getBoundingClientRect().top <= (inPanes() ? $('booksCol').getBoundingClientRect().top : 0) + 1 && scrolled() > 0;
+  let lastY = 0, travel = 0;   // (read on the first scroll: the panes are set up later)
   const tuck = (on) => {
     const tools = $('tools');
     if (tools.classList.contains('tucked') === on) return;
     // While the tools are stuck, the chips leaving or rejoining the flow would make the books
     // under them jump: keep those where they are (browsers with scroll anchoring already did;
     // this is for the ones without). At rest, the chips simply push the books down again.
-    const stuck = tools.getBoundingClientRect().top <= 1 && window.scrollY > 0;
+    const stuck = isStuck(tools);
     const before = $('library').getBoundingClientRect().top;
     tools.classList.toggle('tucked', on);
     const shift = $('library').getBoundingClientRect().top - before;
-    if (stuck && shift) window.scrollBy(0, shift);
-    lastY = window.scrollY;
+    if (stuck && shift) scroller().scrollBy(0, shift);
+    lastY = scrolled();
     travel = 0;
   };
   const update = () => {
     const tools = $('tools');
-    const y = window.scrollY, delta = y - lastY;
+    const y = scrolled(), delta = y - lastY;
     lastY = y;
-    const stuck = tools.getBoundingClientRect().top <= 1 && y > 0;
+    const stuck = isStuck(tools);
     const tabbedIn = $('activeFilters').contains(document.activeElement) && document.activeElement.matches(':focus-visible');
     if (!wide.matches || !stuck || tabbedIn) return tuck(false);
     travel = Math.sign(delta) === Math.sign(travel) ? travel + delta : delta;
@@ -2107,6 +2117,7 @@ window.addEventListener('scroll', () => {
     else if (travel < -8) tuck(false);
   };
   window.addEventListener('scroll', update, { passive: true });
+  $('booksCol').addEventListener('scroll', update, { passive: true });
   wide.addEventListener('change', update);
   document.addEventListener('focusin', (e) => { if ($('tools').contains(e.target) && e.target.matches(':focus-visible')) tuck(false); });
 }
@@ -2138,6 +2149,7 @@ function appendRows(upTo = shown.next + PAGE) {
     if (view.mode === 'list') el.prepend(mark);
     else (el.querySelector('.cover-stack > .cover:last-child') || el.querySelector('.cover')).append(mark);
     if (picking.ids.has(b.id)) el.classList.add('picked');
+    if (pane.isOpen && pane.book === b) { el.classList.add('is-open'); el.setAttribute('aria-current', 'true'); }
     if (picking.on) el.setAttribute('aria-pressed', String(picking.ids.has(b.id)));
     frag.append(el);
   }
@@ -2160,6 +2172,7 @@ function renderLibrary() {
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
   $('library').className = `library mode-${view.mode}`;
+  $('app').classList.toggle('stats-wide', view.mode === 'stats' && !view.seriesIndex);
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
   $('viewSeg').hidden = $('filterBtn').hidden = view.seriesIndex;
@@ -4838,13 +4851,13 @@ function coverTint(src) {
   return tints.get(src);
 }
 
-async function tintSheet(book) {
+async function tintSheet(book, host = sheet) {
   const main = W.mainEdition(book);
   const src = [main.cover, main.thumb].find(Boolean);
   const colour = src ? await coverTint(src) : '';
-  if (openedBook !== book || !bookPageOpen()) return;   // another book, or another sheet, by now
-  if (colour) $('sheet').style.setProperty('--cover', colour);
-  $('sheet').classList.toggle('tinted', !!colour);
+  if (openedBook !== book || bookHost() !== host) return;   // another book, or another sheet, by now
+  if (colour) host.el.style.setProperty('--cover', colour);
+  host.el.classList.toggle('tinted', !!colour);
 }
 
 /** For a book that has no cover, only the small copy of a picture (not kept by the server yet),
@@ -4869,7 +4882,12 @@ function neighbour(book, step) {
 
 /** The book whose page is open in the sheet, if that is what the sheet shows. */
 let openedBook = null;
-const bookPageOpen = () => sheet.isOpen && !!openedBook && !!$('sheetBody').querySelector('.book-page');
+/** Where the book's page is showing and can be acted on: the sheet, or the pane when nothing is over it; else null. */
+function bookHost() {
+  if (sheet.isOpen) return sheet.body.querySelector('.book-page') ? sheet : null;
+  return pane.isOpen && !coverRoom && !scanner.open && !$('app').classList.contains('stats-wide') && pane.body.querySelector('.book-page') ? pane : null;
+}
+const bookPageOpen = () => !!openedBook && !!bookHost();
 
 function turnTo(step) {
   const next = bookPageOpen() && neighbour(openedBook, step);
@@ -4898,11 +4916,178 @@ function initTurning() {
   });
 }
 
+/* ───────────────────────── Three panes ─────────────────────────
+
+   From 1200 px: the lists, the books, and the open book beside them instead of over them
+   (docs/public-library-plan.md, 4), for now in a public library. Each column scrolls by itself.
+   The pane is part of the page, not a layer: no backdrop, no step in history per book; it
+   stays while the books beside it are filtered, ordered or searched, and the book it shows is
+   in the address (`book=`). The line between the books and the pane can be dragged. */
+
+const PANES = matchMedia('(min-width: 1200px)');
+const panesWanted = () => !!VISITING;
+const inPanes = () => panesWanted() && PANES.matches;
+
+const pane = {
+  isOpen: false,
+  book: null,
+  get el() { return $('pane'); },
+  get body() { return $('paneBody'); },
+  /** Shows a book's page (openBook calls this, having set `book`). */
+  open(content) {
+    this.el.classList.remove('tinted');
+    this.body.replaceChildren(content);
+    this.body.scrollTop = 0;
+    this.isOpen = true;
+    markOpenRow();
+  },
+  /** Back to nothing chosen. `quiet`: the address is left as it is (it already says so). */
+  close({ quiet = false } = {}) {
+    const row = this.book && $('library').querySelector(`[data-id="${CSS.escape(this.book.id)}"]`);
+    const focused = this.el.contains(document.activeElement);
+    this.isOpen = false;
+    this.book = null;
+    if (!sheet.isOpen) openedBook = null;
+    this.el.classList.remove('tinted');
+    drawPaneRest();
+    markOpenRow();
+    if (!quiet) history.replaceState(history.state, '', addressOf());
+    if (focused) row?.focus({ preventScroll: true });
+  },
+};
+
+/** The pane with nothing chosen: the shelf's picture and a line, not a blank. */
+function drawPaneRest() {
+  const art = document.querySelector('#empty .empty-art')?.cloneNode(true);
+  fill(pane.body, h('div', { class: 'pane-rest' }, art, h('p', { text: books.length ? t('Choose a book to see it here.') : '' })));
+}
+
+/** The open book's row is marked, in each view of the books. */
+function markOpenRow() {
+  // The keyboard's place goes along with the mark when it was on the row before (turning pages).
+  const focused = $('library').contains(document.activeElement) && document.activeElement.classList.contains('is-open');
+  for (const el of $('library').querySelectorAll('.is-open')) { el.classList.remove('is-open'); el.removeAttribute('aria-current'); }
+  if (!pane.isOpen || !pane.book) return;
+  const el = $('library').querySelector(`[data-id="${CSS.escape(pane.book.id)}"]`);
+  if (el) { el.classList.add('is-open'); el.setAttribute('aria-current', 'true'); }
+  if (focused && el) { el.focus({ preventScroll: true }); el.scrollIntoView({ block: 'nearest' }); }
+}
+
+/** Back or Forward between places: the pane shows the book the address names, or none. */
+function paneFollowsRoute() {
+  if (!inPanes()) return;
+  const id = view.book;
+  view.book = null;
+  const book = id && books.find((b) => b.id === id);
+  if (book && book !== pane.book) openBook(book, shown.rows.includes(book) ? shown.rows : null);
+  else if (!book && pane.isOpen) pane.close({ quiet: true });
+}
+
+/** Puts the layout in three panes or takes it out of them, moving an open book to the other host. */
+function arrangePanes() {
+  const on = inPanes();
+  const was = document.body.classList.contains('panes');
+  document.body.classList.toggle('panes', on);
+  $('pane').hidden = $('splitter').hidden = !on;
+  if (on === was) return;
+  if (on) {
+    const width = store.get('booksWidth', null);
+    if (width) $('app').style.setProperty('--books-w', `${width}px`);
+    drawPaneRest();
+    // A book open over the books moves beside them.
+    if (bookPageOpen() && bookHost() === sheet) {
+      const book = openedBook, rows = trail;
+      closeLayersThen(() => openBook(book, rows));
+    }
+  } else if (pane.isOpen) {
+    // Narrower: the book open beside the books goes over them.
+    const book = pane.book, rows = trail;
+    pane.close({ quiet: true });
+    history.replaceState(history.state, '', addressOf());
+    openBook(book, rows);
+  }
+}
+
+function initPanes() {
+  if (!panesWanted()) return;
+  PANES.addEventListener('change', arrangePanes);
+  arrangePanes();
+
+  // Up and down move through the books (left and right turn pages already, initTurning), Enter
+  // goes into the open book, Escape back to the books. Not while typing, nor with something over the page.
+  document.addEventListener('keydown', (e) => {
+    if (!inPanes() || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (sheet.isOpen || coverRoom || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
+    const inPane = pane.el.contains(e.target);
+    if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !inPane) {
+      const rows = shown.rows;
+      if (!rows.length || view.mode === 'stats') return;
+      e.preventDefault();
+      const at = pane.isOpen ? rows.indexOf(pane.book) : -1;
+      const next = rows[at < 0 ? (e.key === 'ArrowDown' ? 0 : rows.length - 1) : Math.max(0, Math.min(rows.length - 1, at + (e.key === 'ArrowDown' ? 1 : -1)))];
+      if (!next || next === pane.book) return;
+      const index = rows.indexOf(next);
+      if (index >= shown.next) appendRows(index + PAGE);
+      openBook(next, rows);
+      const row = $('library').querySelector(`[data-id="${CSS.escape(next.id)}"]`);
+      row?.focus({ preventScroll: true });
+      row?.scrollIntoView({ block: 'nearest' });
+    } else if (e.key === 'Enter' && pane.isOpen && !inPane && (e.target.classList?.contains('is-open') || !e.target.closest('button, a, [role="separator"]'))) {
+      e.preventDefault();
+      pane.body.focus();
+    } else if (e.key === 'Escape' && inPane) {
+      e.preventDefault();
+      const row = pane.book && $('library').querySelector(`[data-id="${CSS.escape(pane.book.id)}"]`);
+      (row || $('booksCol')).focus({ preventScroll: true });
+    }
+  });
+
+  // The line between the books and the pane: dragged, or with the arrow keys; a double click puts it back.
+  const splitter = $('splitter');
+  const MIN = 300, PANE_MIN = 420, STEP = 24;
+  const widthNow = () => $('booksCol').getBoundingClientRect().width;
+  const setWidth = (px, keep) => {
+    const room = $('app').getBoundingClientRect().width - $('lists').getBoundingClientRect().width - splitter.getBoundingClientRect().width - PANE_MIN;
+    const width = Math.round(Math.max(MIN, Math.min(px, Math.max(MIN, room))));
+    $('app').style.setProperty('--books-w', `${width}px`);
+    splitter.setAttribute('aria-valuenow', String(width));
+    if (keep) store.set('booksWidth', width);
+  };
+  splitter.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    splitter.setPointerCapture(e.pointerId);
+    const x0 = e.clientX, w0 = widthNow();
+    document.body.classList.add('dragging');
+    const move = (ev) => setWidth(w0 + ev.clientX - x0);
+    const up = (ev) => {
+      setWidth(w0 + ev.clientX - x0, true);
+      document.body.classList.remove('dragging');
+      splitter.removeEventListener('pointermove', move);
+      splitter.removeEventListener('pointerup', up);
+      splitter.removeEventListener('pointercancel', up);
+    };
+    splitter.addEventListener('pointermove', move);
+    splitter.addEventListener('pointerup', up);
+    splitter.addEventListener('pointercancel', up);
+  });
+  splitter.addEventListener('keydown', (e) => {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    setWidth(widthNow() + (e.key === 'ArrowRight' ? STEP : -STEP), true);
+  });
+  splitter.addEventListener('dblclick', () => { $('app').style.removeProperty('--books-w'); store.set('booksWidth', null); });
+}
+
 /** `rows`: the list the book is opened from (null: from none); left out, it stays what it was. */
 function openBook(book, rows) {
   if (rows !== undefined) trail = rows;
   openedBook = book;
-  const again = () => { if (books.includes(book)) openBook(book); else sheet.close(); };
+  // Beside the books in three panes, else over them.
+  const host = inPanes() ? pane : sheet;
+  if (host === pane) pane.book = book;
+  const again = () => { if (books.includes(book)) openBook(book); else host.close(); };
   const before = neighbour(book, -1), after = neighbour(book, 1);
   const turn = (other, name, label) => h('button', { class: 'icon-btn', type: 'button', 'aria-label': label, title: label, disabled: !other, onclick: () => openBook(other) }, icon(name));
   const main = W.mainEdition(book);
@@ -4929,7 +5114,7 @@ function openBook(book, rows) {
   const addEdition = () => openAdd(false, { into: book, back: again });
 
   const viewer = coverViewer(book, again, main);
-  sheet.open(h('div', { class: 'book-page' },
+  host.open(h('div', { class: 'book-page' },
     h('div', { class: 'page-head' },
       viewer,
       h('div', { class: 'page-title' },
@@ -4951,7 +5136,7 @@ function openBook(book, rows) {
         listTags(book, null),
         !VISITING && coverSearch(book, viewer, main)),
       h('div', { class: 'page-corner' },
-        h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => host.close() }, icon('x')),
         (before || after) && h('div', { class: 'page-turn' }, turn(before, 'back', t('Previous book')), turn(after, 'forward', t('Next book'))))),
     !VISITING && sourceNote(book, false, again),
     progressBox(book, again),
@@ -4970,10 +5155,11 @@ function openBook(book, rows) {
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
     VISITING ? keepForMyself(book)
       : h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
-  tintSheet(book);
+  tintSheet(book, host);
   // The open book is in the address, so it can be sent to someone and comes back on a reload.
-  // Its page is a step of its own in history: Back closes it, and turning to another book
-  // replaces it rather than adding a step.
+  // Over the books its page is a step of its own in history: Back closes it. Beside them it is
+  // what is chosen in this place, as in a mail client: Back leaves the place. Either way, turning
+  // to another book replaces it rather than adding a step.
   history.replaceState(history.state, '', addressOf({ book: book.id }));
 }
 
@@ -4987,10 +5173,11 @@ async function openAddressedBook(retry = true) {
     await runSync();
     book = books.find((b) => b.id === id);
   }
-  // The address is the list's again, and the book's page a step on top of it.
-  history.replaceState(history.state, '', addressOf());
+  // Over the books: the address is the list's again, and the book's page a step on top of it.
+  if (!inPanes()) history.replaceState(history.state, '', addressOf({ book: null }));
   if (book) openBook(book, shown.rows.includes(book) ? shown.rows : null);
-  else toast(VISITING ? t('That book isn’t in this library') : t('That book isn’t on your shelf'));
+  else if (inPanes()) history.replaceState(history.state, '', addressOf({ book: null }));
+  if (!book) toast(VISITING ? t('That book isn’t in this library') : t('That book isn’t on your shelf'));
 }
 
 /** An edition in the Editions section of its book's page: its cover, a line about it, the lists it is on, when it was read. Tapping it opens its sheet. */
@@ -7118,6 +7305,7 @@ async function visit() {
   $('empty').querySelector('h2').textContent = t('Nothing here yet');
   $('empty').querySelector('p').textContent = '';
   readRoute();
+  initPanes();
   renderLibrary();
   openAddressedBook(false);
 }

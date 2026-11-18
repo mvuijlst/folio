@@ -12,7 +12,7 @@
   <meta name="theme-color" content="#100d2a">
   <meta name="color-scheme" content="dark light">
   <!-- The same as APP_VERSION in app.js (see pageInStep there); a deploy refuses them apart. -->
-  <meta name="folio-version" content="2.16.0">
+  <meta name="folio-version" content="2.17.0">
   <meta name="mobile-web-app-capable" content="yes">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/favicon-48.png" type="image/png" sizes="48x48">
@@ -101,6 +101,9 @@
 
   <nav class="lists" id="lists" aria-label="Lists"></nav>
 
+  <!-- The books: in the page's own flow (display: contents), except in three panes, where
+       this is the middle column and scrolls by itself (app.js: panes). -->
+  <div class="books-col" id="booksCol">
   <div class="tools" id="tools" hidden>
     <label class="search" id="searchWrap" hidden>
       <svg class="icon" aria-hidden="true"><use href="#i-search"/></svg>
@@ -141,6 +144,13 @@
     <h2 data-t>Your shelf is empty</h2>
     <p data-t>Scan the barcode on the back of a book and it lands here, with its title, author, publisher, date and page count.</p>
   </div>
+  </div>
+
+  <!-- Three panes: the open book beside the books, and the line between them to drag. -->
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Width of the books" title="Drag to widen or narrow the books" tabindex="0" hidden></div>
+  <section class="pane" id="pane" aria-label="The open book" hidden>
+    <div class="pane-body" id="paneBody" tabindex="-1"></div>
+  </section>
 
 </div>
 
