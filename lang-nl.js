@@ -694,7 +694,4 @@ export default {
   'Width of the books': 'Breedte van de boeken',
   'Drag to widen or narrow the books': 'Sleep om de boeken breder of smaller te maken',
   'The open book': 'Het open boek',
-  '“{title}” has changes that aren’t saved': '“{title}” heeft wijzigingen die niet bewaard zijn',
-  'Keep editing': 'Verder bewerken',
-  'Discard': 'Weggooien',
 };

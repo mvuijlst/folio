@@ -282,20 +282,6 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   fetch_covers` does a whole shelf at once. Covers you photographed yourself already travel
   with the book.
 
-### Three columns on a wide screen
-
-On a screen 1200 px or wider the app is in three columns: the lists, the books, and the open
-book beside them instead of over them. Each scrolls by itself; drag the line between the books
-and the book to make either wider (a double click puts it back). The book's page and its forms
-(details, an edition, a review, combining, deleting) stay in that column; adding books,
-filters, the order, settings and changing many books at once open over everything, as before.
-
-Up and down go through the books, left and right too; Enter goes into the open book, and
-Escape back to the books, or in a form is Cancel. The open book is in the address, so a reload
-comes back to it, and Back leaves the list rather than going through every book looked at.
-Choosing another book while a form has changes in it asks first, and the window doesn't change
-to fewer columns until that form is saved or cancelled.
-
 ## Books and their editions
 
 A book is the work you know by its title and writers; its **editions** are the copies of it you
@@ -414,8 +400,10 @@ private lists is left out, and the notes on lists ("lent to …") never go along
 filter, order, see the statistics and the series and author pages, and with *Add to my own
 Folio* a book is proposed for their own shelf.
 
-On a wide screen a public library is in three columns, as your own shelf is (see *Three
-columns on a wide screen*).
+On a screen 1200 px or wider a public library is in three columns: the lists, the books, and
+the open book beside them. Each scrolls by itself; drag the line between the books and the
+book to make either wider (a double click puts it back). Up and down go through the books,
+left and right too, Enter goes into the open book and Escape back to the books.
 
 Search engines are asked not to list a public library, but it is not secret: anyone with the
 address can open it. *Stop sharing* takes it offline at once. Visitors see what the server has,

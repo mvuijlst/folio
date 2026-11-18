@@ -1452,7 +1452,7 @@ window.visualViewport?.addEventListener('resize', clearSoon);
 function sheetHead(title, sub, extra) {
   return h('div', { class: 'sheet-head' },
     h('div', null, h('h2', { class: 'sheet-title', text: title }), sub && h('p', { class: 'sheet-sub', text: sub })),
-    extra || h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: (e) => hostOf(e.currentTarget).close() }, icon('x')));
+    extra || h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')));
 }
 
 let toastTimer;
@@ -2173,7 +2173,6 @@ function renderLibrary() {
   $('tools').hidden = !books.length;
   $('library').className = `library mode-${view.mode}`;
   $('app').classList.toggle('stats-wide', view.mode === 'stats' && !view.seriesIndex);
-  if (inPanes() && !pane.isOpen) drawPaneRest();   // (its line depends on there being books)
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
   $('viewSeg').hidden = $('filterBtn').hidden = view.seriesIndex;
@@ -3543,8 +3542,7 @@ function setFacts(ed, data) {
 function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClose, back, onCancel }) {
   // `back` is where Cancel and Save go instead of closing the sheet (the book's page);
   // `onCancel`, where Cancel alone goes (back to the proposals it was opened from).
-  const place = hostFor(book);   // the pane when it holds this book, else the sheet
-  const leave = () => (back ? back() : place.close());
+  const leave = () => (back ? back() : sheet.close());
   let saved = false;
   const whole = isNew || !several(book);
   const ed = isNew ? null : W.mainEdition(book);
@@ -3690,7 +3688,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     confirmDelete(book, again);
   }
 
-  place.open(form, () => onClose?.(saved));
+  sheet.open(form, () => onClose?.(saved));
 }
 
 /**
@@ -3788,7 +3786,7 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
     };
     if (!reads.length) { gone(); return; }
     const host = reads.some((r) => r.boeken) && booklogHost();
-    hostFor(book).open(h('div', null,
+    sheet.open(h('div', null,
       sheetHead(t('Delete this edition?'), editionLine(ed, book) || displayTitle(book)),
       h('p', { class: 'sheet-note drop-note', text: host
         ? t('What was read of it goes too: {n}, and their pages on {host}. The booklog’s history keeps them.', { n: plural(reads.length, 'read'), host })
@@ -3798,7 +3796,7 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
         h('button', { class: 'btn btn-primary', type: 'button', onclick: gone }, icon('trash'), t('Delete')))));
   }
 
-  hostFor(book).open(form);
+  sheet.open(form);
 }
 
 /* ───────────────────────── Markdown (reviews) ───────────────────────── */
@@ -4071,7 +4069,7 @@ function openCombine(book, back) {
   }
   search.addEventListener('input', draw);
   draw();
-  hostFor(book).open(h('div', null,
+  sheet.open(h('div', null,
     sheetHead(t('Combine with another book'), t('Its editions and reads come to “{title}”, and it goes.', { title: displayTitle(book) })),
     h('label', { class: 'field' }, search),
     results,
@@ -4086,7 +4084,7 @@ async function combineWith(book, other, back, title) {
   // A book in the booklog keeps its own.
   if (!title && !survivor.boeken && absorbed.title && !W.sameTitle(survivor.title, absorbed.title)) {
     const pick = (b, which) => { const row = bookRow(b, () => combineWith(book, other, back, which)); row.classList.add('cand'); return row; };
-    hostFor(book).open(h('div', null,
+    sheet.open(h('div', null,
       sheetHead(t('Which title does the book go by?'), t('The other stays the title of its own copy, as with a translation.')),
       h('div', { class: 'cand-list' }, pick(survivor, 'mine'), pick(absorbed, 'theirs')),
       h('div', { class: 'btn-row sheet-actions' },
@@ -4108,7 +4106,7 @@ async function combineWith(book, other, back, title) {
   openBook(survivor, null);
   toast(t('Combined: “{title}” has {n} editions', { title: displayTitle(survivor), n: editionsOf(survivor).length }), {
     action: t('Undo'), ms: 8000,
-    onAction: async () => { await putBack(survivor, before[0]); await putBack(absorbed, before[1]); if (hostFor(survivor).isOpen) openBook(survivor, null); },
+    onAction: async () => { await putBack(survivor, before[0]); await putBack(absorbed, before[1]); if (sheet.isOpen) openBook(survivor, null); },
   });
 }
 
@@ -4123,7 +4121,7 @@ async function notTheSame(book, other, again) {
   again();
   toast(t('“{a}” and “{b}” are two books', { a: displayTitle(book), b: displayTitle(other) }), {
     action: t('Undo'), ms: 8000,
-    onAction: async () => { await putBack(book, before[0]); await putBack(other, before[1]); if (hostFor(book).isOpen) again(); },
+    onAction: async () => { await putBack(book, before[0]); await putBack(other, before[1]); if (sheet.isOpen) again(); },
   });
 }
 
@@ -4166,7 +4164,7 @@ async function splitOff(book, edition, back) {
   openBook(piece, null);
   toast(t('“{title}” is a book of its own now', { title: displayTitle(piece) }), {
     action: t('Undo'), ms: 8000,
-    onAction: async () => { await removeBook(piece); await putBack(book, before); if (hostFor(book).isOpen) openBook(book, null); },
+    onAction: async () => { await removeBook(piece); await putBack(book, before); if (sheet.isOpen) openBook(book, null); },
   });
 }
 
@@ -4586,7 +4584,7 @@ function openBooklogForm(book, back) {
     back();
   }
 
-  hostFor(book).open(h('form', { class: 'list-picker', novalidate: true, onsubmit: submit },
+  sheet.open(h('form', { class: 'list-picker', novalidate: true, onsubmit: submit },
     sheetHead(t('Add to {host}', { host }), displayTitle(book)),
     h('p', { class: 'sheet-note booklog-note' },
       t('The book gets a page of its own there, which anyone can see. A book you have read takes its review, rating and reading date along.'), ' ', suggest),
@@ -4628,7 +4626,7 @@ function bookActions(book, again) {
         if (main) book.main = main; else delete book.main;
         for (const key in said) if (said[key] != null) book[key] = said[key];
         await saveBook(book);
-        if (hostFor(book).isOpen) again();
+        if (sheet.isOpen) again();
       },
     });
   };
@@ -4656,7 +4654,7 @@ function bookActions(book, again) {
 function confirmDelete(book, back) {
   const host = book.boeken ? booklogHost() : '';
   const gone = (fromBooklog) => {
-    hostFor(book).close();
+    sheet.close();
     removeBook(book, { drop: fromBooklog });
     toast(fromBooklog ? t('Book removed, also from {host}', { host }) : t('Book removed'), { action: t('Undo'), onAction: () => restoreBook(book) });
   };
@@ -4664,7 +4662,7 @@ function confirmDelete(book, back) {
   const reads = new Set([book.boeken, ...(book.reviews || []).map((r) => r.boeken).filter(Boolean)]).size;
   const note = h('p', { class: 'sheet-note drop-note', text: reads > 1 ? t('All {n} of its pages there go, one for each read. The booklog’s history keeps a copy.', { n: reads }) : t('Its page there goes. The booklog’s history keeps a copy.') });
   const also = h('input', { type: 'checkbox', checked: true, onchange: () => { note.hidden = !also.checked; } });
-  hostFor(book).open(h('div', null,
+  sheet.open(h('div', null,
     sheetHead(t('Delete this book?'), displayTitle(book)),
     h('label', { class: 'check-line' }, also, h('span', { text: t('Also delete it from {host}', { host }) })),
     note,
@@ -4676,7 +4674,7 @@ function confirmDelete(book, back) {
 /** Dropping a book you meant to read takes it out of the shelf for good; that is asked first. */
 function confirmDrop(book) {
   const host = book.boeken ? booklogHost() : '';
-  hostFor(book).open(h('div', null,
+  sheet.open(h('div', null,
     sheetHead(t('Drop this book?'), displayTitle(book)),
     h('p', { class: 'sheet-note drop-note', text: host ? t('It is removed from your shelf, and its page on {host} is deleted.', { host }) : t('It is removed from your shelf.') }),
     h('div', { class: 'btn-row sheet-actions' },
@@ -4684,7 +4682,7 @@ function confirmDrop(book) {
       h('button', {
         class: 'btn btn-primary', type: 'button',
         onclick: () => {
-          hostFor(book).close();
+          sheet.close();
           removeBook(book, { drop: true });
           toast(t('Book dropped'), { action: t('Undo'), onAction: () => restoreBook(book) });
         },
@@ -4921,45 +4919,27 @@ function initTurning() {
 /* ───────────────────────── Three panes ─────────────────────────
 
    From 1200 px: the lists, the books, and the open book beside them instead of over them
-   (docs/public-library-plan.md, 4). Each column scrolls by itself. The pane is part of the
-   page, not a layer: no backdrop, no step in history per book; it stays while the books beside
-   it are filtered, ordered or searched, and the book it shows is in the address (`book=`). The
-   line between the books and the pane can be dragged.
-
-   A book's page and its forms (details, edition, review, combine, delete…) are one family: they
-   go where the book is (hostFor). Everything else (adding, filters, settings, many books at
-   once) is still the sheet, a dialog over all three. A form with changes in it is not given up
-   by choosing another book without saying so. */
+   (docs/public-library-plan.md, 4), for now in a public library. Each column scrolls by itself.
+   The pane is part of the page, not a layer: no backdrop, no step in history per book; it
+   stays while the books beside it are filtered, ordered or searched, and the book it shows is
+   in the address (`book=`). The line between the books and the pane can be dragged. */
 
 const PANES = matchMedia('(min-width: 1200px)');
-const panesWanted = () => true;
-/** Whether the page is in three panes now (arrangePanes decides, and may wait for a form). */
-const inPanes = () => document.body.classList.contains('panes');
-/** Where a form of `book` goes: the pane when it shows that book and nothing is over it, else the sheet. */
-const hostFor = (book) => (inPanes() && !sheet.isOpen && pane.isOpen && pane.book === book ? pane : sheet);
-/** The host an element is in. */
-const hostOf = (el) => (pane.el.contains(el) ? pane : sheet);
+const panesWanted = () => !!VISITING;
+const inPanes = () => panesWanted() && PANES.matches;
 
 const pane = {
   isOpen: false,
   book: null,
-  dirty: false,      // a form in it has been typed in since it was drawn
-  onClose: null,
   get el() { return $('pane'); },
   get body() { return $('paneBody'); },
-  /** Shows a book's page or one of its forms (openBook sets `book`), as sheet.open does. */
-  open(content, onClose) {
-    // Going from one of its pages to another (the book to its form, say), the keyboard stays in it.
-    const within = this.el.contains(document.activeElement);
+  /** Shows a book's page (openBook calls this, having set `book`). */
+  open(content) {
     this.el.classList.remove('tinted');
     this.body.replaceChildren(content);
     this.body.scrollTop = 0;
-    if (within && !this.el.contains(document.activeElement)) this.body.focus({ preventScroll: true });
     this.isOpen = true;
-    this.dirty = false;
-    this.onClose = onClose || null;
     markOpenRow();
-    if (PANES.matches !== inPanes()) arrangePanes();   // the window changed while a form waited
   },
   /** Back to nothing chosen. `quiet`: the address is left as it is (it already says so). */
   close({ quiet = false } = {}) {
@@ -4967,17 +4947,12 @@ const pane = {
     const focused = this.el.contains(document.activeElement);
     this.isOpen = false;
     this.book = null;
-    this.dirty = false;
     if (!sheet.isOpen) openedBook = null;
     this.el.classList.remove('tinted');
     drawPaneRest();
     markOpenRow();
     if (!quiet) history.replaceState(history.state, '', addressOf());
     if (focused) row?.focus({ preventScroll: true });
-    const cb = this.onClose;
-    this.onClose = null;
-    cb?.();
-    if (PANES.matches !== inPanes()) arrangePanes();
   },
 };
 
@@ -5010,17 +4985,14 @@ function paneFollowsRoute() {
 
 /** Puts the layout in three panes or takes it out of them, moving an open book to the other host. */
 function arrangePanes() {
-  // A form with changes stays where it was begun until it is saved or cancelled.
-  if (pane.dirty && pane.isOpen && !pane.body.querySelector('.book-page')) return;
-  const on = panesWanted() && PANES.matches;
-  const was = inPanes();
+  const on = inPanes();
+  const was = document.body.classList.contains('panes');
   document.body.classList.toggle('panes', on);
   $('pane').hidden = $('splitter').hidden = !on;
   if (on === was) return;
   if (on) {
-    pane.onClose = null;
     const width = store.get('booksWidth', null);
-    if (width) document.documentElement.style.setProperty('--books-w', `${width}px`);
+    if (width) $('app').style.setProperty('--books-w', `${width}px`);
     drawPaneRest();
     // A book open over the books moves beside them.
     if (bookPageOpen() && bookHost() === sheet) {
@@ -5044,19 +5016,9 @@ function initPanes() {
   // Up and down move through the books (left and right turn pages already, initTurning), Enter
   // goes into the open book, Escape back to the books. Not while typing, nor with something over the page.
   document.addEventListener('keydown', (e) => {
-    if (!inPanes() || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || e.isComposing) return;
-    if (sheet.isOpen || coverRoom || scanner.open) return;
+    if (!inPanes() || e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    if (sheet.isOpen || coverRoom || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
     const inPane = pane.el.contains(e.target);
-    if (e.key === 'Escape' && (inPane || e.target === document.body)) {
-      // Escape is Cancel in a form, as in the sheet; on the book's page, back to the books.
-      const cancel = [...pane.body.querySelectorAll('[data-cancel]')].filter((b) => b.offsetParent && !b.disabled).pop();
-      e.preventDefault();
-      if (cancel) { cancel.click(); return; }
-      const row = pane.book && $('library').querySelector(`[data-id="${CSS.escape(pane.book.id)}"]`);
-      (row || $('booksCol')).focus({ preventScroll: true });
-      return;
-    }
-    if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable) return;
     if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && !inPane) {
       const rows = shown.rows;
       if (!rows.length || view.mode === 'stats') return;
@@ -5073,11 +5035,12 @@ function initPanes() {
     } else if (e.key === 'Enter' && pane.isOpen && !inPane && (e.target.classList?.contains('is-open') || !e.target.closest('button, a, [role="separator"]'))) {
       e.preventDefault();
       pane.body.focus();
+    } else if (e.key === 'Escape' && inPane) {
+      e.preventDefault();
+      const row = pane.book && $('library').querySelector(`[data-id="${CSS.escape(pane.book.id)}"]`);
+      (row || $('booksCol')).focus({ preventScroll: true });
     }
   });
-
-  // What is typed into a form in the pane is not lost to a click on another book (openBook asks).
-  for (const type of ['input', 'change']) pane.body.addEventListener(type, (e) => { if (e.target.closest('form')) pane.dirty = true; });
 
   // The line between the books and the pane: dragged, or with the arrow keys; a double click puts it back.
   const splitter = $('splitter');
@@ -5086,7 +5049,7 @@ function initPanes() {
   const setWidth = (px, keep) => {
     const room = $('app').getBoundingClientRect().width - $('lists').getBoundingClientRect().width - splitter.getBoundingClientRect().width - PANE_MIN;
     const width = Math.round(Math.max(MIN, Math.min(px, Math.max(MIN, room))));
-    document.documentElement.style.setProperty('--books-w', `${width}px`);
+    $('app').style.setProperty('--books-w', `${width}px`);
     splitter.setAttribute('aria-valuenow', String(width));
     if (keep) store.set('booksWidth', width);
   };
@@ -5114,26 +5077,11 @@ function initPanes() {
     e.stopPropagation();
     setWidth(widthNow() + (e.key === 'ArrowRight' ? STEP : -STEP), true);
   });
-  splitter.addEventListener('dblclick', () => { document.documentElement.style.removeProperty('--books-w'); store.set('booksWidth', null); });
+  splitter.addEventListener('dblclick', () => { $('app').style.removeProperty('--books-w'); store.set('booksWidth', null); });
 }
 
 /** `rows`: the list the book is opened from (null: from none); left out, it stays what it was. */
 function openBook(book, rows) {
-  if (inPanes()) {
-    // Beside the books: whatever is over them goes first (adding an edition, say, coming back).
-    if (sheet.isOpen) { closeLayersThen(() => openBook(book, rows)); return; }
-    // Another book while a form in the pane has changes: say so first.
-    if (pane.dirty && pane.isOpen && pane.book !== book && !pane.body.querySelector('.book-page')) {
-      toast(t('“{title}” has changes that aren’t saved', { title: displayTitle(pane.book) }), {
-        ms: 8000,
-        actions: [
-          [t('Keep editing'), () => pane.body.querySelector('input, textarea, select')?.focus()],
-          [t('Discard'), () => { pane.dirty = false; openBook(book, rows); }],
-        ],
-      });
-      return;
-    }
-  }
   if (rows !== undefined) trail = rows;
   openedBook = book;
   // Beside the books in three panes, else over them.
@@ -5309,7 +5257,7 @@ function openReviewForm(book, review, back, { finish = false, draft = null } = {
         if (host) { book.dropReads = book.dropReads.filter((slug) => slug !== review.boeken); if (!book.dropReads.length) delete book.dropReads; }
         settleRating(book);
         saveBook(book);
-        if (hostFor(book).isOpen) back();
+        if (sheet.isOpen) back();
       },
     });
   }
@@ -5327,13 +5275,13 @@ function openReviewForm(book, review, back, { finish = false, draft = null } = {
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
       h('button', { class: 'btn btn-primary', type: 'submit' }, icon('check'), t('Save'))));
-  hostFor(book).open(form);
+  sheet.open(form);
   if (isNew && !draft) text.focus();
 }
 
 /** Choose one of a book's editions (the one being read, say). `onPick(edition)`; `back` for Cancel. */
 function chooseEdition(book, current, onPick, back) {
-  hostFor(book).open(h('div', null,
+  sheet.open(h('div', null,
     sheetHead(t('Which edition?'), displayTitle(book)),
     h('div', { class: 'edition-choice' }, editionsOf(book).map((e) => h('button', {
       class: 'edition-pick', type: 'button', 'aria-pressed': String(e === current), onclick: () => onPick(e),
@@ -7391,7 +7339,6 @@ async function init() {
     storageFailed(err);
   }
   readRoute();
-  initPanes();
   renderLibrary();
   keepShelf();
   initUpdates();
