@@ -43,54 +43,71 @@ if [ ! -e "$zone" ]; then
   zone_new=1
 fi
 
-python3 - "$site" "$HOST" <<'PY'
+if ! python3 - "$site" "$HOST" <<'PY'
 import re, sys
 path, host = sys.argv[1], sys.argv[2]
 text = open(path).read()
 
 def blocks(s, start_pat):
-    """(start, end) of each block whose header matches start_pat, braces balanced."""
+    """(start, end, header) of each block whose header matches start_pat, braces balanced."""
     for m in re.finditer(start_pat, s):
         depth, i = 0, s.index('{', m.start())
         while True:
             if s[i] == '{': depth += 1
             elif s[i] == '}':
                 depth -= 1
-                if depth == 0: yield m.start(), i + 1; break
+                if depth == 0: yield m.start(), i + 1, s[m.start():s.index('{', m.start())]; break
             i += 1
 
-out, last, changed = [], 0, False
-for s_start, s_end in blocks(text, r'(?m)^\s*server\s*\{'):
+LOCATION = r'(?m)^[ \t]*location\b[^{;]*\{'
+has = lambda server, path: re.search(r'location\s+(?:\^~\s+|=\s+)?' + re.escape(path) + r'\s*\{', server)
+
+out, last, changed, found = [], 0, False, False
+for s_start, s_end, _ in blocks(text, r'(?m)^\s*server\s*\{'):
     server = text[s_start:s_end]
     if not re.search(r'server_name[^;]*\b' + re.escape(host) + r'\b', server):
         continue
-    api = next(blocks(server, r'(?m)^[ \t]*location\s+/api/\s*\{'), None)
-    if not api:
+    # The block that passes requests on to the Folio server, however it is written
+    # (location /api/, /api, ^~ /api/, a pattern for /api and /admin…): copied, so the new
+    # ones proxy exactly as it does. One that says api first; else any that proxies.
+    proxies = [b for b in blocks(server, LOCATION) if 'proxy_pass' in server[b[0]:b[1]]]
+    template = next((b for b in proxies if 'api' in b[2]), proxies[0] if proxies else None)
+    if not template:
         continue
-    head = server[:api[0]]
-    block = server[api[0]:api[1]]
+    found = True
+    t_start, t_end, _ = template
+    block = server[t_start:t_end]
     indent = re.match(r'[ \t]*', block).group(0)
+    body = block[block.index('{') + 1:block.rindex('}')]
+    # proxy_pass with a path of its own (…:8030/api/) would rewrite ours: the address only.
+    body = re.sub(r'(proxy_pass\s+https?://[^/;\s]+)/[^;\s]*\s*;', r'\1;', body)
     add = []
-    if not re.search(r'location\s+/u/\s*\{', server):
-        add.append(block.replace('location /api/', 'location /u/', 1))
-    if not re.search(r'location\s+/api/public/\s*\{', server):
-        public = block.replace('location /api/', 'location /api/public/', 1)
-        public = public.replace('{', '{\n' + indent + '    limit_req zone=folio_public burst=20 nodelay;', 1)
-        add.append(public)
+    # ^~: checked before any pattern location, so none can take these addresses.
+    if not has(server, '/u/'):
+        add.append(f'{indent}location ^~ /u/ {{{body}}}')
+    if not has(server, '/api/public/'):
+        add.append(f'{indent}location ^~ /api/public/ {{\n{indent}    limit_req zone=folio_public burst=20 nodelay;{body}}}')
     if not add:
         continue
-    new_server = head + '\n\n'.join(a.strip('\n') for a in add) + '\n\n' + server[api[0]:]
-    if not head.endswith('\n'):
-        new_server = head + '\n' + new_server[len(head):]
+    new_server = server[:t_start] + '\n\n'.join(add) + '\n\n' + server[t_start:]
     out.append(text[last:s_start]); out.append(new_server); last = s_end; changed = True
 
 if changed:
     out.append(text[last:])
     open(path, 'w').write(''.join(out))
-    print('Added location /u/ and/or /api/public/.')
+    print('Added location ^~ /u/ and/or ^~ /api/public/.')
+elif found:
+    print('Nothing to add: /u/ and /api/public/ are there already.')
 else:
-    print('Nothing to add to the site (already there, or no `location /api/` beside the server_name).')
+    print('Found no location that passes requests on (proxy_pass) beside server_name ' + host + '. Nothing changed.')
+    sys.exit(3)
 PY
+then
+  [ "$zone_new" -eq 1 ] && rm -f "$zone"
+  echo "The site is as it was. Its locations, for a look:" >&2
+  grep -nE "server_name|location|proxy_pass|include" "$site" >&2
+  exit 1
+fi
 
 if nginx -t; then
   systemctl reload nginx

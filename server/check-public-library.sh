@@ -44,8 +44,16 @@ slugs=$(printf '%s\n' "$out" | awk '$1 == "SLUG" {print $2}')
 
 echo
 echo "== nginx"
-if grep -RqE "location\s+/u/" /etc/nginx/ 2>/dev/null; then echo "  location /u/ is there"; else echo "  NO location /u/ in /etc/nginx: run setup-public-library.sh"; fi
-if grep -RqE "location\s+/api/public/" /etc/nginx/ 2>/dev/null; then echo "  location /api/public/ is there"; else echo "  NO location /api/public/ in /etc/nginx: run setup-public-library.sh"; fi
+site=$(grep -RlE "server_name[^;]*\b${HOST//./\\.}\b" /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | head -n1)
+if [ -z "$site" ]; then
+  echo "  no site with server_name $HOST in /etc/nginx"
+else
+  echo "  site: $(readlink -f "$site")"
+  if grep -qE "location\s+(\^~\s+)?/u/" "$site"; then echo "  location /u/ is there"; else echo "  NO location /u/: run setup-public-library.sh"; fi
+  if grep -qE "location\s+(\^~\s+)?/api/public/" "$site"; then echo "  location /api/public/ is there"; else echo "  NO location /api/public/: run setup-public-library.sh"; fi
+  echo "  its lines that matter:"
+  grep -nE "server_name|listen|location|proxy_pass|include|return" "$site" | sed 's/^/    /'
+fi
 
 ask() {   # what, url, extra curl args → "status, and whether Folio's server answered"
   local headers
