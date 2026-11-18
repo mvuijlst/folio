@@ -43,7 +43,7 @@ has settings of its own: see [booklog.md](booklog.md).
 
 ### Production (folio.yusupov.cloud)
 
-nginx serves the static app from `/home/django/bookscan-yusupov` and passes `/api/` and
+nginx serves the static app from `/home/django/folio-yusupov` and passes `/api/` and
 `/admin/` to gunicorn on `127.0.0.1:8030` (systemd unit `folio-yusupov`). Settings come from
 `server/.env` (`DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`). A push deploys both the app and the
 sync server (see [Updating](#updating)); the deploy user `django` may restart only that unit

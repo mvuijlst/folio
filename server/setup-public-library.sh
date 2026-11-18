@@ -24,13 +24,17 @@ ACCOUNT="${1:-}"
 
 [ "$(id -u)" -eq 0 ] || { echo "Run as root." >&2; exit 1; }
 
-site=$(grep -rlE "server_name[^;]*\b${HOST//./\\.}\b" /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | head -n1 || true)
+site=$(grep -RlE "server_name[^;]*\b${HOST//./\\.}\b" /etc/nginx/sites-enabled/ /etc/nginx/conf.d/ 2>/dev/null | head -n1 || true)
 [ -n "$site" ] || { echo "No nginx site with server_name $HOST found." >&2; exit 1; }
 site=$(readlink -f "$site")
 echo "Site: $site"
 
 stamp=$(date +%Y%m%d-%H%M%S)
-cp -a "$site" "$site.bak-$stamp"
+# Backups outside nginx's folders: a copy beside a site in sites-enabled would be loaded too.
+backups=/var/backups/folio-nginx
+mkdir -p "$backups"
+backup="$backups/$(basename "$site").$stamp"
+cp -a "$site" "$backup"
 zone=/etc/nginx/conf.d/folio-public.conf
 zone_new=0
 if [ ! -e "$zone" ]; then
@@ -90,10 +94,10 @@ PY
 
 if nginx -t; then
   systemctl reload nginx
-  echo "nginx reloaded. Backup of the site: $site.bak-$stamp"
+  echo "nginx reloaded. Backup of the site: $backup"
 else
   echo "nginx -t failed: putting everything back." >&2
-  cp -a "$site.bak-$stamp" "$site"
+  cp -a "$backup" "$site"
   [ "$zone_new" -eq 1 ] && rm -f "$zone"
   nginx -t && systemctl reload nginx
   exit 1
