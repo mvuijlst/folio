@@ -436,8 +436,9 @@ class CoverTests(TestCase):
         out = StringIO()
         with mock.patch.object(covers, 'download', return_value=png(300, 450)):
             call_command('fetch_covers', stdout=out)
-        self.assertIn('reader: 7 books given covers, 0 could not be fetched', out.getvalue())
+        self.assertIn('reader: 7 books given covers; 0 could not be fetched, 0 covers still only small', out.getvalue())
         self.assertTrue(all(b.data['cover'].startswith('covers/web/') for b in Book.objects.all()))
+        self.assertTrue(all(b.data['coverFull'].startswith('covers/web/') for b in Book.objects.all()))   # and large
 
     def test_every_edition_gets_its_cover(self):
         url = 'https://covers.openlibrary.org/b/id/{}-M.jpg'

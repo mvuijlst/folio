@@ -5,6 +5,12 @@ size; the booklog's covers are full-size originals. So the server keeps a copy o
 of every cover, 320 pixels wide and in its original proportions, in covers/ (served as
 plain files). An edition's `cover` then points at that copy ("covers/web/….webp"), `coverRatio`
 says how wide it is for its height, and `coverSource` remembers where it came from.
+
+It keeps a large copy too (`coverFull`, a JPEG of at most FULL on its longest side), so a cover
+can always be seen large from the server itself: in the app, in a public library, and for the
+booklog. A cover the user supplied has had one from the start; a catalogue's or the booklog's
+gets one when it is fetched, and the ones from before that are fetched again a few at a time
+(adopt) or all at once (manage.py fetch_covers).
 """
 import base64
 import hashlib
@@ -19,7 +25,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 WIDTH = 320            # shown at up to about 110 px wide, on screens of up to three device pixels per pixel
-FULL = 1600            # longest side of the copy kept of a cover the user supplied (for the booklog)
+FULL = 1600            # longest side of the large copy kept of every cover
 MAX_BYTES = 8_000_000
 TIMEOUT = 6            # seconds, per download
 RETRY_AFTER = 7 * 24 * 3600   # a cover that couldn't be fetched is left alone for a week
@@ -49,6 +55,21 @@ def write_thumbnail(source, target):
         image.save(partial, 'WEBP', quality=78)
         partial.replace(target)
         return round(image.width / image.height, 3)
+
+
+def write_full(data, target):
+    """Save the bytes of an image as a JPEG of at most FULL on its longest side. Never enlarges."""
+    from PIL import Image, ImageOps
+
+    with Image.open(io.BytesIO(data)) as image:
+        image = ImageOps.exif_transpose(image).convert('RGB')
+        if image.width < 20 or image.height < 20:
+            raise ValueError('not a cover (a placeholder pixel)')
+        image.thumbnail((FULL, FULL))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        partial = target.with_suffix('.part')
+        image.save(partial, 'JPEG', quality=90)
+        partial.replace(target)
 
 
 def ratio_of(path):
@@ -88,17 +109,22 @@ def download(url):
 
 
 def keep(url):
-    """Fetch the cover at `url` unless we already have it. → ('covers/web/….webp', ratio) or None."""
-    name = hashlib.sha1(url.encode()).hexdigest()[:16] + f'-{WIDTH}.webp'
-    target = folder('web') / name
-    if target.exists():
-        return f'covers/web/{name}', ratio_of(target)
-    failed = 'cover-failed:' + name
+    """Fetch the cover at `url` unless we already have it, small and large.
+    → ('covers/web/….webp', ratio, 'covers/web/….jpg') or None."""
+    stem = hashlib.sha1(url.encode()).hexdigest()[:16]
+    target, big = folder('web') / f'{stem}-{WIDTH}.webp', folder('web') / f'{stem}.jpg'
+    small, large = f'covers/web/{target.name}', f'covers/web/{big.name}'
+    if target.exists() and big.exists():
+        return small, ratio_of(target), large
+    failed = 'cover-failed:' + target.name
     if cache.get(failed):
         return None
-    for address in candidates(url):
+    for address in candidates(url):   # the large size first
         try:
-            return f'covers/web/{name}', write_thumbnail(download(address), target)
+            data = download(address)
+            ratio = ratio_of(target) if target.exists() else write_thumbnail(data, target)
+            write_full(data, big)
+            return small, ratio, large
         except (urllib.error.URLError, OSError, ValueError):
             continue
     cache.set(failed, 1, RETRY_AFTER)
@@ -111,21 +137,11 @@ def keep_upload(data):
     It is re-encoded, never stored as sent: a JPEG of at most FULL on its longest side, and
     the usual small WebP. → {'cover', 'coverFull', 'coverRatio'}; ValueError if it isn't a picture.
     """
-    from PIL import Image, ImageOps
-
     name = hashlib.sha1(data).hexdigest()[:16]
     full, small = folder('own') / f'{name}.jpg', folder('own') / f'{name}-{WIDTH}.webp'
     try:
         if not full.exists():
-            with Image.open(io.BytesIO(data)) as image:
-                image = ImageOps.exif_transpose(image).convert('RGB')
-                if image.width < 20 or image.height < 20:
-                    raise ValueError('too small to be a cover')
-                image.thumbnail((FULL, FULL))
-                full.parent.mkdir(parents=True, exist_ok=True)
-                partial = full.with_suffix('.part')
-                image.save(partial, 'JPEG', quality=90)
-                partial.replace(full)
+            write_full(data, full)
         ratio = ratio_of(small) if small.exists() else write_thumbnail(full, small)
     except ValueError:
         raise
@@ -231,7 +247,7 @@ def adopt(user, limit=4):
             spots = places(fresh.data)
             if fresh.deleted or i >= len(spots) or spots[i].get('cover') != url:
                 continue
-            spots[i].update(cover=kept[0], coverRatio=kept[1], coverSource=url)
+            spots[i].update(cover=kept[0], coverRatio=kept[1], coverSource=url, coverFull=kept[2])
             save(fresh)
 
     # A cover set in the app while offline (or photographed in the scanner) travels inside the
@@ -257,4 +273,32 @@ def adopt(user, limit=4):
                 continue
             spots[i].update(kept)
             save(fresh)
+    # A cover kept here from before the server kept large ones too (or one the booklog import
+    # made small): its large copy, fetched once more from where it came from.
+    # Once nothing is left, that is remembered for an hour: no going through the whole shelf at
+    # every sync for nothing (a new catalogue cover gets its large copy as it is fetched, above).
+    later, more, caught_up = 0, False, f'covers-large-done:{user.pk}'
+    smallonly = books.filter(text__contains='"coverSource": "https://')
+    for book in ([] if limit and cache.get(caught_up) else smallonly.order_by('?') if limit else smallonly):
+        if more:
+            break
+        for i, place in enumerate(places((changed.get(book.pk) or book).data)):
+            url = place.get('coverSource')
+            if place.get('coverFull') or not str(place.get('cover') or '').startswith('covers/') or not wanted(url):
+                continue
+            if limit and later >= limit:
+                more = True   # left for the next sync (one that can't be fetched now doesn't count)
+                break
+            kept = keep(url)
+            if not kept:
+                continue
+            later += 1
+            fresh = changed.get(book.pk) or Book.objects.get(pk=book.pk)
+            spots = places(fresh.data)
+            if fresh.deleted or i >= len(spots) or spots[i].get('coverSource') != url or spots[i].get('coverFull'):
+                continue
+            spots[i]['coverFull'] = kept[2]
+            save(fresh)
+    if limit and not more:
+        cache.set(caught_up, 1, 3600)
     return list(changed.values())

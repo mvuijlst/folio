@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.19.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.19.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3045,6 +3045,32 @@ function fullCover(subject) {
 /** Is the cover a picture of your own (one a canvas may read, to straighten it)? */
 const ownCover = (subject) => !!(subject.coverFull || (!subject.cover && subject.thumb) || String(subject.cover || '').startsWith('covers/own/'));
 
+/** A cover large, only to look at (a public library): the large copy the server keeps, the small one while it comes. Tap it to see it at full size; Back, Escape or Close close it. */
+function openCoverLarge(subject, title) {
+  const small = subject.cover ? abs(subject.cover) : subject.thumb || '';
+  const large = fullCover(subject);
+  const picture = h('img', { class: 'room-picture', alt: t('The cover, large'), src: small || large });
+  const stage = h('div', { class: 'room-stage', onclick: (e) => { if (e.target === picture) stage.classList.toggle('zoomed'); else closeLayer(); } }, picture);
+  if (large && large !== small) {
+    const full = new Image();
+    full.onload = () => { if (full.naturalWidth > 8) picture.src = large; };
+    full.src = large;
+  }
+  const room = h('div', { class: 'cover-room cover-large', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('The cover, large') },
+    h('div', { class: 'room-bar' },
+      h('h2', { class: 'room-title', text: title || t('Cover') }),
+      h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => closeLayer() }, icon('x'))),
+    stage);
+  document.body.append(room);
+  coverRoom = room;
+  requestAnimationFrame(() => room.classList.add('open'));
+  openLayer(() => {
+    if (coverRoom === room) coverRoom = null;
+    room.classList.remove('open');
+    setTimeout(() => room.remove(), 220);
+  });
+}
+
 /** What a chosen cover makes of a book (or an edition): {picture} is one of your own, {url, ratio} a catalogue's. */
 function coverFields(choice) {
   return choice.picture
@@ -3432,7 +3458,13 @@ function coverControl(subject, host, query) {
 
 /** A book's cover on its page (that of edition `ed`, its main one unless said): tap it to see it large, and to change it there. */
 function coverViewer(book, again, ed = W.mainEdition(book)) {
-  if (VISITING) return h('div', { class: 'cover-view' }, coverEl(look(book, ed), true));
+  // A public library: the cover large, to look at, nothing to change.
+  if (VISITING) {
+    const shown = look(book, ed);
+    return shown.cover || shown.thumb || shown.coverFull
+      ? h('button', { class: 'cover-view', type: 'button', title: t('The cover, large'), 'aria-label': t('The cover, large'), onclick: () => openCoverLarge(shown, displayTitle(book)) }, coverEl(shown, true))
+      : h('div', { class: 'cover-view' }, coverEl(shown, true));
+  }
   const open = () => openCoverRoom({
     subject: () => look(book, ed),
     query: { isbn: ed.isbn, title: ed.title || book.title, author: book.author },

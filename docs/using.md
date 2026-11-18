@@ -398,7 +398,7 @@ lists say: reviews, ratings and read dates when *Read* or *Did not finish* is pu
 when *Reading* is. A list that is not public does not exist for them, a copy that is only on
 private lists is left out, and the notes on lists ("lent to …") never go along. They can search,
 filter, order, see the statistics and the series and author pages, and with *Add to my own
-Folio* a book is proposed for their own shelf.
+Folio* a book is proposed for their own shelf. Tapping a book's cover shows it large.
 
 Search engines are asked not to list a public library, but it is not secret: anyone with the
 address can open it. *Stop sharing* takes it offline at once. Visitors see what the server has,

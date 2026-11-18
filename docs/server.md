@@ -75,6 +75,10 @@ location /api/public/ {
 }
 ```
 
+The server keeps every cover twice: small for lists and large (at most 1600 px) to look at,
+for public libraries too, and for the booklog. Covers from before it kept large ones get theirs
+a few per sync; `sudo bash server/fetch-large-covers.sh` (no arguments) does them all at once.
+
 If a library doesn't show, `sudo bash server/check-public-library.sh` (no arguments, changes
 nothing) says for each library what is missing, and whether nginx or the Folio server refuses it.
 
