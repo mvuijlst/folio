@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.19.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.19.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -5794,7 +5794,12 @@ function openSettings() {
       navRow(t('As a file'), t('JSON, or for Goodreads, StoryGraph…'), () => openPage(openFilePage)),
       navRow(t('About'), t('Version {version}', { version: APP_VERSION }), () => openPage(openAboutPage)))));
   fetchBooklogNames();
-  fetchSharing();
+  // Whether this account may share its library is the server's to say: allowed since the list
+  // was drawn (the admin just said so), the list is drawn again with Public library in it.
+  const shownAllowed = !!sharing?.allowed;
+  fetchSharing().then(() => {
+    if (!!sharing?.allowed !== shownAllowed && sheet.isOpen && $('sheetBody').querySelector('.settings-hub')) openSettings();
+  });
   if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
 }
 
