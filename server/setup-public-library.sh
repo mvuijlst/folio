@@ -109,7 +109,10 @@ if [ -n "$ACCOUNT" ]; then
   sudo -u "$owner" bash -c 'set -a; [ -f .env ] && . ./.env; set +a; exec venv/bin/python manage.py shell' <<PY
 from django.contrib.auth import get_user_model
 from shelf.models import Library
-user = get_user_model().objects.get(username="$ACCOUNT")
+User = get_user_model()
+user = User.objects.filter(username="$ACCOUNT").first()
+if user is None:
+    raise SystemExit("No account called $ACCOUNT. The accounts are: " + ", ".join(User.objects.order_by("username").values_list("username", flat=True)))
 lib, made = Library.objects.get_or_create(user=user)
 lib.allowed = True
 lib.save()
