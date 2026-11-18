@@ -1,6 +1,6 @@
 # A public library, and a three-pane layout on desktop
 
-A working document: analysis and a proposed plan, nothing built yet. Written against 2.13.0.
+A working document: analysis and a plan, being built. Written against 2.13.0.
 
 Two things are asked for:
 
@@ -339,20 +339,20 @@ their own, as `works.js` and `terms.js` are; each new one joins `MODULES` and `S
   strangers now, so `renderMarkdown` (`app.js:3792`) deserves a second look for anything it
   would let through, even with the page's Content-Security-Policy refusing inline scripts.
 
-## 7. Open questions
+## 7. Open questions, answered
 
-1. **A name for the address apart from the username?** Proposed yes, starting as the
-   username (3.2).
-2. **Editions that are only on private lists**: shown with the rest of a public book
-   (proposed), or hidden?
-3. **Reviews follow the reading lists** (3.1): a book that is public through *Library* alone
-   shows no rating or review unless *Read* is public too. Is that the wanted rule, or should
-   reviews be a switch of their own?
-4. **The booklog link.** A read published to boeken.tsuk.org has its address there (`url`).
-   Show it to visitors as a link? It is public already, but it ties the library to the site.
-5. **Photographed covers** are the owner's own pictures. Public with the rest, assumed.
-6. **A title and a line of introduction** for a library, or just the name?
-7. **1200 px** for three panes, and is a fixed 400 px books column enough, or should it be
-   draggable (later)?
-8. **Other accounts.** Accounts are made by hand in the admin. Is sharing for every account
-   from the start, or a permission the admin grants?
+1. **A name for the address apart from the username?** Yes: a `slug` that starts as the
+   username and can be changed (3.2).
+2. **Editions that are only on private lists** are **hidden**. An edition is shown when it is on
+   a public list or on no list at all; one that is on lists, none of them public, stays home. A
+   read of a hidden edition loses its `ed`, and `main` pointing at one is dropped. A book whose
+   every edition would be hidden keeps its main edition, without its lists, so it has a face.
+3. **Reviews follow the reading lists**, as proposed (3.1).
+4. **No booklog link**: `url` and everything else of the booklog stays home.
+5. **Photographed covers** are public with the rest.
+6. **A title and a line of introduction**, each in English and Dutch; a visitor sees the one in
+   their language, else the other.
+7. **1200 px**, and the books column is **draggable** (its width remembered per device).
+8. **Other accounts**: sharing is a permission granted by hand in the Django admin
+   (`Library.allowed`). Without it the app does not offer the *Public library* page and the
+   server refuses to turn sharing on.
