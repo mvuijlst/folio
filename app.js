@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.19.4'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.20.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1332,20 +1332,17 @@ async function findOriginal(book) {
 /* Every language, for choosing the one a book was written in: ISO 639-1, named in the app's language. */
 const ALL_LANGUAGES = ('af ar bg bn ca cs cy da de el en eo es et eu fa fi fr fy ga gl he hi hr hu hy id is it ja ka ko la lt lv mk ' +
   'ms mt nl no pl pt ro ru sk sl sq sr sv sw ta th tl tr uk ur vi yi zh grc').split(' ');
-/** Chips for the languages books on the shelf were written in (and the four the booklog mostly has), and any other from a list. → { el, value } */
+/** The original language, as one dropdown: the languages books on the shelf were written in (and
+    the four the booklog mostly has) first, then every language. → { el, value } */
 function originalPicker(initial) {
-  const picker = { value: initial || '', el: h('div', { class: 'original-picker' }) };
-  const common = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.map((b) => b.originalLanguage).filter(Boolean), picker.value].filter(Boolean))];
-  const other = h('select', { class: 'language-select', 'aria-label': t('Another language') },
-    h('option', { value: '', text: t('Another language…') }),
-    ALL_LANGUAGES.map((code) => [code, languageIn(code)]).sort((a, b) => a[1].localeCompare(b[1], LOCALE)).map(([value, text]) => h('option', { value, text })));
-  other.addEventListener('change', () => { if (other.value) { picker.value = other.value; other.value = ''; draw(); } });
-  const draw = () => fill(picker.el, h('div', { class: 'chips' }, common().map((code) => h('button', {
-    class: 'chip', type: 'button', text: languageName(code), 'aria-pressed': String(picker.value === code),
-    onclick: () => { picker.value = picker.value === code ? '' : code; draw(); },
-  }))), other);
-  draw();
-  return picker;
+  const byName = (codes) => codes.map((code) => [code, languageIn(code)]).sort((x, y) => x[1].localeCompare(y[1], LOCALE));
+  const common = new Set([...Object.keys(LANGUAGE_NAMES), ...books.map((b) => b.originalLanguage).filter(Boolean), initial].filter(Boolean));
+  const option = ([value, text]) => h('option', { value, text, selected: value === (initial || '') });
+  const select = h('select', { class: 'language-select', name: 'originalLanguage', 'aria-label': t('Original language') },
+    option(['', t('Not known')]),
+    h('optgroup', { label: t('On your shelf') }, byName([...common]).map(option)),
+    h('optgroup', { label: t('Every language') }, byName(ALL_LANGUAGES.filter((code) => !common.has(code))).map(option)));
+  return { el: select, get value() { return select.value; } };
 }
 
 /* ───────────────────────── Layers, sheet, toast ───────────────────────── */
@@ -1839,7 +1836,7 @@ function facetsOf() {
   facets.push({ ...having('category', (b) => b.categories || [], categoryName, (a, b) => categoryName(a).localeCompare(categoryName(b), LOCALE)), name: t('Category') });
   const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
   facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
-  facets.push({ ...having('original', (b) => [b.originalLanguage].filter(Boolean), languageName, (a, b) => languageName(a).localeCompare(languageName(b), LOCALE)), name: t('Written in') });
+  facets.push({ ...having('original', (b) => [b.originalLanguage].filter(Boolean), languageName, (a, b) => languageName(a).localeCompare(languageName(b), LOCALE)), name: t('Original language'), dropdown: true });
   if (view.list !== 'to-read' && view.list !== 'reading') {
     // A span of years, from–to (openFilterSheet draws it as a slider). A book is in it when it
     // was read in any year of it: read in 2015 and again in 2020, it is among the books of both.
@@ -1903,9 +1900,11 @@ function fitsFacet(facet, chosen, b, e) {
 
 function openFilterSheet(inScope) {
   const facets = facetsOf();
-  const body = h('div');
+  // A click beside an open dropdown closes it, as a click beside any list of choices does.
+  const body = h('div', { onclick: (e) => { for (const menu of body.querySelectorAll('details.multi-select[open]')) if (!menu.contains(e.target)) menu.open = false; } });
   // Chosen here, applied when the sheet closes: only then is the address under it the current one.
   let draft = { ...view.filters };
+  let dropped = null;   // the facet whose dropdown is open: drawn again, it stays open
   // Which filters and choices the sheet shows is settled once, by what the place holds, so that
   // nothing comes or goes while you choose and the sheet stays where it is: only the numbers
   // change, and a choice with nothing left goes faint. Numbers keep the width of the largest.
@@ -1940,6 +1939,28 @@ function openFilterSheet(inScope) {
         const place = shown.get(facet.key);
         if (!place) return null;
         const values = place.values.map((v) => ({ ...v, count: others.filter((b) => passes(b, facets, null, { ...draft, [facet.key]: [v.value] })).length }));
+        if (facet.dropdown) {
+          // Many values, each a few books (the original language): a dropdown of checkboxes. Any
+          // one ticked will do; one left out (from the address, or the chips of before) stays so.
+          const named = values.filter((v) => state(v)).map((v) => (state(v) === 'out' ? t('not {name}', { name: v.name }) : v.name));
+          const menu = h('details', {
+            class: 'multi-select', open: dropped === facet.key,
+            ontoggle: (e) => { if (e.target.open) dropped = facet.key; else if (dropped === facet.key) dropped = null; },
+            // Escape closes the list, not the sheet.
+            onkeydown: (e) => { if (e.key === 'Escape' && e.currentTarget.open) { e.preventDefault(); e.stopPropagation(); e.currentTarget.open = false; e.currentTarget.querySelector('summary').focus(); } },
+          },
+          h('summary', { class: 'multi-select-button' + (named.length ? ' is-set' : '') }, h('span', { text: named.join(', ') || t('Any') }), icon('down')),
+          h('div', { class: 'multi-select-list', role: 'group', 'aria-label': facet.name }, values.map((v) => h('label', { class: 'multi-select-row' + (!v.count && !state(v) ? ' is-empty' : '') },
+            h('input', {
+              type: 'checkbox', checked: state(v) === 'in', 'data-choice': `${facet.key}=${v.value}`, disabled: !v.count && !state(v),
+              onchange: (e) => {
+                draft = { ...draft, [facet.key]: [...chosen.filter((x) => x !== v.value && x !== NOT + v.value), ...(e.target.checked ? [v.value] : [])] };
+                draw();
+              },
+            }),
+            h('span', { text: v.name }), h('b', { text: String(v.count) })))));
+          return h('div', { class: 'sheet-section facet' }, h('h3', { text: facet.name }), menu);
+        }
         return h('div', { class: 'sheet-section facet' },
           h('h3', { text: facet.name }),
           h('div', { class: 'chips' }, values.map((v) => h('button', {
@@ -3625,7 +3646,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
     seriesNames,
     whole && h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
-    h('div', { class: 'field' }, h('span', { text: t('Written in') }), original.el),
+    h('label', { class: 'field' }, h('span', { text: t('Original language') }), original.el),
     field(t('Original title'), originalTitle),
     (categories.value.size > 0 || categoryNames().length > 0) && h('div', { class: 'field' }, h('span', { text: t('Categories') }), categories.el),
     field(t('Tags'), tags),

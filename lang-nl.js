@@ -690,4 +690,9 @@ export default {
   'That name is taken.': 'Die naam is al in gebruik.',
   'Sharing a library isn’t possible for this account. Ask the person who runs this site.': 'Een bibliotheek delen kan niet met dit account. Vraag het aan wie deze site beheert.',
   'Cover of {title}': 'Cover van {title}',
+  'Original language': 'Oorspronkelijke taal',
+  'Not known': 'Niet bekend',
+  'On your shelf': 'Op je plank',
+  'Every language': 'Alle talen',
+  'Any': 'Om het even',
 };
