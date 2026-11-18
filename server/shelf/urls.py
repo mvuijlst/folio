@@ -13,4 +13,6 @@ urlpatterns = [
     path('original', views.original_of, name='original'),
     path('booklog-names', views.booklog_names, name='booklog-names'),
     path('tag-merges', views.tag_merges, name='tag-merges'),
+    path('library', views.library_settings, name='library'),
+    path('public/<str:slug>', views.public_library, name='public-library'),
 ]

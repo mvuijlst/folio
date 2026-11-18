@@ -17,6 +17,11 @@
                      booklog names its pages, for the app to show (nulls when there is no booklog here)
   POST /api/tag-merges {"tags": [{"slug", "name", "books"}…]} → {"groups": [{"keep", "merge", "why"}…]}:
                      tags the assistant sees as one, for the user to take or leave
+  GET  /api/library → {"allowed", "enabled", "slug", "title": {"en", "nl"}, "about": {"en", "nl"}}:
+                     whether and as what this account's library is public (shelf/public.py)
+  POST /api/library  {"enabled", "slug", "title", "about"} → the same, changed
+  GET  /api/public/<slug> → {"library", "lists", "books", "terms"}: a public library, for anyone;
+                     404 alike for a name nobody has and a library that isn't shared
   POST /api/translate {"kind": "role", "to": "en" | "nl", "words": [{"word", "books"}…]}
                      → {"words": [{"word", "translation"}…]}: the assistant's proposals, which
                      the app shows for the user to accept or not
@@ -35,13 +40,15 @@ import base64
 import json
 import logging
 import math
+import re
 import time
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth import authenticate, login, logout
 from django.core.cache import cache
 from django.db import transaction
-from django.http import JsonResponse
+from django.db.models import Max
+from django.http import Http404, HttpResponse, HttpResponseNotModified, JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -50,7 +57,8 @@ from django.views.decorators.http import require_GET, require_POST
 from django.conf import settings
 
 from . import covers, intake, original, works
-from .models import Book, List, Term
+from . import public
+from .models import Book, Library, List, Term
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +290,111 @@ def translate(request):
         return error(str(err), 503)
     except intake.IntakeError as err:
         return error(str(err), 502)
+
+
+# ───────────────────────── A public library ─────────────────────────
+
+def library_state(lib):
+    return {
+        'allowed': bool(lib and lib.allowed),
+        'enabled': bool(lib and lib.allowed and lib.enabled),
+        'slug': lib.slug if lib else '',
+        'title': {'en': lib.title_en, 'nl': lib.title_nl} if lib else {'en': '', 'nl': ''},
+        'about': {'en': lib.about_en, 'nl': lib.about_nl} if lib else {'en': '', 'nl': ''},
+    }
+
+
+def two_languages(value, limit):
+    value = value if isinstance(value, dict) else {}
+    return {code: str(value.get(code) or '').strip()[:limit] for code in ('en', 'nl')}
+
+
+def library_settings(request):
+    """The owner's side: whether their library is public, under which name, with what title.
+    Sharing is a permission the admin grants (`allowed`); without it nothing can be turned on."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    lib = Library.objects.filter(user=request.user).first()
+    if request.method == 'GET':
+        return JsonResponse(library_state(lib))
+    if request.method != 'POST':
+        return error('Method not allowed', 405)
+    if not lib or not lib.allowed:
+        return error('Sharing a library isn’t possible for this account. Ask the person who runs this site.', 403)
+    data = body(request)
+    if data is None:
+        return error('Bad request')
+    if 'slug' in data:
+        slug = str(data.get('slug') or '').strip().lower()
+        if not public.slug_ok(slug):
+            return error('A name of lowercase letters, digits and hyphens, please, at most 40.')
+        if Library.objects.filter(slug=slug).exclude(pk=lib.pk).exists():
+            return error('That name is taken.', 409)
+        lib.slug = slug
+    if 'enabled' in data:
+        lib.enabled = bool(data['enabled'])
+    if 'title' in data:
+        title = two_languages(data['title'], 120)
+        lib.title_en, lib.title_nl = title['en'], title['nl']
+    if 'about' in data:
+        about = two_languages(data['about'], 1000)
+        lib.about_en, lib.about_nl = about['en'], about['nl']
+    lib.save()
+    return JsonResponse(library_state(lib))
+
+
+def shared_version(lib):
+    """What changes whenever the public library might: the newest stored change of the owner's
+    books, lists and terms, and of the library itself."""
+    stamps = [lib.changed] + [model.objects.filter(user=lib.user).aggregate(m=Max('changed'))['m'] for model in (Book, List, Term)]
+    newest = max(s for s in stamps if s)
+    return f'"{lib.pk}-{int(newest.timestamp() * 1000)}"'
+
+
+NOT_SHARED = 'There is no library at this address.'
+
+
+@require_GET
+def public_library(request, slug):
+    """A shared library, read-only, for anyone (shelf/public.py says what of it). Not for search
+    engines. Unknown name, sharing off, nothing public: the same 404."""
+    lib = public.shared(slug)
+    if not lib:
+        return error(NOT_SHARED, 404)
+    tag = shared_version(lib)
+    if tag in [t.strip() for t in request.headers.get('If-None-Match', '').split(',')]:
+        response = HttpResponseNotModified()
+    else:
+        key = f'public-library:{tag}'
+        content = cache.get(key)
+        if content is None:
+            built = public.library(lib)
+            if built is None:
+                return error(NOT_SHARED, 404)
+            content = json.dumps(built, ensure_ascii=False, separators=(',', ':'))
+            cache.set(key, content, 60 * 60 * 24)
+        response = HttpResponse(content, content_type='application/json')
+    response['ETag'] = tag
+    response['Cache-Control'] = 'no-cache'
+    response['X-Robots-Tag'] = 'noindex'
+    return response
+
+
+@require_GET
+def public_page(request, slug):
+    """/u/<slug>: the app's own page, to open as a visitor of that library. Its addresses are
+    relative, so the page gets a <base> at the site's root; and it asks not to be indexed."""
+    lib = public.shared(slug)
+    page = (settings.BASE_DIR.parent / 'index.html').read_text(encoding='utf-8')
+    if lib:
+        from django.utils.html import escape
+        title = escape(lib.title_en or lib.title_nl or lib.slug)
+        page = re.sub(r'<title>.*?</title>', f'<title>{title}</title>', page, count=1, flags=re.S)
+    page = re.sub(r'(<head>\s*(?:<meta charset[^>]*>)?)', r'\1\n  <base href="/">\n  <meta name="robots" content="noindex">', page, count=1)
+    response = HttpResponse(page, status=200 if lib else 404)
+    response['X-Robots-Tag'] = 'noindex'
+    response['Cache-Control'] = 'no-cache'
+    return response
 
 
 # ───────────────────────── Sync ─────────────────────────

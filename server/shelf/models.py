@@ -72,3 +72,33 @@ class Term(Record):
 
     def __str__(self):
         return self.value or self.uid
+
+
+class Library(models.Model):
+    """Whether, and as what, a user's shelf can be read by anyone (docs/public-library-plan.md).
+
+    The admin grants it (`allowed`); the owner turns it on (`enabled`) and chooses the lists
+    (`public: true` in a list's own data). The library is at /u/<slug>. Not a synced record:
+    the slug must be unique across accounts, and turning sharing off has to take effect at once.
+    """
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='library')
+    allowed = models.BooleanField(default=False, help_text='This account may show its library to the public.')
+    enabled = models.BooleanField(default=False, help_text='The owner has turned sharing on.')
+    slug = models.SlugField(max_length=40, unique=True, help_text='The name in the address: /u/<name>.')
+    title_en = models.CharField('title (English)', max_length=120, blank=True)
+    title_nl = models.CharField('title (Dutch)', max_length=120, blank=True)
+    about_en = models.TextField('introduction (English)', max_length=1000, blank=True)
+    about_nl = models.TextField('introduction (Dutch)', max_length=1000, blank=True)
+    changed = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name_plural = 'libraries'
+
+    def __str__(self):
+        return self.slug
+
+    def save(self, *args, **kwargs):
+        if not self.slug:
+            from .public import free_slug
+            self.slug = free_slug(self.user.get_username())
+        super().save(*args, **kwargs)

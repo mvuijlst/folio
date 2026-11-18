@@ -49,6 +49,34 @@ nginx serves the static app from `/home/django/folio-yusupov` and passes `/api/`
 sync server (see [Updating](#updating)); the deploy user `django` may restart only that unit
 (`/etc/sudoers.d/folio-deploy`).
 
+A public library (`/u/<name>`, see [the plan](public-library-plan.md)) is the app's page as
+Django sends it, with a `<base>` and a request not to be indexed, so nginx passes `/u/` on as
+well. Its data comes from `/api/public/<name>`, open to anyone, which is limited per address:
+
+```nginx
+# in the http block
+limit_req_zone $binary_remote_addr zone=folio_public:10m rate=30r/m;
+
+# in the server block, next to /api/ and /admin/
+location /u/ {
+    proxy_pass http://127.0.0.1:8030;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+location /api/public/ {
+    limit_req zone=folio_public burst=20 nodelay;
+    proxy_pass http://127.0.0.1:8030;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Who may share is set by hand in the admin: under *Libraries*, add one for the account and tick
+*allowed*. The owner then turns it on and chooses the lists in the app (Settings → Public
+library).
+
 The old address, bookscan.yusupov.cloud, serves the same files and the same accounts, with a
 notice at the top that points to the new one (`MOVED` in `app.js`). A shelf lives in the
 browser per address, so it only comes along by signing in at the new address. Once nobody
