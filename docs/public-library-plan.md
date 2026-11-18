@@ -331,7 +331,7 @@ their own, as `works.js` and `terms.js` are; each new one joins `MODULES` and `S
 | 2 | yes (2.15.0) | `openAddressedBook` opens `book=` at start and puts the address back to the list's, so Back closes it. |
 | 3 | yes | `shelf/public.py`, `test_public.py`; `Library` in the admin. Payload not yet measured on the real shelf. |
 | 4 | yes (2.16.0) | nginx needs `location /u/` and the `limit_req` in [server.md](server.md). Visitor mode is in `app.js` (`VISITING`, `visit`) rather than a module of its own: it is mostly conditions on what exists. Not yet checked: `<base>` with the icon sprite on an iPhone. |
-| 5 | yes (2.17.0) | `initPanes`, `pane`, `bookHost` in `app.js`; the books are wrapped in `#booksCol` (`display: contents` until three panes). Only for visitors (`panesWanted`); stage 6 widens that. The books column is 420 px to start, dragged between 300 px and what leaves the pane 420 px, kept per device (`booksWidth`); a double click puts it back. |
+| 5 | no | |
 | 6 | no | |
 | 7 | yes (2.16.0) | `keepForMyself` / `takeHandover`, through `localStorage` (`bookscan.handover`, ten minutes). |
 

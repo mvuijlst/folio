@@ -400,11 +400,6 @@ private lists is left out, and the notes on lists ("lent to …") never go along
 filter, order, see the statistics and the series and author pages, and with *Add to my own
 Folio* a book is proposed for their own shelf.
 
-On a screen 1200 px or wider a public library is in three columns: the lists, the books, and
-the open book beside them. Each scrolls by itself; drag the line between the books and the
-book to make either wider (a double click puts it back). Up and down go through the books,
-left and right too, Enter goes into the open book and Escape back to the books.
-
 Search engines are asked not to list a public library, but it is not secret: anyone with the
 address can open it. *Stop sharing* takes it offline at once. Visitors see what the server has,
 so a change shows once it has synced.

@@ -689,9 +689,4 @@ export default {
   'Nothing here yet': 'Hier staat nog niets',
   'That name is taken.': 'Die naam is al in gebruik.',
   'Sharing a library isn’t possible for this account. Ask the person who runs this site.': 'Een bibliotheek delen kan niet met dit account. Vraag het aan wie deze site beheert.',
-  // Three panes
-  'Choose a book to see it here.': 'Kies een boek om het hier te zien.',
-  'Width of the books': 'Breedte van de boeken',
-  'Drag to widen or narrow the books': 'Sleep om de boeken breder of smaller te maken',
-  'The open book': 'Het open boek',
 };
