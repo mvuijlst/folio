@@ -323,6 +323,18 @@ The new parts that stand alone (the visitor's start, the pane host) are better a
 their own, as `works.js` and `terms.js` are; each new one joins `MODULES` and `SHELL_FILES` in
 `sw.js`.
 
+### Where it stands
+
+| # | Done | Notes |
+| --- | --- | --- |
+| 1 | yes (2.14.0) | |
+| 2 | yes (2.15.0) | `openAddressedBook` opens `book=` at start and puts the address back to the list's, so Back closes it. |
+| 3 | yes | `shelf/public.py`, `test_public.py`; `Library` in the admin. Payload not yet measured on the real shelf. |
+| 4 | yes (2.16.0) | nginx needs `location /u/` and the `limit_req` in [server.md](server.md). Visitor mode is in `app.js` (`VISITING`, `visit`) rather than a module of its own: it is mostly conditions on what exists. Not yet checked: `<base>` with the icon sprite on an iPhone. |
+| 5 | no | |
+| 6 | no | |
+| 7 | yes (2.16.0) | `keepForMyself` / `takeHandover`, through `localStorage` (`bookscan.handover`, ten minutes). |
+
 ## 6. Risks
 
 - **A leak through the projection.** Mitigated by the allow-list and by tests that assert

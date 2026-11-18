@@ -83,6 +83,11 @@ from your device to Open Library and Google Books, which see what is looked up. 
 on the author's server, your shelf is kept there too, what you describe or photograph for the
 assistant goes through it to OpenAI, and it keeps the usual log of visits.
 
+A public library is off until you turn it on (and the person who runs the server allows it
+for your account). Then anyone with its address can read the books on the lists you chose,
+with only what those lists say, never the notes on them; search engines are asked not to list
+it.
+
 ## License
 
 [MIT](LICENSE). Folio is free and comes as is, without guarantees: keep an export of your shelf.

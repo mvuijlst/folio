@@ -171,6 +171,16 @@ img { display: block; max-width: 100%; }
 .brand { display: flex; align-items: center; gap: 14px; min-width: 0; }
 .mark { width: 56px; height: 56px; flex: none; border-radius: 50%; box-shadow: 0 6px 18px rgba(10, 6, 36, .35); }
 .count { color: var(--muted); font-size: .9rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
+/* A public library (visiting, app.js: visit): its own name and introduction, nothing to add or change. */
+.mark-link { flex: none; display: block; border-radius: 50%; }
+.visit-about { color: var(--muted); font-size: .95rem; margin-top: 8px; max-width: 60ch; white-space: pre-line; }
+.lang-btn { font-size: .82rem; font-weight: 650; letter-spacing: .06em; }
+.visiting .dock { display: none; }
+.visiting .brand { align-items: flex-start; }
+.progress-line { display: flex; align-items: center; gap: 8px; margin-top: 18px; }
+.progress-line .icon { color: var(--accent); }
+.visiting .brand > div { flex-wrap: wrap; }
+.visit-about { flex-basis: 100%; }
 .top-actions { display: flex; gap: 2px; margin-right: -10px; }
 .icon-btn {
   width: 44px; height: 44px; border-radius: var(--radius-sm);
@@ -657,6 +667,21 @@ button.col:hover .col-bar { opacity: .75; }
 .check-line { display: flex; align-items: center; gap: 10px; padding: 14px 0 6px; border-top: 1px solid var(--border); font-size: .95rem; }
 .check-line input { margin: 0; }
 .proposals > .btn { margin-top: 10px; }
+/* A public library, the owner's side (app.js: openLibraryPage) */
+.library-address { display: flex; flex-direction: column; gap: 10px; margin-bottom: 14px; }
+.library-address a { color: var(--accent); font-weight: 600; word-break: break-all; }
+.library-page .btn-row + .field-error, .library-page .btn-block + .field-error { margin-top: 10px; }
+.library-page > .sheet-section:first-of-type > .sheet-note { margin: 0 0 14px; }
+.library-page a.btn { text-decoration: none; }
+.confirm-box { padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-2); }
+.confirm-box p { margin-bottom: 12px; font-size: .95rem; }
+.public-list { padding: 10px 0; }
+.public-list > span { display: flex; flex-direction: column; }
+.public-list small { color: var(--muted); font-size: .84rem; }
+.slug-field { display: flex; align-items: center; gap: 2px; }
+.slug-field small { color: var(--muted); font-size: .95rem; white-space: nowrap; }
+.library-page .bilingual textarea { width: 100%; padding: 12px 14px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font: inherit; color: var(--text); resize: vertical; outline: none; }
+.library-page .bilingual textarea:focus { border-color: var(--accent); }
 .proposals .card-busy { padding: 8px 0; color: var(--muted); }
 
 /* A book's page */

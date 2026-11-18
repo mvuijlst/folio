@@ -386,6 +386,24 @@ The service worker receives what is shared (`share_target` in the manifest posts
 the point where something has to be looked up. A phone may need the app reinstalled, or a
 day, before it shows up in the share menu.
 
+## A public library
+
+With an account, and once the person who runs the server allows it, you can show your library
+to anyone, read-only: **Settings → Public library**. Choose which lists are public, tap *Share
+my library*, and send the address (`/u/<name>`). The name in it, a title and a line of
+introduction (each in English and Dutch) are yours to choose on the same page.
+
+Visitors see a book when it, or one of its copies, is on a public list, and only what public
+lists say: reviews, ratings and read dates when *Read* or *Did not finish* is public, progress
+when *Reading* is. A list that is not public does not exist for them, a copy that is only on
+private lists is left out, and the notes on lists ("lent to …") never go along. They can search,
+filter, order, see the statistics and the series and author pages, and with *Add to my own
+Folio* a book is proposed for their own shelf.
+
+Search engines are asked not to list a public library, but it is not secret: anyone with the
+address can open it. *Stop sharing* takes it offline at once. Visitors see what the server has,
+so a change shows once it has synced.
+
 ## Export
 
 Settings → *Your shelf, as a file* has two exports. Each can be saved, shared or copied.

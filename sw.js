@@ -6,7 +6,7 @@ const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, bar
 const SHARE = 'bookscan-share-v1';   // what another app just shared to this one, until the page picks it up
 
 const MODULES = ['app.js', 'works.js', 'terms.js', 'lang-nl.js'];   // imported by one another: refreshed together
-const BYPASS = /\/(api|admin|django-static|covers)\//;   // never cached here; see the fetch handler
+const BYPASS = /\/(api|admin|django-static|covers|u)\//;   // never cached here; see the fetch handler (u/: a public library's page)
 
 const SHELL_FILES = [
   './',

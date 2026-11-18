@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.15.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.16.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -51,14 +51,23 @@ const fold = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLo
 const buzz = (ms = 35) => { try { navigator.vibrate?.(ms); } catch {} };
 const abs = (path) => new URL(path, document.baseURI).href;
 
+// A public library (docs/public-library-plan.md): the app at /u/<name>, showing someone else's
+// shelf, read-only. Their books are in `books`, `lists` and `terms` as yours are otherwise, so
+// read-only is enforced where things are kept (DB, touch, sync), not only by hiding buttons: the
+// visitor may have their own shelf in this browser, and must never get a stranger's books in it.
+const VISITING = (location.pathname.match(/^\/u\/([a-z0-9-]+)\/?$/) || [])[1] || null;
+const readOnly = () => new Error('Folio: a public library is read-only');
+
 /* ───────────────────────── Settings ───────────────────────── */
 
+// A visitor's choices (view, orders) are kept apart from their own Folio's; the language is one.
+const storeKey = (key) => 'bookscan.' + (VISITING && key !== 'lang' ? `visit.${key}` : key);
 const store = {
   get(key, fallback) {
-    try { const v = localStorage.getItem('bookscan.' + key); return v == null ? fallback : JSON.parse(v); }
+    try { const v = localStorage.getItem(storeKey(key)); return v == null ? fallback : JSON.parse(v); }
     catch { return fallback; }
   },
-  set(key, value) { try { localStorage.setItem('bookscan.' + key, JSON.stringify(value)); } catch {} },
+  set(key, value) { try { localStorage.setItem(storeKey(key), JSON.stringify(value)); } catch {} },
 };
 
 /* ───────────────────────── Language ───────────────────────── */
@@ -137,6 +146,8 @@ function table(database, name) {
       tx.onerror = tx.onabort = () => reject(tx.error);
     });
   };
+  // Visiting a public library, this device's own shelf is neither read nor written.
+  if (VISITING) return { all: async () => [], put: async () => { throw readOnly(); }, del: async () => { throw readOnly(); } };
   return {
     all: () => run('readonly', (s) => s.getAll()),
     put: (row) => run('readwrite', (s) => s.put(row)),
@@ -646,6 +657,7 @@ const waitingChanges = () => Object.keys(sync.dirty).length + Object.keys(sync.d
 
 /** Record a change to a book (pass the book) or its deletion (pass only the id). */
 function touch(id, book) {
+  if (VISITING) throw readOnly();
   const now = new Date().toISOString();
   if (book) book.modified = now;
   sync.dirty[id] = now;
@@ -655,6 +667,7 @@ function touch(id, book) {
 
 /** The same for a list. */
 function touchList(id, list) {
+  if (VISITING) throw readOnly();
   const now = new Date().toISOString();
   if (list) list.modified = now;
   sync.dirtyLists[id] = now;
@@ -664,6 +677,7 @@ function touchList(id, list) {
 
 /** The same for a term (terms.js). */
 function touchTerm(id, term) {
+  if (VISITING) throw readOnly();
   const now = new Date().toISOString();
   if (term) term.modified = now;
   sync.dirtyTerms[id] = now;
@@ -672,7 +686,7 @@ function touchTerm(id, term) {
 }
 
 function scheduleSync(ms = 1500) {
-  if (!sync.user) return;
+  if (!sync.user || VISITING) return;
   clearTimeout(sync.timer);
   sync.timer = setTimeout(() => runSync(), ms);
 }
@@ -705,7 +719,7 @@ async function api(path, data) {
 const time = (iso) => Date.parse(iso) || 0;
 
 async function runSync({ loud = false } = {}) {
-  if (!sync.user) return;
+  if (!sync.user || VISITING) return;
   if (navigator.onLine === false) { if (loud) toast(t('You’re offline — changes will sync later')); return; }
   if (sync.running) { sync.again = true; return sync.running; }
   clearTimeout(sync.timer);
@@ -1648,7 +1662,7 @@ function renderNav() {
   const reading = ['reading', 'to-read', 'read', 'abandoned'].map(listById).filter((l) => l && (l.id !== 'abandoned' || worth(l)));
   const kept = lists.filter((l) => !FIXED.has(l.id) && isScope(l) && worth(l));
   const series = (inSheet) => seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount, inSheet);
-  const edit = () => h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }));
+  const edit = () => !VISITING && h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }));
 
   // Beside the books on a wide screen.
   fill($('lists'),
@@ -1662,10 +1676,12 @@ function renderNav() {
   // Under the thumb on a phone: the four places you go to most, and the rest behind More.
   const tab = (name, label, target, href, isCurrent) => h('a', { class: 'bar-item', href, 'aria-current': isCurrent ? 'page' : null, onclick: go(target) }, icon(name), h('span', { text: label }));
   const elsewhere = !['reading', 'to-read', 'read', null].includes(view.list) || !plain;
-  $('bar').replaceChildren(
-    tab('book-open', listName(listById('reading')), 'reading', '#/list/reading', view.list === 'reading' && plain),
-    tab('bookmark', listName(listById('to-read')), 'to-read', '#/list/to-read', view.list === 'to-read' && plain),
-    tab('check', listName(listById('read')), 'read', '#/list/read', view.list === 'read' && plain),
+  // (A public library may not have all three.)
+  const tabOf = (id, name) => listById(id) && tab(name, listName(listById(id)), id, `#/list/${id}`, view.list === id && plain);
+  fill($('bar'),
+    tabOf('reading', 'book-open'),
+    tabOf('to-read', 'bookmark'),
+    tabOf('read', 'check'),
     tab('library', t('All'), null, '#/', view.list === null && plain),
     h('button', {
       class: 'bar-item', type: 'button', 'aria-current': elsewhere ? 'page' : null,
@@ -1794,9 +1810,10 @@ function facetsOf() {
   // A value says something of the book (`test(b)`), or, with `edition` set, of an edition of it
   // (`test(b, e)`): where a copy is, its format, its language, its cover.
   const ofCopy = (test) => ({ edition: true, test });
-  if (!status) {
+  const statuses = [...FIXED.keys()].filter((id) => !VISITING || listById(id));
+  if (!status && statuses.length) {
     facets.push({ key: 'status', name: t('Reading status'),
-      values: [...FIXED.keys()].map((id) => ({ value: id, name: listName(listById(id) || FIXED.get(id)), test: (b) => !!shelves(b)[id] })) });
+      values: statuses.map((id) => ({ value: id, name: listName(listById(id) || FIXED.get(id)), test: (b) => !!shelves(b)[id] })) });
   }
   const on = (e, id) => !!e.lists?.[id];
   for (const section of listSections().filter((sec) => sec.label && sec.label !== READING)) {
@@ -1826,6 +1843,7 @@ function facetsOf() {
       label: (value) => spanName(yearRange([value])) });
     facets.push({ key: 'rating', name: t('Rating'), values: RATINGS.map(([value, name, fits]) => ({ value, name: typeof name === 'function' ? name() : name, test: (b) => fits(b.rating ?? null) })) });
   }
+  if (VISITING) { for (const facet of facets) facet.edition = facet.values.some((v) => v.edition); return facets; }
   const host = booklogHost();
   const alike = W.twins(books);
   // These are said in full, so each also says how it reads when it is left out (`notName`).
@@ -2134,18 +2152,18 @@ function renderLibrary() {
   if (view.list && !listById(view.list)) view.list = null;   // the open list was deleted
   const current = view.list ? listById(view.list) : null;
   const query = fold($('search').value.trim());
-  $('count').textContent = books.length ? plural(books.length, 'book') : t('Nothing scanned yet');
+  $('count').textContent = books.length ? plural(books.length, 'book') : VISITING ? '' : t('Nothing scanned yet');
   $('search').placeholder = view.seriesIndex ? t('Search series')
     : view.series ? t('Search {list}', { list: view.series })
       : view.author ? t('Search {list}', { list: view.author })
-      : current ? t('Search {list}', { list: listName(current) }) : t('Search your shelf');
+      : current ? t('Search {list}', { list: listName(current) }) : VISITING ? t('Search this library') : t('Search your shelf');
   $('empty').hidden = books.length > 0;
   $('tools').hidden = !books.length;
   $('library').className = `library mode-${view.mode}`;
   for (const button of $('viewSeg').children) button.setAttribute('aria-pressed', String(button.dataset.view === view.mode));
   renderNav();
   $('viewSeg').hidden = $('filterBtn').hidden = view.seriesIndex;
-  $('pickBtn').hidden = view.seriesIndex || view.mode === 'stats';
+  $('pickBtn').hidden = view.seriesIndex || view.mode === 'stats' || !!VISITING;
   $('activeFilters').hidden = true;
   if (view.seriesIndex) { renderSeriesIndex(query); drawPicking(); return; }
 
@@ -2211,7 +2229,7 @@ function renderLibrary() {
   }
   appendRows(rows);
   if ((query || Object.keys(view.filters).length) && !found.length) $('library').append(h('p', { class: 'no-results', text: t('No books match that.') }));
-  else if (current && !found.length && books.length) {
+  else if (current && !found.length && books.length && !VISITING) {
     $('library').append(h('p', { class: 'no-results', text: t('Nothing on “{list}” yet. Add a book while this list is open, or open a book and put it here.', { list: listName(current) }) }));
   }
   drawPicking();
@@ -2554,6 +2572,7 @@ function pickedBooks() {
 }
 
 function startPicking(first) {
+  if (VISITING) return;
   if (!picking.on) {
     Object.assign(picking, { on: true, ids: new Set(), anchor: null });
     openLayer(endPicking, { scrolls: true });
@@ -3408,6 +3427,7 @@ function coverControl(subject, host, query) {
 
 /** A book's cover on its page (that of edition `ed`, its main one unless said): tap it to see it large, and to change it there. */
 function coverViewer(book, again, ed = W.mainEdition(book)) {
+  if (VISITING) return h('div', { class: 'cover-view' }, coverEl(look(book, ed), true));
   const open = () => openCoverRoom({
     subject: () => look(book, ed),
     query: { isbn: ed.isbn, title: ed.title || book.title, author: book.author },
@@ -3783,10 +3803,10 @@ function inlineMarkdown(text) {
     last = m.index + m[0].length;
     if (m[2] !== undefined) {
       const src = safeUrl(m[2]);
-      out.push(src ? h('a', { class: 'prose-img', href: src, target: '_blank', rel: 'noopener' }, h('img', { src, alt: m[1], loading: 'lazy' })) : m[1]);
+      out.push(src ? h('a', { class: 'prose-img', href: src, target: '_blank', rel: 'noopener noreferrer' }, h('img', { src, alt: m[1], loading: 'lazy' })) : m[1]);
     } else if (m[4] !== undefined) {
       const href = safeUrl(m[4]);
-      out.push(href ? h('a', { href, target: '_blank', rel: 'noopener' }, inlineMarkdown(m[3])) : m[3]);
+      out.push(href ? h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, inlineMarkdown(m[3])) : m[3]);
     } else if (m[5] !== undefined) out.push(h('strong', null, inlineMarkdown(m[5])));
     else if (m[6] !== undefined || m[7] !== undefined) out.push(h('em', null, inlineMarkdown(m[6] ?? m[7])));
     else if (m[8] !== undefined) out.push(h('code', { text: m[8] }));
@@ -4166,7 +4186,7 @@ function openDescribe(shared, found) {
   const results = h('div', { class: 'proposals' });
   const hasStatus = () => lists.some((l) => l.group === READING && on[l.id]);
   // One book seen on a photograph: until its catalogue cover is known, the photograph shows it.
-  const photo = found && found.books.length === 1 && !found.books[0].cover ? { thumb: found.thumb } : null;
+  const photo = found && found.from !== 'library' && found.books.length === 1 && !found.books[0].cover ? { thumb: found.thumb } : null;
   let proposals = (found?.books || []).map((p) => ({ ...p, ...photo, picked: !onShelfAlready(p) })), toBooklog = false, saved = false;
 
   function drawResults() {
@@ -4197,7 +4217,7 @@ function openDescribe(shared, found) {
       proposals.length > 0 && hasStatus() && booklog,
       proposals.length > 0 && h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: !picked.length, onclick: add },
         icon('check'), t('Add {n}', { n: plural(picked.length, 'book') })),
-      found && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: found.byHand }, icon('pencil'), t('None of these — enter it myself')));
+      found?.byHand && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: found.byHand }, icon('pencil'), t('None of these — enter it myself')));
   }
 
   async function search(e) {
@@ -4237,8 +4257,9 @@ function openDescribe(shared, found) {
     const book = { ...p, pages: p.pages ?? null, lists: placed(Object.keys(on)) };
     // From a photograph of one book: that photograph is its cover until a better one is found,
     // and a barcode that was scanned first but found nowhere is its ISBN.
-    if (found && one) Object.assign(book, { thumb: found.thumb }, !book.cover && { coverPhoto: true }, found.isbn && { isbn: found.isbn });
-    if (found && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
+    const photographed = found && found.from !== 'library';   // (or handed over from a public library, as it is there)
+    if (photographed && one) Object.assign(book, { thumb: found.thumb }, !book.cover && { coverPhoto: true }, found.isbn && { isbn: found.isbn });
+    if (photographed && !book.format) book.format = 'paper';   // photographed: a paper book in the hand
     // Another edition of a book you have (its audiobook) becomes an edition of it: what the
     // find said of the book itself (its series as a store names it, its note) is not needed.
     const other = adding.into || editionOfShelf(book);
@@ -4293,7 +4314,8 @@ function openDescribe(shared, found) {
     });
   }
 
-  const head = found ? sheetHead(t('Is this the book?'), t('This is what the assistant makes of the cover.'))
+  const head = found?.from === 'library' ? sheetHead(t('Add to your shelf'), t('A book from a public library. Choose where it goes; it is yours to change.'))
+    : found ? sheetHead(t('Is this the book?'), t('This is what the assistant makes of the cover.'))
     : sheetHead(shared ? t('Add what was shared') : t('Add by description'), t('A title, an author, a series, in your own words. One book or several.'));
   const onLists = h('div', { class: found ? 'sheet-section' : 'sheet-section describe-lists' }, h('h3', { text: t('Put them on') }), listPicker(on, { notes: false }));
   const form = h('form', { novalidate: true, onsubmit: search, class: found ? 'sheet-section' : null },
@@ -4328,6 +4350,7 @@ function bookBySlug(slug) {
 
 /** Opens the book the address names, if it names one. `retry`: the shelf may not have synced it yet. */
 async function openLinkedBook(retry = true) {
+  if (VISITING) return;
   const match = location.hash.match(/^#\/book\/([^/?#]+)\/?$/);
   if (!match) return;
   let slug = match[1];
@@ -4342,6 +4365,34 @@ async function openLinkedBook(retry = true) {
   if (book) openBook(book, null);
   else if (!sync.user) toast(t('Sign in to open that book'), { action: t('Sign in'), onAction: openSettings, ms: 8000 });
   else toast(t('That book isn’t on your shelf'));
+}
+
+/* "Add to my own Folio": a book in a public library, handed to the visitor's own Folio. The
+   public page can't add it itself (its `books` are the library's, and the storage refuses), so
+   it leaves the book's facts where the visitor's Folio picks them up when it starts, as it picks
+   up what another app shares, and opens it: add it, or add it as another edition of a book there. */
+const HANDOVER = 'bookscan.handover';   // not under store: it is for the visitor's own Folio
+
+/** On a public library's book page: the button that hands the book over. */
+function keepForMyself(book) {
+  return h('button', {
+    class: 'btn btn-outline btn-block page-edit', type: 'button',
+    onclick: () => {
+      const flat = look(book);
+      const facts = Object.fromEntries(['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'originalTitle', 'originalLanguage', 'olid', 'categories', ...W.MOVED]
+        .filter((key) => flat[key] != null && flat[key] !== '').map((key) => [key, structuredClone(flat[key])]));
+      try { localStorage.setItem(HANDOVER, JSON.stringify({ at: Date.now(), book: facts })); } catch { toast(t('Could not save to this device’s storage')); return; }
+      location.href = abs('./');
+    },
+  }, icon('plus'), t('Add to my own Folio'));
+}
+
+/** In your own Folio: a book handed over from a public library, proposed for adding. */
+function takeHandover() {
+  let handed = null;
+  try { handed = JSON.parse(localStorage.getItem(HANDOVER) || 'null'); localStorage.removeItem(HANDOVER); } catch {}
+  if (!handed?.book?.title || Date.now() - handed.at > 10 * 60 * 1000) return;
+  openDescribe(null, { books: [handed.book], from: 'library', onClose: () => {} });
 }
 
 /* What another app shares to this one (see share_target in the manifest and sw.js) */
@@ -4661,6 +4712,7 @@ function progressOf(x) {
 
 function progressBox(book, again) {
   if (!book.lists?.reading) return null;
+  if (VISITING) return progressLine(book);
   const { audio, total, percent, byPercent } = progressOf(book);
   const reading = W.mainEdition(book);
   // With more than one edition: which one is being read, and a way to say it is another.
@@ -4735,6 +4787,15 @@ function progressBox(book, again) {
   ...(byPercent ? fields.reverse() : fields),   // what this read goes by comes first
   h('button', { class: 'btn btn-outline', type: 'submit' }, icon('check'), t('Save')),
   error, which);
+}
+
+/** How far a read under way is, as a line: a public library's book page. */
+function progressLine(book) {
+  const { audio, total, done, percent } = progressOf(book);
+  const amount = audio ? (book.durationLeft && t('{time} to go', { time: book.durationLeft }))
+    : done != null && (total ? t('Page {page} of {n}', { page: done, n: total }) : t('Page {page}', { page: done }));
+  const said = [amount, percent != null && `${percent}%`].filter(Boolean).join(' · ');
+  return said ? h('p', { class: 'sheet-note progress-line' }, icon('book-open'), said) : null;
 }
 
 /* A book's page takes a little of its cover's colour, as its page in the booklog does: the
@@ -4858,7 +4919,7 @@ function openBook(book, rows) {
         h('div', { class: 'review-what' },
           h('span', { text: [review.date && longDate(review.date), review.rating != null && `★ ${review.rating}`, review.dnf && t('Did not finish')].filter(Boolean).join(' · ') || t('Note') }),
           line && h('small', { text: line })),
-        h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Edit review'), onclick: () => openReviewForm(book, review, again) }, icon('pencil'))),
+        !VISITING && h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Edit review'), onclick: () => openReviewForm(book, review, again) }, icon('pencil'))),
       review.text && h('div', { class: 'prose' }, renderMarkdown(review.text)));
   };
   const reviews = sortedReviews(book);
@@ -4888,26 +4949,27 @@ function openBook(book, rows) {
           [languageLine(b, book), ...(book.categories || []).map(categoryName)].filter(Boolean).join(' · '),
           book.tags?.length > 0 && h('span', { text: (b.language || book.originalLanguage || book.categories?.length ? ' · ' : '') + book.tags.map(tagName).join(', ') })),
         listTags(book, null),
-        coverSearch(book, viewer, main)),
+        !VISITING && coverSearch(book, viewer, main)),
       h('div', { class: 'page-corner' },
         h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: () => sheet.close() }, icon('x')),
         (before || after) && h('div', { class: 'page-turn' }, turn(before, 'back', t('Previous book')), turn(after, 'forward', t('Next book'))))),
-    sourceNote(book, false, again),
+    !VISITING && sourceNote(book, false, again),
     progressBox(book, again),
-    bookActions(book, again),
-    twinsSection(book, again),
+    !VISITING && bookActions(book, again),
+    !VISITING && twinsSection(book, again),
     multi && h('div', { class: 'sheet-section editions' },
       h('div', { class: 'section-head' },
         h('h3', { text: t('Editions') }),
-        h('button', { class: 'link-btn', type: 'button', onclick: addEdition }, icon('plus'), t('Add another edition'))),
+        !VISITING && h('button', { class: 'link-btn', type: 'button', onclick: addEdition }, icon('plus'), t('Add another edition'))),
       editionsOf(book).map((e) => editionRow(book, e, again))),
-    h('div', { class: 'sheet-section' },
+    (!VISITING || reviews.length > 0) && h('div', { class: 'sheet-section' },
       h('div', { class: 'section-head' },
         h('h3', { text: t('Reviews') }),
         // A read that has only its date yet (marked as read, nothing said) is the one a review is for.
-        h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, sortedReviews(book).find((r) => r.date && !r.text && r.rating == null) || null, again) }, icon('plus'), t('Add review'))),
+        !VISITING && h('button', { class: 'link-btn', type: 'button', onclick: () => openReviewForm(book, sortedReviews(book).find((r) => r.date && !r.text && r.rating == null) || null, again) }, icon('plus'), t('Add review'))),
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
-    h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
+    VISITING ? keepForMyself(book)
+      : h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
   tintSheet(book);
   // The open book is in the address, so it can be sent to someone and comes back on a reload.
   // Its page is a step of its own in history: Back closes it, and turning to another book
@@ -4928,7 +4990,7 @@ async function openAddressedBook(retry = true) {
   // The address is the list's again, and the book's page a step on top of it.
   history.replaceState(history.state, '', addressOf());
   if (book) openBook(book, shown.rows.includes(book) ? shown.rows : null);
-  else toast(t('That book isn’t on your shelf'));
+  else toast(VISITING ? t('That book isn’t in this library') : t('That book isn’t on your shelf'));
 }
 
 /** An edition in the Editions section of its book's page: its cover, a line about it, the lists it is on, when it was read. Tapping it opens its sheet. */
@@ -4937,13 +4999,13 @@ function editionRow(book, e, again) {
     .map((r) => new Date(`${r.date}T12:00:00`).toLocaleDateString(LOCALE, { month: 'short', year: 'numeric' }));
   const reading = W.OPEN.some((id) => book.lists?.[id]) && W.mainEdition(book) === e;
   const tags = listsOf({ ...book, lists: {} }, e).map(({ list, note }) => (note ? `${listName(list)}: ${note}` : listName(list)));
-  return h('button', { class: 'edition-row', type: 'button', onclick: () => openEditionForm(book, e, { back: again }) },
+  return h(VISITING ? 'div' : 'button', VISITING ? { class: 'edition-row' } : { class: 'edition-row', type: 'button', onclick: () => openEditionForm(book, e, { back: again }) },
     coverEl(look(book, e)),
     h('span', { class: 'review-what' },
       h('span', { text: editionLine(e, book) || formatName(formatOf({ ...e, boeken: book.boeken })) || t('Edition') }),
       (reading || reads.length > 0) && h('small', { text: [reading && t('reading this one'), reads.join(' · ')].filter(Boolean).join(' · ') }),
       tags.length > 0 && h('span', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text })))),
-    icon('chevron'));
+    !VISITING && icon('chevron'));
 }
 
 /** Write a review, or change one. `back` shows the book's page again. */
@@ -5062,7 +5124,8 @@ function openLists() {
       h(FIXED.has(list.id) ? 'div' : 'button', FIXED.has(list.id) ? { class: 'list-name' } : { class: 'list-name', type: 'button', onclick: () => openListForm(list) },
         h('span', { text: listName(list) }),
         h('small', { text: [FIXED.has(list.id) ? t('Part of the app') : second && second !== listName(list) ? second : '',
-          list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) })].filter(Boolean).join(' · ') })),
+          list.group && t('One of: {set}', { set: show(list.group) }), list.noteLabel && t('Note: {label}', { label: show(list.noteLabel) }),
+          sharing?.enabled && list.public === true && t('Public')].filter(Boolean).join(' · ') })),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} up', { list: listName(list) }), disabled: i === 0, onclick: () => move(i, i - 1) }, icon('up')),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Move {list} down', { list: listName(list) }), disabled: i === lists.length - 1, onclick: () => move(i, i + 1) }, icon('down')));
   };
@@ -5721,11 +5784,128 @@ function openSettings() {
       navRow(t('Tags'), [plural(T.counts(books, 'tags').size, 'tag'), tidy && t('{n} to tidy', { n: tidy })].filter(Boolean).join(' · '), () => openPage(openTags)),
       navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles))),
     navGroup(t('Your shelf'),
+      sync.user && sharing?.allowed && navRow(t('Public library'), sharingAbout(), () => openPage(openLibraryPage)),
       navRow(t('Lookups'), settings.googleKey ? t('Open Library, and Google Books with your key') : t('Open Library and Google Books'), () => openPage(openLookupsPage)),
       navRow(t('As a file'), t('JSON, or for Goodreads, StoryGraph…'), () => openPage(openFilePage)),
       navRow(t('About'), t('Version {version}', { version: APP_VERSION }), () => openPage(openAboutPage)))));
   fetchBooklogNames();
+  fetchSharing();
   if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
+}
+
+/* A public library, the owner's side (docs/public-library-plan.md, 3.6). Whether this account
+   may share is the admin's to say (the server's `allowed`); turning it on, the name in its
+   address and its title are the owner's, kept on the server. Which lists are public is
+   `public: true` on each list, which syncs like the rest of it. */
+
+/** What the server said last: {allowed, enabled, slug, title: {en, nl}, about: {en, nl}}, or null. */
+let sharing = store.get('library', null);
+async function fetchSharing() {
+  if (!sync.user || VISITING || navigator.onLine === false) return sharing;
+  try { sharing = await api('library'); store.set('library', sharing); } catch {}
+  return sharing;
+}
+const publicLists = () => lists.filter((l) => l.public === true);
+/** The books a visitor sees: on a public list, or with an edition on one (as the server has it, shelf/public.py). */
+function publicBooks() {
+  const open = new Set(publicLists().map((l) => l.id));
+  const on = (map) => Object.keys(map || {}).some((id) => open.has(id));
+  return books.filter((b) => on(b.lists) || editionsOf(b).some((e) => on(e.lists)));
+}
+const libraryAddress = () => (sharing?.slug ? new URL(`u/${sharing.slug}`, abs('./')).href : '');
+function sharingAbout() {
+  if (!sharing?.enabled) return t('Not shared');
+  return t('Shared · {n} on {lists}', { n: plural(publicBooks().length, 'book'), lists: plural(publicLists().length, 'list') });
+}
+
+function openLibraryPage() {
+  let confirming = false;
+  const error = h('p', { class: 'field-error', hidden: true });
+  const fail = (message) => { error.textContent = message; error.hidden = false; };
+  const send = async (data) => {
+    error.hidden = true;
+    try { sharing = await api('library', data); store.set('library', sharing); return true; }
+    catch (err) { fail(err.status ? err.message : t('Couldn’t reach the server. Are you online?')); return false; }
+  };
+
+  // The name in the address, the title and the introduction: as the server has them, until saved.
+  const slug = h('input', { name: 'slug', value: sharing?.slug || '', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', maxlength: 40, pattern: '[a-z0-9-]+' });
+  const twoLangs = (label, said, multi) => {
+    const tag = { en: t('English'), nl: t('Dutch') };
+    const inputs = Object.fromEntries(['en', 'nl'].map((code) => [code, multi
+      ? h('textarea', { rows: 3, lang: code, maxlength: 1000, 'aria-label': `${label} (${tag[code]})` })
+      : h('input', { lang: code, maxlength: 120, autocomplete: 'off', 'aria-label': `${label} (${tag[code]})` })]));
+    for (const code of ['en', 'nl']) inputs[code].value = said?.[code] || '';
+    const order = lang === 'nl' ? ['nl', 'en'] : ['en', 'nl'];
+    return {
+      el: h('div', { class: 'field bilingual' }, h('span', { text: label }),
+        h('div', { class: multi ? 'stack' : 'field-row' }, order.map((code) => h('label', { class: 'lang-input' }, inputs[code], h('small', { text: tag[code] }))))),
+      value: () => ({ en: inputs.en.value.trim(), nl: inputs.nl.value.trim() }),
+    };
+  };
+  const title = twoLangs(t('Title'), sharing?.title, false);
+  const about = twoLangs(t('Introduction'), sharing?.about, true);
+
+  function draw() {
+    const on = !!sharing?.enabled, open = publicLists(), shown = publicBooks(), address = libraryAddress();
+    const names = open.map(listName).join(', ');
+    const consequence = open.length
+      ? t('{books} on {lists} ({names}).', { books: plural(shown.length, 'book'), lists: plural(open.length, 'list'), names })
+      : t('No list is public yet: choose them below.');
+    const toggle = async (enabled) => { if (await send({ enabled })) { confirming = false; draw(); toast(enabled ? t('Your library is public') : t('Your library is private again')); } };
+    const listRow = (list) => h('label', { class: 'check-line public-list' },
+      h('input', {
+        type: 'checkbox', checked: list.public === true,
+        onchange: async (e) => { list.public = e.target.checked; await saveList(list); draw(); },
+      }),
+      h('span', null, listName(list), h('small', { text: plural(books.filter((b) => shelves(b)[list.id]).length, 'book') })));
+
+    const redrawn = $('sheetBody').querySelector('.library-page') && $('sheetBody').scrollTop;
+    sheet.open(h('div', { class: 'library-page' },
+      pageHead(t('Public library'), on ? t('Shared') : t('Not shared')),
+      h('div', { class: 'sheet-section' },
+        on && address && h('div', { class: 'library-address' },
+          h('a', { href: address, target: '_blank', rel: 'noopener', text: address.replace(/^https?:\/\//, '') }),
+          h('div', { class: 'btn-row' },
+            h('button', { class: 'btn btn-outline', type: 'button', onclick: async () => { try { await navigator.clipboard.writeText(address); toast(t('Address copied')); } catch { toast(t('Couldn’t copy the address')); } } }, icon('copy'), t('Copy')),
+            navigator.share && h('button', { class: 'btn btn-outline', type: 'button', onclick: () => navigator.share({ url: address, title: inLang(sharing.title) || 'Folio' }).catch(() => {}) }, icon('share'), t('Share')))),
+        h('p', { class: 'sheet-note' }, on ? t('Anyone with the address can read: {what}', { what: consequence }) : t('Only you see your shelf. Shared, anyone with its address can read the books on the lists you choose: {what}', { what: consequence })),
+        confirming
+          ? h('div', { class: 'confirm-box' },
+            h('p', { text: t('Anyone with the address will see {books}: their titles, covers and editions, and where Read, Reading or Did not finish is public, your reviews, ratings and progress. Notes on lists never go along.', { books: plural(shown.length, 'book') }) }),
+            h('div', { class: 'btn-row' },
+              h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => { confirming = false; draw(); } }),
+              h('button', { class: 'btn btn-primary', type: 'button', onclick: () => toggle(true) }, icon('check'), t('Share it'))))
+          : on
+            ? h('div', { class: 'btn-row' },
+              h('a', { class: 'btn btn-outline', href: address, target: '_blank', rel: 'noopener' }, icon('eye'), t('See it as a visitor')),
+              h('button', { class: 'btn btn-outline btn-danger', type: 'button', text: t('Stop sharing'), onclick: () => toggle(false) }))
+            : h('button', { class: 'btn btn-primary btn-block', type: 'button', disabled: !open.length, onclick: () => { confirming = true; draw(); } }, icon('share'), t('Share my library')),
+        error),
+      h('div', { class: 'sheet-section' },
+        h('h3', { text: t('Public lists') }),
+        h('div', { class: 'stack' }, lists.map(listRow)),
+        h('p', { class: 'sheet-note', text: t('A book is shown when it, or one of its copies, is on a public list, and only with what public lists say: its reviews and ratings when Read or Did not finish is public, its progress when Reading is.') })),
+      h('form', {
+        class: 'sheet-section', novalidate: true,
+        onsubmit: async (e) => {
+          e.preventDefault();
+          const name = slug.value.trim().toLowerCase();
+          if (!/^[a-z0-9][a-z0-9-]{0,38}[a-z0-9]$/.test(name)) { fail(t('A name of lowercase letters, digits and hyphens, please, at most 40.')); slug.focus(); return; }
+          if (await send({ slug: name, title: title.value(), about: about.value() })) { toast(t('Saved')); draw(); }
+        },
+      },
+      h('h3', { text: t('How it is shown') }),
+      h('label', { class: 'field' }, h('span', { text: t('Name in the address') }), h('div', { class: 'slug-field' }, h('small', { text: new URL('u/', abs('./')).href.replace(/^https?:\/\//, '') }), slug)),
+      title.el,
+      about.el,
+      h('button', { class: 'btn btn-outline btn-block', type: 'submit' }, icon('check'), t('Save'))),
+      h('p', { class: 'sheet-note', text: t('Search engines are asked not to list it, but it is not secret: anyone with the address can open it. Visitors see what the server has, so a change shows once it has synced.') })));
+    if (redrawn) $('sheetBody').scrollTop = redrawn;
+  }
+  draw();
+  // What the server says now (another device may have changed it).
+  fetchSharing().then(() => { if (sheet.isOpen && $('sheetBody').querySelector('.library-page')) draw(); });
 }
 
 function openAccountPage() {
@@ -6887,6 +7067,61 @@ function pageInStep() {
   return false;
 }
 
+/* ───────────────────────── Visiting a public library ───────────────────────── */
+
+/** The public library open at /u/<name>: {slug, title: {en, nl}, about: {en, nl}}. */
+let library = null;
+/** Of a library's title or introduction ({en, nl}): the one in the app's language, else the other. */
+const inLang = (said) => String(said?.[lang] || said?.[lang === 'nl' ? 'en' : 'nl'] || '').trim();
+
+/** Starts the app as a visitor: the library from the server, nothing from or to this device's own shelf. */
+async function visit() {
+  document.body.classList.add('visiting');
+  $('settingsBtn').hidden = true;
+  // The language, which otherwise is under Settings: the other one, as a button.
+  const other = lang === 'nl' ? 'en' : 'nl';
+  $('themeToggle').before(h('button', {
+    class: 'icon-btn lang-btn', type: 'button', lang: other, text: other.toUpperCase(), title: LANGS[other], 'aria-label': LANGS[other],
+    onclick: () => { store.set('lang', other); location.reload(); },
+  }));
+  // Folio itself, quietly: the mark leads there.
+  const mark = document.querySelector('.mark');
+  const home = h('a', { class: 'mark-link', href: abs('./'), title: 'Folio', 'aria-label': 'Folio' });
+  mark.before(home);
+  home.append(mark);
+  let data = null, status = 0;
+  try {
+    const res = await fetch(abs(`api/public/${encodeURIComponent(VISITING)}`), { credentials: 'omit', cache: 'no-cache' });
+    status = res.status;
+    if (res.ok) data = await res.json();
+  } catch {}
+  if (!data) {
+    const empty = $('empty');
+    empty.querySelector('h2').textContent = status === 404 ? t('There is no library at this address') : t('Couldn’t reach the server. Are you online?');
+    empty.querySelector('p').textContent = status === 404 ? t('Its owner may have stopped sharing it, or the address is not quite right.') : '';
+    empty.hidden = false;
+    $('count').textContent = '';
+    return;
+  }
+  library = data.library || {};
+  lists = Array.isArray(data.lists) ? data.lists : [];
+  sortLists();
+  terms = Array.isArray(data.terms) ? data.terms : [];
+  termsChanged();
+  books = (Array.isArray(data.books) ? data.books : []).filter((b) => b && Array.isArray(b.editions) && b.editions.length).map(guarded);
+  sortBooks();
+  const title = inLang(library.title) || library.slug;
+  document.querySelector('.wordmark').textContent = title;
+  document.title = title;
+  const about = inLang(library.about);
+  if (about) document.querySelector('.brand > div').append(h('p', { class: 'visit-about', text: about }));
+  $('empty').querySelector('h2').textContent = t('Nothing here yet');
+  $('empty').querySelector('p').textContent = '';
+  readRoute();
+  renderLibrary();
+  openAddressedBook(false);
+}
+
 async function init() {
   if (!pageInStep()) return;
   // While developing (?guard=1): a way in from the console.
@@ -6897,6 +7132,7 @@ async function init() {
   localize();
   initTheme();
   bindEvents();
+  if (VISITING) { await visit(); return; }
   showMoved();
   try {
     await loadLists();
@@ -6925,9 +7161,11 @@ async function init() {
   });
   retryPending();
   runSync();
+  fetchSharing();
 
   // Home-screen shortcut: jump straight into the scanner.
   takeShare().then((share) => { if (share) handleShare(share); });
+  takeHandover();
   openLinkedBook();
   openAddressedBook();
   if (new URLSearchParams(location.search).has('scan')) {
