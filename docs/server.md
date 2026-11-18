@@ -75,6 +75,9 @@ location /api/public/ {
 }
 ```
 
+If a library doesn't show, `sudo bash server/check-public-library.sh` (no arguments, changes
+nothing) says for each library what is missing, and whether nginx or the Folio server refuses it.
+
 Who may share is set by hand in the admin: under *Libraries*, add one for the account and tick
 *allowed*. The owner then turns it on and chooses the lists in the app (Settings → Public
 library).
