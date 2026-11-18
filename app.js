@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.20.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.20.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1051,20 +1051,22 @@ function formatPicker(initial) {
 
 /* What a book is in and about: the language of its edition (a two-letter code, as the booklog
    has it), its categories (the booklog's own small set) and its tags (anything). */
-const LANGUAGE_NAMES = { nl: 'Nederlands', en: 'English', fr: 'Français', de: 'Deutsch' };
-// Any other language by its name in the app's language (Japans, Japanese), where the browser knows it.
+/** The languages the booklog mostly has: first wherever a language is chosen. */
+const MAIN_LANGUAGES = ['nl', 'en', 'fr', 'de'];
+// Every language by its name in the app's language (Engels, Japans; English, Japanese), as the
+// browser knows it; the main four also where it doesn't.
 const LANGUAGE_DISPLAY = (() => { try { return new Intl.DisplayNames([lang], { type: 'language' }); } catch { return null; } })();
-function languageName(code) {
-  return LANGUAGE_NAMES[code] || languageIn(code);
-}
-/** A language as the app's language names it (Engels, Japans), for saying what a book was written in. */
+const MAIN_NAMES = { en: { nl: 'Dutch', en: 'English', fr: 'French', de: 'German' }, nl: { nl: 'Nederlands', en: 'Engels', fr: 'Frans', de: 'Duits' } };
+/** A language as the app's language names it (Engels, Japans). */
 function languageIn(code) {
   let name = '';
   try { name = code ? LANGUAGE_DISPLAY?.of(code) || '' : ''; } catch {}
-  return name && name !== code ? name[0].toLocaleUpperCase(LOCALE) + name.slice(1) : String(code || '').toUpperCase();
+  if (!name || name === code) name = MAIN_NAMES[lang]?.[code] || '';
+  return name ? name[0].toLocaleUpperCase(LOCALE) + name.slice(1) : String(code || '').toUpperCase();
 }
+const languageName = languageIn;
 /** The languages to choose from: the four the booklog mostly has, and any other a book is in. */
-const languageCodes = () => [...new Set([...Object.keys(LANGUAGE_NAMES), ...books.flatMap((b) => editionsOf(b).map((e) => e.language)).filter((code) => /^[a-z]{2}$/.test(code || ''))])];
+const languageCodes = () => [...new Set([...MAIN_LANGUAGES, ...books.flatMap((b) => editionsOf(b).map((e) => e.language)).filter((code) => /^[a-z]{2}$/.test(code || ''))])];
 /** Categories to choose from: the booklog's, most used first, then any other a book has. */
 function categoryNames() {
   const all = booklogCategories();
@@ -1336,7 +1338,7 @@ const ALL_LANGUAGES = ('af ar bg bn ca cs cy da de el en eo es et eu fa fi fr fy
     the four the booklog mostly has) first, then every language. → { el, value } */
 function originalPicker(initial) {
   const byName = (codes) => codes.map((code) => [code, languageIn(code)]).sort((x, y) => x[1].localeCompare(y[1], LOCALE));
-  const common = new Set([...Object.keys(LANGUAGE_NAMES), ...books.map((b) => b.originalLanguage).filter(Boolean), initial].filter(Boolean));
+  const common = new Set([...MAIN_LANGUAGES, ...books.map((b) => b.originalLanguage).filter(Boolean), initial].filter(Boolean));
   const option = ([value, text]) => h('option', { value, text, selected: value === (initial || '') });
   const select = h('select', { class: 'language-select', name: 'originalLanguage', 'aria-label': t('Original language') },
     option(['', t('Not known')]),
@@ -3674,7 +3676,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
       categories: [...categories.value], tags: tagsOf(commaList(tags.value)),
       series: v('series'), seriesNumber: null, seriesLabel: '',
       ...(original.value && { originalLanguage: original.value }),
-      ...(originalTitle.value.trim() && { originalTitle: originalTitle.value.replace(/\s+/g, ' ').trim() }),
+      // The original title only when it is another than the title (one corrected to the same says nothing).
+      ...(originalTitle.value.trim() && W.fold(originalTitle.value) !== W.fold(f.title.value) && { originalTitle: originalTitle.value.replace(/\s+/g, ' ').trim() }),
     };
     // The number sorts the series; anything that isn't a plain number ("4/5") is a label shown instead.
     const typed = work.series ? v('seriesNumber') : '';
@@ -4602,8 +4605,8 @@ function openBooklogForm(book, back) {
   const chip = (text, pressed, onclick) => h('button', { class: 'chip', type: 'button', text, 'aria-pressed': String(pressed), onclick });
   function draw() {
     rows.status.replaceChildren(...status.map((l) => chip(listName(l), !!on[l.id], () => { if (on[l.id]) delete on[l.id]; else place(on, l.id); draw(); })));
-    rows.language.replaceChildren(...Object.entries(LANGUAGE_NAMES)
-      .map(([code, name]) => chip(name, language === code, () => { language = code; draw(); })));
+    rows.language.replaceChildren(...MAIN_LANGUAGES
+      .map((code) => chip(languageIn(code), language === code, () => { language = code; draw(); })));
     rows.categories.replaceChildren(...booklogCategories()
       .map((name) => chip(categoryName(name), chosen.has(name), () => { if (!chosen.delete(name)) chosen.add(name); draw(); })));
   }
@@ -4989,7 +4992,7 @@ function openBook(book, rows) {
       viewer,
       h('div', { class: 'page-title' },
         h('h2', { class: 'sheet-title', text: displayTitle(book) }),
-        book.originalTitle && h('p', { class: 'page-original', lang: book.originalLanguage || null, text: book.originalTitle }),
+        book.originalTitle && W.fold(book.originalTitle) !== W.fold(book.title) && h('p', { class: 'page-original', lang: book.originalLanguage || null, text: book.originalTitle }),
         // Each name leads to all of that person's books.
         book.author && h('p', { class: 'page-author' }, authorsOf(book).flatMap((name, i) => [i > 0 && ', ', personLink(name)])),
         others.length > 0 && h('p', { class: 'page-people' },
