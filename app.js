@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.14.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.15.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -543,7 +543,7 @@ function seriesMap() {
 
 function readRoute() {
   const part = (s) => { try { return decodeURIComponent(s); } catch { return ''; } };
-  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null, filters: {}, sort: null });
+  Object.assign(view, { list: null, series: null, seriesIndex: false, author: null, filters: {}, sort: null, book: null });
   const [path, query = ''] = location.hash.split('?');
   let m;
   if ((m = path.match(/^#\/list\/(.+)$/))) view.list = listById(part(m[1])) ? part(m[1]) : null;
@@ -551,7 +551,11 @@ function readRoute() {
   else if ((m = path.match(/^#\/author\/(.+)$/))) view.author = part(m[1]) || null;
   else if (/^#\/series\/?$/.test(path)) view.seriesIndex = true;
   // What narrows the view is in the address too: ?format=audiobook&in:Plaats=<list id>
-  for (const [key, value] of new URLSearchParams(query)) (view.filters[key] ||= []).push(value);
+  // `book` is the book that is open (openBook), not a filter.
+  for (const [key, value] of new URLSearchParams(query)) {
+    if (key === 'book') view.book = value;
+    else (view.filters[key] ||= []).push(value);
+  }
   // "Not on the booklog" became "On the booklog": an older address says it the other way round.
   if (view.filters.other) view.filters.other = view.filters.other.map((v) => ({ local: `${NOT}booklog`, [`${NOT}local`]: 'booklog' })[v] || v);
   // Years read are one span; an older address with years one by one becomes the span they cover.
@@ -561,14 +565,17 @@ function readRoute() {
   }
 }
 
-/** The address of what is showing: the scope, and the filters on it. */
-function addressOf() {
+/** The address of what is showing: the scope, the filters on it and, given its id, the open
+    `book`. Always with the page's own path: a public library's page has a <base> elsewhere. */
+function addressOf({ book } = {}) {
   const path = view.list ? `#/list/${encodeURIComponent(view.list)}`
     : view.series ? `#/series/${encodeURIComponent(view.series)}`
       : view.author ? `#/author/${encodeURIComponent(view.author)}`
         : view.seriesIndex ? '#/series' : '';
-  const query = new URLSearchParams(Object.entries(view.filters).flatMap(([key, values]) => values.map((value) => [key, value]))).toString();
-  return (path || (query ? '#/' : '')) + (query ? `?${query}` : '') || location.pathname + location.search;
+  const pairs = Object.entries(view.filters).flatMap(([key, values]) => values.map((value) => [key, value]));
+  if (book) pairs.push(['book', book]);
+  const query = new URLSearchParams(pairs).toString();
+  return location.pathname + location.search + (path || (query ? '#/' : '')) + (query ? `?${query}` : '');
 }
 
 /** Open every book (null), a list (its id), all series ({seriesIndex: true}), one ({series: name}) or an author's books ({author: name}). */
@@ -4902,6 +4909,26 @@ function openBook(book, rows) {
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
     h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
   tintSheet(book);
+  // The open book is in the address, so it can be sent to someone and comes back on a reload.
+  // Its page is a step of its own in history: Back closes it, and turning to another book
+  // replaces it rather than adding a step.
+  history.replaceState(history.state, '', addressOf({ book: book.id }));
+}
+
+/** Opens the book the address names with `book=` (a reload, a link sent). `retry`: the shelf may not have synced it yet. */
+async function openAddressedBook(retry = true) {
+  const id = view.book;
+  if (!id) return;
+  view.book = null;
+  let book = books.find((b) => b.id === id);
+  if (!book && retry && sync.user && navigator.onLine !== false) {
+    await runSync();
+    book = books.find((b) => b.id === id);
+  }
+  // The address is the list's again, and the book's page a step on top of it.
+  history.replaceState(history.state, '', addressOf());
+  if (book) openBook(book, shown.rows.includes(book) ? shown.rows : null);
+  else toast(t('That book isn’t on your shelf'));
 }
 
 /** An edition in the Editions section of its book's page: its cover, a line about it, the lists it is on, when it was read. Tapping it opens its sheet. */
@@ -6902,6 +6929,7 @@ async function init() {
   // Home-screen shortcut: jump straight into the scanner.
   takeShare().then((share) => { if (share) handleShare(share); });
   openLinkedBook();
+  openAddressedBook();
   if (new URLSearchParams(location.search).has('scan')) {
     history.replaceState(null, '', location.pathname + location.hash);
     openScanner();
