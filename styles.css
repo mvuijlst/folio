@@ -687,7 +687,11 @@ button.col:hover .col-bar { opacity: .75; }
 .proposals .card-busy { padding: 8px 0; color: var(--muted); }
 
 /* A book's page */
-.page-head { display: grid; grid-template-columns: auto 1fr auto; gap: 16px; align-items: start; margin-bottom: 14px; }
+.page-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 16px; align-items: start; margin-bottom: 14px; }
+/* A title with one long word in it (an ISBN, a German compound) wraps rather than pushing Close off the page. */
+.page-title { min-width: 0; }
+.page-title .sheet-title, .sheet-head > div .sheet-title { overflow-wrap: anywhere; hyphens: auto; }
+.sheet-head > div { min-width: 0; }
 .page-head .cover { width: 104px; }
 .page-head .cover span { font-size: 2.6rem; }
 .page-head .icon-btn { margin: -8px -10px 0 0; }
