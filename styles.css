@@ -1447,3 +1447,4 @@ div.list-name { cursor: default; }
 .paper-cover .cover { width: 48px; }
 .paper-cover.on { box-shadow: 0 0 0 2px var(--accent); color: var(--text); }
 .paper-scan .book { width: 100%; }
+.paper-scan h4 { margin: 18px 0 4px; font-size: .78rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }

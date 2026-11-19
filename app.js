@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.28.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.28.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -6785,7 +6785,13 @@ function openPaperPage() {
       h('div', { class: 'sheet-section' },
         h('h3', { text: t('To scan again') }),
         h('p', { class: 'sheet-note', text: scan.length ? t('These paper copies have no ISBN. Scan their barcodes: each scan fills in what its copy doesn’t say yet.') : t('Every paper copy has an ISBN.') }),
-        h('div', { class: 'paper-scan' }, scan.map(({ book, paper }) => bookRow(book, () => openBook(book, null), null, null, paper))))));
+        // By where the copy is, in list order, so a shelf can be done at a time; nowhere last.
+        lists.filter((l) => !isStatus(l.id)).map((l) => [l, scan.filter(({ paper }) => paper.lists?.[l.id])])
+          .concat([[null, scan.filter(({ paper }) => !Object.keys(paper.lists || {}).some((id) => listById(id)))]])
+          .filter(([, group]) => group.length)
+          .map(([l, group]) => h('div', { class: 'paper-scan' },
+            h('h4', { text: `${l ? listName(l) : t('Not on a list')} · ${group.length}` }),
+            group.map(({ book, paper }) => bookRow(book, () => openBook(book, null), null, null, paper)))))));
     mark();
     if (top) $('sheetBody').scrollTop = top;
   }

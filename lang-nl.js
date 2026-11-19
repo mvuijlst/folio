@@ -499,6 +499,7 @@ export default {
   'To scan again': 'Opnieuw te scannen',
   'These paper copies have no ISBN. Scan their barcodes: each scan fills in what its copy doesn’t say yet.': 'Deze papieren kopieën hebben geen ISBN. Scan hun streepjescode: elke scan vult aan wat er over de kopie nog ontbreekt.',
   'Every paper copy has an ISBN.': 'Elke papieren kopie heeft een ISBN.',
+  'Not on a list': 'Op geen lijst',
   'Another copy of it added to “{title}”': 'Nog een exemplaar ervan bij “{title}” gezet',
   'Keep separate': 'Apart houden',
   'Make it a book of its own': 'Apart boek van maken',
