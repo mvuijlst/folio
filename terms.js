@@ -174,13 +174,14 @@ export const missing = (terms, lang) => terms.filter((term) => !clean(term[lang]
    names come from the booklog (the server says them); without it a slug is its own name
    ("science fiction"). Your names, and tags merged into another, are records:
    {id: "tag:belgie", kind: "tag", value: "belgie", nl, en, aliases: [merged slugs]}.
-   Categories are the booklog's fixed set (D-055): they can be named, not added or merged. */
+   Categories are the booklog's fixed set (D-055, D-057): they can be named, not added or merged. */
 
 /** The categories' English names, as the app comes. */
 export const CATEGORY_EN = {
   literatuur: 'literature', fantasy: 'fantasy', 'science-fiction': 'science fiction', horror: 'horror', crime: 'crime',
   romance: 'romance', comic: 'comics', geschiedenis: 'history', biografie: 'biography', wetenschap: 'science',
-  religie: 'religion', taal: 'language', design: 'design', kunst: 'art', 'non-fictie': 'non-fiction',
+  religie: 'religion', taal: 'language', design: 'design', kunst: 'art', koken: 'cooking', informatica: 'computing',
+  'non-fictie': 'non-fiction',
 };
 
 /** As the booklog (Hugo) turns a name into an address: "Lanfeust des étoiles" → "lanfeust-des-etoiles". */

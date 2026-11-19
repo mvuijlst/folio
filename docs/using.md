@@ -215,7 +215,7 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 - **Categories and tags, in two languages.** Both stay on books as the booklog writes them
   (`geschiedenis`, `belgie`); what is shown is a name in the language of the app: in Dutch the
   title of its page in the booklog (*België*), in English a name of its own (*Belgium*).
-  *Categories* lists the booklog's categories (D-055) with both names; they can be named, not
+  *Categories* lists the booklog's categories (D-055, D-057) with both names; they can be named, not
   added or merged, which is the booklog's business. *Tags* lists every tag with how many books
   have it, to search and order by use or name, and *To tidy*: tags spelled two ways
   (*vampiers*, *vampieren*), tags that say what a category or a series says, and, with an
