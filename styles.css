@@ -1267,6 +1267,40 @@ div.list-name { cursor: default; }
 .bulk-check { display: flex; align-items: center; gap: 9px; margin-top: 11px; color: var(--muted); font-size: .9rem; cursor: pointer; }
 .bulk-check input { width: 17px; height: 17px; accent-color: var(--accent-fill); }
 .bulk .sheet-note { margin-top: 8px; font-size: .84rem; }
+
+/* Straightening photographed covers at once: what each would become, ticked or not. */
+.straighten .sheet-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.straighten > .sheet-note { margin: 6px 0 18px; font-size: .84rem; }
+.straighten-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 18px 14px; }
+.straighten-tile {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 0; border: 0; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.straighten-tile:disabled { cursor: default; }
+.straighten-picture {
+  display: flex; align-items: center; justify-content: center; aspect-ratio: 2 / 3; overflow: hidden;
+  border-radius: 2px; background: var(--surface-2);
+  outline: 2px solid transparent; outline-offset: 3px; transition: outline-color .15s, opacity .15s;
+}
+.straighten-picture > * { display: block; max-width: 100%; max-height: 100%; }
+.straighten-photo { width: 100%; height: 100%; object-fit: cover; }
+.straighten-tile[data-state="looking"] .straighten-picture { opacity: .45; }
+.straighten-tile[aria-pressed="false"] .straighten-picture { opacity: .5; }
+.straighten-tile[aria-pressed="true"] .straighten-picture { outline-color: var(--accent); }
+.straighten-tile:not(:disabled):hover .straighten-picture { opacity: 1; }
+.straighten-title {
+  font-size: .8rem; line-height: 1.3; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.straighten-say { font-size: .76rem; line-height: 1.3; color: var(--faint); margin-top: -3px; }
+.straighten-say:empty { display: none; }
+.straighten-tile[data-state="guess"] .straighten-say { color: var(--accent); }
+.straighten .sheet-actions { margin-top: 24px; }
+/* On a phone the bar keeps its count: Straighten is its icon only. */
+@media (max-width: 480px) {
+  .pick-bar .pick-straighten { padding: 0 11px; }
+  .pick-bar .pick-straighten span { display: none; }
+}
 .page-about { color: var(--muted); }
 .page-about span { color: var(--faint); }
 /* On a phone Select stands beside the search box, so filter, order and the views keep one line. */

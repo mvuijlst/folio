@@ -11,8 +11,9 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
+import { findCover } from './corners.js';
 
-const APP_VERSION = '2.20.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.21.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -91,8 +92,8 @@ function t(text, values) {
 }
 
 const COUNTED = {
-  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'], tag: ['tag', 'tags'], category: ['category', 'categories'], list: ['list', 'lists'] },
-  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'], tag: ['tag', 'tags'], category: ['categorie', 'categorieën'], list: ['lijst', 'lijsten'] },
+  en: { book: ['book', 'books'], change: ['change', 'changes'], hour: ['hour', 'hours'], read: ['read', 'reads'], writer: ['writer', 'writers'], person: ['person', 'people'], role: ['role', 'roles'], word: ['word', 'words'], tag: ['tag', 'tags'], category: ['category', 'categories'], list: ['list', 'lists'], cover: ['cover', 'covers'] },
+  nl: { book: ['boek', 'boeken'], change: ['wijziging', 'wijzigingen'], hour: ['uur', 'uur'], read: ['lezing', 'lezingen'], writer: ['schrijver', 'schrijvers'], person: ['persoon', 'personen'], role: ['rol', 'rollen'], word: ['woord', 'woorden'], tag: ['tag', 'tags'], category: ['categorie', 'categorieën'], list: ['lijst', 'lijsten'], cover: ['cover', 'covers'] },
 };
 const plural = (n, word) => `${n} ${COUNTED[lang][word][n === 1 ? 0 : 1]}`;
 
@@ -1853,7 +1854,8 @@ function facetsOf() {
   // These are said in full, so each also says how it reads when it is left out (`notName`).
   facets.push({ key: 'other', name: t('Other'), values: [
     { value: 'nocover', name: t('No cover'), notName: t('With a cover'), ...ofCopy((b, e) => !e.cover && !e.thumb) },
-    { value: 'photo', name: t('Own photo as cover'), notName: t('No own photo as cover'), ...ofCopy((b, e) => !e.cover && !!e.thumb) },
+    // A photo taken in the scanner stays one once the server keeps it (`coverPhoto`), until it is straightened or replaced.
+    { value: 'photo', name: t('Own photo as cover'), notName: t('No own photo as cover'), ...ofCopy((b, e) => !!e.coverPhoto || (!e.cover && !!e.thumb)) },
     host && { value: 'booklog', name: t('On {host}', { host }), notName: t('Not on {host}', { host }), test: (b) => !!b.boeken },
     alike.size > 0 && { value: 'twins', name: t('Possibly the same book'), notName: t('Not possibly the same book'), test: (b) => alike.has(b.id) },
   ].filter(Boolean) });
@@ -2644,12 +2646,22 @@ function drawPicking() {
   if (!picking.on) return;
   const n = picking.ids.size;
   const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
+  const photos = n ? pickedBooks().filter((b) => photographed(rowEdition(b))) : [];
   fill($('pickBar'),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Stop selecting'), title: t('Stop selecting'), onclick: closeLayer }, icon('x')),
     h('span', { class: 'pick-count', text: n ? t('{n} selected', { n }) : t('Select books') }),
     shown.rows.length > 0 && h('button', { class: 'link-btn', type: 'button', text: all ? t('None') : t('All {n}', { n: shown.rows.length }), onclick: pickAll }),
+    photos.length > 0 && h('button', {
+      class: 'btn btn-outline pick-straighten', type: 'button', title: t('Straighten covers'), 'aria-label': t('Straighten covers'),
+      onclick: () => openStraightenCovers(photos),
+    }, icon('crop'), h('span', { text: t('Straighten') })),
     h('button', { class: 'btn btn-primary', type: 'button', disabled: !n, onclick: () => openBulkEdit(pickedBooks()) }, icon('pencil'), t('Edit')));
 }
+
+/** The edition a row of the shelf shows (in a list: the one that is there). */
+const rowEdition = (b) => shown.faces?.get(b) || W.mainEdition(b);
+/** A photo of the cover as it was taken in the scanner: not yet straightened or replaced. */
+const photographed = (ed) => !!ed?.coverPhoto && ownCover(ed);
 
 /** A long press on a book starts selecting, with that book; Escape and Ctrl+A do what they do. */
 function initPicking() {
@@ -2980,6 +2992,132 @@ function openBulkEdit(chosen) {
   sheet.open(form);
 }
 
+/**
+ * Straightening the photographed covers of the books selected, all at once. Each photo is
+ * looked at for the book's edges (corners.js), one after the other, and the cover it would make
+ * is shown: ticked where all four edges were clearly found, unticked where it is a guess, and
+ * left as it is where nothing was found. A tap ticks or unticks one. Straighten does to the
+ * ticked ones what Straighten in the cover does to one; Undo puts them all back. Any left out
+ * can still be straightened one by one, from their cover.
+ */
+function openStraightenCovers(chosen) {
+  const items = chosen.map((book) => ({ book, ed: rowEdition(book), state: 'looking', on: false }));
+  let busy = false;
+  const apply = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, onclick: submit });
+  const note = h('p', { class: 'sheet-note' });
+  const said = {
+    looking: () => t('Looking…'),
+    guess: () => t('Not sure: check it'),
+    none: () => t('Edges not found'),
+    failed: () => t('That picture couldn’t be opened'),
+  };
+
+  for (const it of items) {
+    const small = it.ed.cover ? abs(it.ed.cover) : it.ed.thumb;
+    it.box = h('span', { class: 'straighten-picture' }, h('img', { class: 'straighten-photo', alt: '', src: small }));
+    it.say = h('span', { class: 'straighten-say' });
+    it.el = h('button', {
+      class: 'straighten-tile', type: 'button', 'aria-pressed': 'false', 'aria-label': displayTitle(it.book), title: displayTitle(it.book),
+      onclick: () => { it.on = !it.on; draw(it); refresh(); },
+    }, it.box, h('span', { class: 'straighten-title', text: displayTitle(it.book) }), it.say);
+    draw(it);
+  }
+  const grid = h('div', { class: 'straighten-grid' }, items.map((it) => it.el));
+
+  function draw(it) {
+    it.el.setAttribute('aria-pressed', String(it.on));
+    it.el.disabled = busy || !it.quad;
+    it.el.dataset.state = it.state;
+    it.say.textContent = said[it.state]?.() || '';
+  }
+  function refresh() {
+    const n = items.filter((it) => it.on).length;
+    const left = items.filter((it) => it.state === 'looking').length;
+    apply.disabled = busy || !n;
+    if (!busy) fill(apply, icon('crop'), t('Straighten {covers}', { covers: plural(n, 'cover') }));
+    note.textContent = left
+      ? t('Looking for the edges of the books: {n} to go.', { n: left })
+      : t('Ticked where the edges were found. Tap a cover to tick or untick it; the others stay as they are.');
+  }
+
+  const titles = chosen.slice(0, 3).map(displayTitle).join(', ');
+  const body = h('div', { class: 'straighten' },
+    sheetHead(t('Straighten covers'), chosen.length > 3 ? t('{titles} and {n} more', { titles, n: chosen.length - 3 }) : titles),
+    note, grid,
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => sheet.close() }),
+      apply));
+  refresh();
+  sheet.open(body);
+
+  const pause = () => new Promise((resolve) => setTimeout(resolve));   // let the page draw between photos
+  (async () => {
+    for (const it of items) {
+      if (!grid.isConnected) return;   // closed meanwhile
+      try {
+        const res = await fetch(fullCover(it.ed));
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        it.blob = await res.blob();
+        const bitmap = await createImageBitmap(it.blob);
+        const found = bookIn(bitmap);
+        if (found) {
+          it.quad = found.quad;
+          const preview = straighten(bitmap, found.quad, 360);
+          preview.className = 'straighten-result';
+          it.box.replaceChildren(preview);
+          it.state = found.sure ? 'sure' : 'guess';
+          it.on = found.sure;
+        } else it.state = 'none';
+        bitmap.close?.();
+      } catch (err) {
+        console.warn('Folio: could not look at the cover of', displayTitle(it.book), err);
+        it.state = 'failed';
+      }
+      draw(it);
+      refresh();
+      await pause();
+    }
+  })();
+
+  async function submit() {
+    const picked = items.filter((it) => it.on && it.quad && it.blob);
+    if (!picked.length || busy) return;
+    busy = true;
+    items.forEach(draw);
+    refresh();
+    const done = [];
+    for (const [i, it] of picked.entries()) {
+      if (!grid.isConnected) return;   // closed while straightening: nothing changes
+      fill(apply, t('Straightening {i} of {n}…', { i: i + 1, n: picked.length }));
+      try {
+        const bitmap = await createImageBitmap(it.blob);
+        const out = straighten(bitmap, it.quad);
+        bitmap.close?.();
+        it.picture = await pictureOf(out, out.width, out.height);
+        done.push(it);
+      } catch (err) {
+        console.warn('Folio: could not straighten the cover of', displayTitle(it.book), err);
+      }
+      await pause();
+    }
+    if (!grid.isConnected || !done.length) return;
+    const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull', 'coverPhoto'];
+    const before = done.map((it) => [it.ed, Object.fromEntries(keys.map((key) => [key, it.ed[key]]))]);
+    for (const it of done) Object.assign(it.ed, coverFields({ picture: it.picture }));
+    const changed = [...new Set(done.map((it) => it.book))];
+    await saveBooks(changed);
+    // The server keeps each one large and small, one after the other; the books show the small copies meanwhile.
+    (async () => { for (const it of done) await keepCover(it.ed, { picture: it.picture }, it.book); })();
+    closeLayersThen(() => toast(t('{covers} straightened', { covers: plural(done.length, 'cover') }), {
+      action: t('Undo'), ms: 8000,
+      onAction: async () => {
+        for (const [ed, was] of before) Object.assign(ed, was);
+        await saveBooks(changed);
+      },
+    }));
+  }
+}
+
 /* ───────────────────────── Book form ───────────────────────── */
 
 /**
@@ -3183,12 +3321,28 @@ function homography(w, h, quad) {
   return m;
 }
 
-/** The part of `bitmap` inside `quad` (in its pixels), as an upright rectangle on a canvas. */
-function straighten(bitmap, quad) {
+/** Where the book is in a photo (an ImageBitmap): corners.js's {quad, sure} in the photo's pixels, or null. */
+function bookIn(bitmap) {
+  try {
+    // The lines are looked for in a copy 360 pixels high; twice that is plenty to make it from.
+    const k = Math.min(1, 720 / Math.max(bitmap.width, bitmap.height));
+    const canvas = h('canvas', { width: Math.round(bitmap.width * k), height: Math.round(bitmap.height * k) });
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const found = findCover(ctx.getImageData(0, 0, canvas.width, canvas.height));
+    return found && { ...found, quad: found.quad.map(([x, y]) => [x / k, y / k]) };
+  } catch (err) {
+    console.warn('Folio: could not look for the book in the photo', err);
+    return null;
+  }
+}
+
+/** The part of `bitmap` inside `quad` (in its pixels), as an upright rectangle on a canvas of at most `largest` pixels on its longest side. */
+function straighten(bitmap, quad, largest = 1600) {
   const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
   let w = Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2]));
   let hgt = Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]));
-  const k = Math.min(1, 1600 / Math.max(w, hgt));
+  const k = Math.min(1, largest / Math.max(w, hgt));
   w = Math.max(1, Math.round(w * k)); hgt = Math.max(1, Math.round(hgt * k));
   const src = h('canvas', { width: bitmap.width, height: bitmap.height });
   const sctx = src.getContext('2d', { willReadFrequently: true });
@@ -3344,8 +3498,11 @@ function openCoverRoom({ subject, query, onChoose }) {
       const blob = choice?.picture ? choice.picture.large : await fetch(fullCover(current)).then((r) => r.blob());
       bitmap = await createImageBitmap(blob);
     } catch { toast(t('That picture couldn’t be opened')); return; }
+    // The frame starts on the book when it can be found; otherwise a little in from the edges.
+    const found = bookIn(bitmap);
     const k = 0.07;
-    const quad = [[k, k], [1 - k, k], [1 - k, 1 - k], [k, 1 - k]].map(([x, y]) => [x * bitmap.width, y * bitmap.height]);
+    const quad = found?.sure ? found.quad.map(([x, y]) => [x, y])
+      : [[k, k], [1 - k, k], [1 - k, 1 - k], [k, 1 - k]].map(([x, y]) => [x * bitmap.width, y * bitmap.height]);
     const base = h('canvas', { class: 'room-crop-image', width: bitmap.width, height: bitmap.height });
     base.getContext('2d').drawImage(bitmap, 0, 0);
     const svg = document.createElementNS(SVG_NS, 'svg');
@@ -3390,8 +3547,8 @@ function openCoverRoom({ subject, query, onChoose }) {
     redraw();
     room.classList.add('cropping');
     stage.replaceChildren(frame);
-    caption.textContent = t('Drag the corners onto the corners of the book.');
-    const done = () => { room.classList.remove('cropping'); stage.replaceChildren(picture); normalFooter(); };
+    caption.textContent = found?.sure ? t('The frame found the book. Drag a corner where it’s off.') : t('Drag the corners onto the corners of the book.');
+    const done =() => { room.classList.remove('cropping'); stage.replaceChildren(picture); normalFooter(); };
     fill(footer,
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => { done(); caption.textContent = picture.naturalWidth ? `${picture.naturalWidth} × ${picture.naturalHeight}` : ''; } }),
       h('button', {
