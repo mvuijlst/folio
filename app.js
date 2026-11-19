@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.22.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.23.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2062,6 +2062,57 @@ function drawActiveFilters(facets) {
 }
 
 /** All series, by name: a few covers, how many books, how many of them read. */
+/**
+ * A series, book by book: a square per book at its number, as strong as its rating (a 4 or
+ * lower in the other hue, none grey), a dot for a number that isn't on the shelf and "+n" for
+ * a longer run of them; books without a number come last. On a person's page the books of
+ * the series that aren't theirs (not in `mine`) are outlines. A square opens its book.
+ */
+function seriesStrip(members, mine) {
+  const cells = [];
+  let last = null, loose = false;
+  for (const b of members) {
+    const n = seriesOrder(b);
+    if (Number.isFinite(n)) {
+      const whole = Math.floor(n);
+      if (last != null && whole > last + 1) {
+        const from = last + 1, to = whole - 1;
+        if (to - from < 3) for (let k = from; k <= to; k++) cells.push(h('span', { class: 'strip-hole', title: t('Number {n} is not on the shelf', { n: k }) }));
+        else cells.push(h('span', { class: 'strip-gap', text: `+${to - from + 1}`, title: t('Numbers {from}–{to} are not on the shelf', { from, to }) }));
+      }
+      last = Math.max(last ?? whole, whole);
+    } else if (!loose && cells.length) {
+      loose = true;
+      cells.push(h('span', { class: 'strip-space' }));
+    }
+    const rating = b.rating != null && Number.isFinite(Number(b.rating)) ? Number(b.rating) : null;
+    const low = rating != null && rating <= 4;
+    const tint = rating == null ? null : low ? Math.min(100, 48 + (4 - rating) * 13) : [22, 36, 56, 74, 88, 100][Math.min(5, Math.max(0, Math.round(rating) - 5))];
+    const label = [b.title, seriesNo(b) && `#${seriesNo(b)}`, rating != null && `★ ${statNumber(rating, Number.isInteger(rating) ? 0 : 1)}`].filter(Boolean).join(' · ');
+    cells.push(h('button', {
+      class: `strip-book${mine && !mine.has(b) ? ' theirs' : rating == null ? ' unrated' : low ? ' low' : ''}`, type: 'button',
+      title: label, 'aria-label': label, style: tint != null ? `--tint: ${tint}%` : null,
+      onclick: () => openBook(b, members),
+    }));
+  }
+  return h('div', { class: 'strip' }, cells);
+}
+
+/** On a person's page: each series they have books in (of two books or more), by when it began, as its strip. */
+function seriesStrips(own) {
+  const mine = new Set(own), all = seriesMap();
+  const begun = (name) => all.get(name).map(W.firstOut).filter(Boolean).sort()[0] || '9999-99-99';
+  const names = [...new Set(own.map((b) => b.series).filter(Boolean))].filter((name) => all.get(name).length > 1)
+    .map((name) => [name, `${begun(name)} ${sortKey(name)}`]).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).map(([name]) => name);
+  if (!names.length) return null;
+  return h('div', { class: 'strips' }, names.map((name) => h('div', { class: 'strip-row' },
+    h('a', {
+      class: 'strip-name', href: `#/series/${encodeURIComponent(name)}`, text: name, title: name,
+      onclick: (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setView({ series: name }); },
+    }),
+    seriesStrip(all.get(name), mine))));
+}
+
 function renderSeriesIndex(query) {
   const all = [...seriesMap()].sort((a, b) => sortKey(a[0]).localeCompare(sortKey(b[0]), LOCALE, { sensitivity: 'base' }) || a[0].localeCompare(b[0], LOCALE));
   const found = query ? all.filter(([name, members]) => fold(name + ' ' + members.map((b) => b.author).join(' ')).includes(query)) : all;
@@ -2239,13 +2290,15 @@ function renderLibrary() {
     $('library').append(h('div', { class: 'series-head' },
       h('a', { class: 'link-btn', href: '#/series', onclick: (e) => { e.preventDefault(); setView({ seriesIndex: true }); } }, icon('back'), t('All series')),
       h('h2', { text: view.series }),
-      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') })));
+      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') }),
+      inScope.length > 1 && seriesStrip([...inScope].sort(bySeriesOrder))));
   }
   if (view.author) {
     const read = inScope.filter((b) => shelves(b).read).length;
     $('library').append(h('div', { class: 'series-head' },
       h('h2', { text: view.author }),
-      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') })));
+      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') }),
+      seriesStrips(inScope)));
   }
   if (!view.series && !view.author && current && !isScope(current)) {
     // A list that is a filter elsewhere, opened by its address: say where you are.

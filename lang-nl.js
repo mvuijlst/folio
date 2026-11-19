@@ -226,6 +226,8 @@ export default {
   '{n} read': '{n} gelezen',
   'No books in this series.': 'Geen boeken in deze serie.',
   'No books by this author.': 'Geen boeken van deze auteur.',
+  'Number {n} is not on the shelf': 'Nummer {n} staat niet in de boekenkast',
+  'Numbers {from}–{to} are not on the shelf': 'Nummers {from}–{to} staan niet in de boekenkast',
   'No series match that search.': 'Geen series gevonden.',
   'No books in a series yet. Give a book a series in its details.': 'Nog geen boeken in een serie. Geef een boek een serie bij zijn gegevens.',
   'Number': 'Nummer',
