@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.22.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.22.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2796,7 +2796,9 @@ function drawPicking() {
   const photos = n ? pickedBooks().filter((b) => photoEditions(b).length) : [];
   fill($('pickBar'),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Stop selecting'), title: t('Stop selecting'), onclick: closeLayer }, icon('x')),
-    h('span', { class: 'pick-count', text: n ? t('{n} selected', { n }) : t('Select books') }),
+    // The number apart from its word: on a phone there is only room for the number (styles.css).
+    n ? h('span', { class: 'pick-count' }, String(n), h('span', { class: 'pick-word', text: t('{n} selected', { n }).replace(String(n), '') }))
+      : h('span', { class: 'pick-count', text: t('Select books') }),
     shown.rows.length > 0 && h('button', { class: 'link-btn', type: 'button', text: all ? t('None') : t('All {n}', { n: shown.rows.length }), onclick: pickAll }),
     photos.length > 0 && h('button', {
       class: 'btn btn-outline pick-straighten', type: 'button', title: t('Straighten covers'), 'aria-label': t('Straighten covers'),

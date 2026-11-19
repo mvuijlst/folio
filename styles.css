@@ -1233,7 +1233,8 @@ div.list-name { cursor: default; }
 .pick-bar {
   pointer-events: auto;
   display: flex; align-items: center; gap: 4px;
-  width: min(100%, 440px); height: 56px; padding: 0 7px 0 5px;
+  /* As wide as what it holds, where there is room: the count is only cut short on a narrow screen. */
+  width: max-content; min-width: min(100%, 440px); max-width: 100%; height: 56px; padding: 0 7px 0 5px;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow);
   animation: barIn .18s ease both;
@@ -1305,10 +1306,12 @@ div.list-name { cursor: default; }
 .straighten-say:empty { display: none; }
 .straighten-tile[data-state="guess"] .straighten-say { color: var(--accent); }
 .straighten .sheet-actions { margin-top: 24px; }
-/* On a phone the bar keeps its count: Straighten is its icon only. */
+/* On a phone the bar keeps its count: Straighten is its icon only, and the count its number only (the word is still read out). */
 @media (max-width: 480px) {
   .pick-bar .pick-straighten { padding: 0 11px; }
   .pick-bar .pick-straighten span { display: none; }
+  .pick-count { padding-left: 4px; }
+  .pick-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
 .page-about { color: var(--muted); }
 .page-about span { color: var(--faint); }
