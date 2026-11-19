@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, twinsOf, setApart, flatView, fold,
-  firstOut, writerOrder,
+  firstOut, writerOrder, categoriesLike,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -248,4 +248,40 @@ test('firstOut: the earliest edition, whatever its date looks like', () => {
   assert.equal(firstOut({ editions: [{ date: '2008-07-06' }, { date: '1994' }, { date: 'c1999' }] }), '1994-00-00');
   assert.equal(firstOut({ editions: [{ date: '' }, {}] }), '');
   assert.equal(firstOut({ editions: [{ date: '2001-3' }] }), '2001-03-00');
+});
+
+const shelved = (id, author, categories, more = {}) => ({ id, title: id, author, categories, editions: [{ id: 'e1' }], ...more });
+
+test('categoriesLike: the series says it, whatever the writer', () => {
+  const shelf = [shelved('a', 'Mike Mignola', ['comic', 'horror'], { series: 'Hellboy' }), shelved('b', 'Duncan Fegredo', ['comic', 'horror'], { series: 'Hellboy' }),
+    shelved('c', 'Mike Mignola', ['comic'], { series: 'Hellboy' })];
+  const like = categoriesLike({ author: 'P. Craig Russell', series: 'hellboy' }, shelf);
+  assert.deepEqual(like, ['comic', 'horror']);
+  like.push('x');   // an array of its own
+  assert.deepEqual(shelf[0].categories, ['comic', 'horror']);
+});
+
+test('categoriesLike: a writer the shelf is clear about, by their other books', () => {
+  const shelf = [shelved('a', 'K. J. Parker', ['fantasy']), shelved('b', 'K.J. Parker', ['fantasy']), shelved('c', 'K. J. Parker, Tom Holt', ['fantasy']),
+    shelved('d', 'K. J. Parker', ['fantasy', 'crime'])];
+  assert.deepEqual(categoriesLike({ author: 'K. J. Parker' }, shelf), ['fantasy']);              // three in four
+  assert.equal(categoriesLike({ author: 'K. J. Parker' }, shelf.slice(0, 2)), null);             // two books are too few
+  assert.equal(categoriesLike({ author: 'Tom Holt, K. J. Parker' }, shelf), null);               // the first writer counts
+  assert.equal(categoriesLike({ author: '' }, shelf), null);
+  assert.deepEqual(categoriesLike({ author: 'K. J. Parker' }, shelf.slice(0, 2), { least: 2 }), ['fantasy']);
+});
+
+test('categoriesLike: a writer of several kinds says nothing', () => {
+  const shelf = [shelved('a', 'Bill Bryson', ['wetenschap']), shelved('b', 'Bill Bryson', ['non-fictie']), shelved('c', 'Bill Bryson', ['non-fictie']),
+    shelved('d', 'Bill Bryson', ['taal'])];
+  assert.equal(categoriesLike({ author: 'Bill Bryson' }, shelf), null);
+});
+
+test('categoriesLike: the book itself, books without a category and scans still waiting do not count', () => {
+  const shelf = [shelved('a', 'Jack Vance', ['science-fiction']), shelved('b', 'Jack Vance', ['science-fiction']), shelved('c', 'Jack Vance', ['fantasy']),
+    shelved('d', 'Jack Vance', []), shelved('e', 'Jack Vance', ['science-fiction'], { pending: true })];
+  assert.equal(categoriesLike(shelf[2], shelf), null);                                           // only two others
+  assert.equal(categoriesLike({ id: 'c', author: 'Jack Vance' }, shelf), null);                  // the same book, as a copy
+  assert.equal(categoriesLike({ author: 'Jack Vance' }, shelf), null);                           // two in three is not clear
+  assert.deepEqual(categoriesLike({ author: 'Jack Vance' }, [...shelf, shelved('f', 'Jack Vance', ['science-fiction'])]), ['science-fiction']);
 });

@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.24.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.25.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -7131,7 +7131,9 @@ function card({ status, tone, statusIcon, book, edition, title, sub, actions = [
     status && h('div', { class: 'card-status ' + (tone || '') }, statusIcon && icon(statusIcon), status),
     h('div', { class: 'card-title', text: b ? displayTitle(b) : title }),
     (b?.author || sub) && h('div', { class: 'card-sub', text: b ? b.author : sub }),
-    b && metaLine(b) && h('div', { class: 'card-meta', text: metaLine(b) }));
+    b && metaLine(b) && h('div', { class: 'card-meta', text: metaLine(b) }),
+    // What kind of book it is: a scan's may be a guess from the shelf, so it is said, and Edit is beside it.
+    b?.categories?.length > 0 && h('div', { class: 'card-meta', text: b.categories.map(categoryName).join(' · ') }));
   return h('div', { class: 'card' },
     h('div', { class: 'card-main' + (b ? '' : ' solo') }, b && coverEl(b, true), text),
     actions.length > 0 && h('div', { class: 'card-actions' }, actions),
@@ -7247,7 +7249,10 @@ async function onIsbn(isbn) {
 
   if (result.status === 'found') {
     // A book of its own, or, when it is another edition of a book on the shelf, an edition of that one.
-    const done = await addFound({ ...result.book, isbn, format: 'paper', lists: targetLists() }, { say: !alive(session), sibling: sibling?.book });   // a barcode is on a paper book
+    // No catalogue says what kind of book it is, but the shelf often does: a book of its own gets the
+    // categories the other books of its writer agree on (an edition of a book you have has that book's).
+    const like = W.categoriesLike(result.book, books);
+    const done = await addFound({ ...result.book, ...(like && { categories: like }), isbn, format: 'paper', lists: targetLists() }, { say: !alive(session), sibling: sibling?.book });   // a barcode is on a paper book
     if (!alive(session)) { if (!done.attached) toast(t('Added “{title}”', { title: done.book.title })); return; }
     scanner.added++;
     updateScanCount();
@@ -7512,6 +7517,9 @@ async function retryPending() {
       const { title, author, olid, isbn, ...facts } = result.book;
       Object.assign(book, { title, author, ...(olid && { olid }), pending: false });
       setFacts(ed, W.factsOf(facts));
+      // As a scan made online: the categories the shelf's other books of its writer agree on.
+      const like = !book.categories?.length && W.categoriesLike(book, books);
+      if (like) book.categories = like;
       // Another edition of a book on the shelf: it becomes one of its editions, as when it was scanned
       // online (addFound says so, with Keep separate).
       const flat = { ...W.flatView(book, ed), lists: { ...book.lists, ...ed.lists } };

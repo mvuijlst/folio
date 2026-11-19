@@ -8,6 +8,9 @@ What the app does and how, screen by screen. For running it yourself see
 1. **Scan** the ISBN barcode on the back cover. The book is looked up in Open Library and
    Google Books and added to your shelf with title, author, publication date, publisher, language and
    page count. Keep scanning — each hit is added straight away, with *Undo* and *Edit* on the card.
+   No catalogue says what kind of book it is, but your shelf often does: when you have at least
+   three other books by its writer and three in four of them have the same categories, the
+   scan gets those too. The card says them; *Edit* puts them right.
 2. **No match?** Photograph the front cover. Where the server has an assistant (see [The assistant](#the-assistant)) it
    looks at the photograph and names the book, for you to confirm.
 3. **Still nothing?** Without an assistant (no account, or offline), or when it cannot tell,
