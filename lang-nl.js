@@ -387,6 +387,8 @@ export default {
   'Edit': 'Bewerken',
   'Already on {lists}': 'Staat al op {lists}',
   'Already on your shelf': 'Staat al in je boekenkast',
+  'Already on your shelf: this is another copy of it': 'Staat al in je boekenkast: dit is er nog een exemplaar van',
+  'Already on your shelf. Tick it to add another copy': 'Staat al in je boekenkast. Vink het aan om nog een exemplaar toe te voegen',
   'Put on {lists}': 'Op {lists} gezet',
   'Another copy': 'Nog een exemplaar',
   'Looking up {isbn}…': '{isbn} opzoeken…',

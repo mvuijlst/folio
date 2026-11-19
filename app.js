@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.20.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.20.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -4225,6 +4225,16 @@ function onShelfAlready(p) {
   return work && editionsOf(work).some((e) => (!formatOf(p) || !format(e) || format(e) === formatOf(p)) && (!e.isbn || !p.isbn)) ? work : undefined;
 }
 
+/** The book on the shelf this one already is (onShelfAlready), with the edition it is: {book, edition} or null. */
+function copyOnShelf(p) {
+  if (p.isbn && byIsbn(p.isbn)) return byIsbn(p.isbn);
+  const book = onShelfAlready(p);
+  if (!book) return null;
+  const format = (e) => formatOf({ ...e, boeken: book.boeken });
+  const edition = editionsOf(book).find((e) => (!formatOf(p) || !format(e) || format(e) === formatOf(p)) && (!e.isbn || !p.isbn));
+  return edition ? { book, edition } : null;
+}
+
 /** The book on the shelf that this one is another edition of (you have the e-book; this is the audiobook), or undefined. */
 const editionOfShelf = (p) => (!onShelfAlready(p) && W.findWork(p, books)) || undefined;
 
@@ -4251,13 +4261,14 @@ function openDescribe(shared, found) {
     const picked = proposals.filter((p) => p.picked);
     const row = (p) => {
       const there = onShelfAlready(p), other = !there && (adding.into || editionOfShelf(p));
-      const box = h('input', { type: 'checkbox', checked: p.picked, disabled: !!there, onchange: () => { p.picked = box.checked; drawResults(); } });
-      return h('label', { class: 'proposal' + (there ? ' is-there' : '') },
+      // Already on the shelf, it is unticked: ticked, the one in your hand is another copy of it.
+      const box = h('input', { type: 'checkbox', checked: p.picked, onchange: () => { p.picked = box.checked; drawResults(); } });
+      return h('label', { class: 'proposal' + (there && !p.picked ? ' is-there' : '') },
         box, coverEl(p),
         h('div', { class: 'book-text' },
           h('div', { class: 'book-title', text: p.title }),
           h('div', { class: 'book-author', text: [p.author, seriesLine(p)].filter(Boolean).join(' · ') }),
-          h('div', { class: 'book-meta', text: there ? t('Already on your shelf') : metaLine(p) }),
+          h('div', { class: 'book-meta', text: there ? (p.picked ? t('Already on your shelf: this is another copy of it') : t('Already on your shelf. Tick it to add another copy')) : metaLine(p) }),
           other && h('div', { class: 'book-meta', text: t('Another edition of “{title}” on your shelf', { title: displayTitle(other) }) }),
           p.note && h('p', { class: 'card-excerpt', text: p.note }),
           // The assistant only read its title and author: it says nothing of what the book is about.
@@ -4337,9 +4348,20 @@ function openDescribe(shared, found) {
   }
 
   async function add() {
-    const picked = proposals.filter((p) => p.picked && !onShelfAlready(p));
+    const picked = proposals.filter((p) => p.picked);
     let attached = false;
     for (const p of picked) {
+      // Already on the shelf: another copy of that edition, on the lists of where a copy is (the reading status is the book's).
+      const known = onShelfAlready(p) && copyOnShelf(p);
+      if (known) {
+        const where = Object.fromEntries(Object.entries(placed(Object.keys(on))).filter(([id]) => !isStatus(id)));
+        const added = await addCopy(known.book, known.edition, where, { count: false });
+        attached = true;
+        if (picked.length === 1) {
+          toast(t('Another copy of it added to “{title}”', { title: displayTitle(known.book) }), { action: t('Undo'), ms: 8000, onAction: () => added.undo() });
+        }
+        continue;
+      }
       const { book, other } = draftOf(p, picked.length === 1);
       if (!other && forBooklog(hasStatus(), p.language, p.categories)) book.boekenWanted = true;
       const added = await addFound(book, { say: picked.length === 1 });
@@ -6726,13 +6748,12 @@ function addedCard(found) {
 }
 
 /** Another copy of an edition you have, on lists `on` (those of where a copy is): a second entry of that edition, in the same book. */
-async function addCopy(book, edition, on) {
+async function addCopy(book, edition, on, { count = true } = {}) {
   const before = structuredClone(book);
   const copy = W.addEdition(book, { ...W.factsOf(edition), title: edition.title || book.title, lists: on }, { status: statusIds(), added: new Date().toISOString() });
   delete copy.coverFull;
   await saveBook(book);
-  scanner.added++;
-  updateScanCount();
+  if (count) { scanner.added++; updateScanCount(); }
   // Kept separate, it is a book of its own: what the book is, with this edition and nothing of yours about the other copy.
   const own = { ...Object.fromEntries(['title', 'author', 'series', 'seriesNumber', 'seriesLabel', 'categories', 'tags', 'olid'].filter((key) => book[key] != null).map((key) => [key, structuredClone(book[key])])),
     ...W.factsOf(edition), lists: on };

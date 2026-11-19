@@ -666,7 +666,7 @@ button.col:hover .col-bar { opacity: .75; }
 .proposal .card-excerpt { margin-top: 6px; }
 .proposal .card-excerpt.unknown { font-style: italic; }
 .proposal .proposal-edit { padding-bottom: 0; margin-top: 2px; }
-.proposal.is-there { opacity: .55; cursor: default; }
+.proposal.is-there { opacity: .55; }
 .check-line { display: flex; align-items: center; gap: 10px; padding: 14px 0 6px; border-top: 1px solid var(--border); font-size: .95rem; }
 .check-line input { margin: 0; }
 .proposals > .btn { margin-top: 10px; }
