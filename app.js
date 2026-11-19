@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.23.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.24.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2062,26 +2062,55 @@ function drawActiveFilters(facets) {
 }
 
 /** All series, by name: a few covers, how many books, how many of them read. */
+// What you know of a series beyond its books: how many it has in all (the number its last book
+// has). A record like a list word's: {id: "series:Discworld", kind: "series", value:
+// "Discworld", total: 41}, kept on the device and synced with an account.
+const seriesFacts = () => (wordCache.series ??= new Map(terms.filter((r) => r?.kind === 'series' && r.value && !r.gone).map((r) => [r.value, r])));
+/** How many books a series has in all, when you have said so: a whole number, or null. */
+function seriesTotal(name) {
+  const n = Math.floor(Number(seriesFacts().get(name)?.total));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+/** A record's id for a series: its name, or for a long one the start of it and a number made of all of it (an id is at most 64 characters). */
+function seriesId(name) {
+  if (name.length <= 56) return `series:${name}`;
+  let sum = 5381;
+  for (const ch of name) sum = (sum * 33 + ch.codePointAt(0)) >>> 0;
+  return `series:${name.slice(0, 44)}~${sum.toString(36)}`;
+}
+async function saveSeriesTotal(name, total) {
+  const id = seriesId(name), prior = terms.find((x) => x.id === id);
+  if (!prior && !total) return;
+  await saveTerm({ ...(prior || { id, kind: 'series', value: name }), total: total || null });
+}
+
 /**
  * A series, book by book: a square per book at its number, as strong as its rating (a 4 or
  * lower in the other hue, none grey), a dot for a number that isn't on the shelf and "+n" for
- * a longer run of them; books without a number come last. On a person's page the books of
- * the series that aren't theirs (not in `mine`) are outlines. A square opens its book.
+ * a longer run of them: between the books, before the first of them, and after the last when
+ * the series is known to have more (`total`). Books without a number come last. On a
+ * person's page the books of the series that aren't theirs (not in `mine`) are outlines. A
+ * square opens its book.
  */
-function seriesStrip(members, mine) {
+function seriesStrip(members, mine, total = seriesTotal(members[0]?.series)) {
   const cells = [];
-  let last = null, loose = false;
+  let last = null, loose = false, ended = false;
+  // The numbers from `from` to `to`, which aren't on the shelf.
+  const missing = (from, to) => {
+    if (to < from) return;
+    if (to - from < 3) for (let k = from; k <= to; k++) cells.push(h('span', { class: 'strip-hole', title: t('Number {n} is not on the shelf', { n: k }) }));
+    else cells.push(h('span', { class: 'strip-gap', text: `+${to - from + 1}`, title: t('Numbers {from}–{to} are not on the shelf', { from, to }) }));
+  };
+  // After the last numbered book: what the series still has.
+  const end = () => { if (!ended && last != null && total) missing(last + 1, total); ended = true; };
   for (const b of members) {
     const n = seriesOrder(b);
     if (Number.isFinite(n)) {
       const whole = Math.floor(n);
-      if (last != null && whole > last + 1) {
-        const from = last + 1, to = whole - 1;
-        if (to - from < 3) for (let k = from; k <= to; k++) cells.push(h('span', { class: 'strip-hole', title: t('Number {n} is not on the shelf', { n: k }) }));
-        else cells.push(h('span', { class: 'strip-gap', text: `+${to - from + 1}`, title: t('Numbers {from}–{to} are not on the shelf', { from, to }) }));
-      }
+      missing(last == null ? 1 : last + 1, whole - 1);
       last = Math.max(last ?? whole, whole);
     } else if (!loose && cells.length) {
+      end();
       loose = true;
       cells.push(h('span', { class: 'strip-space' }));
     }
@@ -2095,22 +2124,28 @@ function seriesStrip(members, mine) {
       onclick: () => openBook(b, members),
     }));
   }
+  end();
   return h('div', { class: 'strip' }, cells);
 }
 
-/** On a person's page: each series they have books in (of two books or more), by when it began, as its strip. */
-function seriesStrips(own) {
-  const mine = new Set(own), all = seriesMap();
-  const begun = (name) => all.get(name).map(W.firstOut).filter(Boolean).sort()[0] || '9999-99-99';
-  const names = [...new Set(own.map((b) => b.series).filter(Boolean))].filter((name) => all.get(name).length > 1)
-    .map((name) => [name, `${begun(name)} ${sortKey(name)}`]).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0)).map(([name]) => name);
-  if (!names.length) return null;
-  return h('div', { class: 'strips' }, names.map((name) => h('div', { class: 'strip-row' },
-    h('a', {
-      class: 'strip-name', href: `#/series/${encodeURIComponent(name)}`, text: name, title: name,
-      onclick: (e) => { if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); setView({ series: name }); },
-    }),
-    seriesStrip(all.get(name), mine))));
+/** How many books does this series have in all? Said once, the strip shows what is missing up to its end. */
+function openSeriesTotal(name) {
+  const input = h('input', { name: 'total', type: 'number', min: 1, step: 1, inputmode: 'numeric', autocomplete: 'off', value: seriesTotal(name) ?? '' });
+  const form = h('form', {
+    novalidate: true,
+    onsubmit: async (e) => {
+      e.preventDefault();
+      const n = Math.floor(Number(input.value));
+      await saveSeriesTotal(name, Number.isFinite(n) && n > 0 ? n : null);
+      closeLayersThen(renderLibrary);
+    },
+  },
+    sheetHead(t('How many books in the series?'), name),
+    h('label', { class: 'field' }, h('span', { text: t('The number of its last book') }), input),
+    h('p', { class: 'sheet-note', text: t('The series then shows how many books you don’t have after your last one. Leave it empty when you don’t know.') }),
+    h('div', { class: 'sheet-actions' }, h('button', { class: 'btn btn-primary btn-block', type: 'submit', text: t('Save') })));
+  sheet.open(form);
+  input.focus();
 }
 
 function renderSeriesIndex(query) {
@@ -2200,7 +2235,12 @@ function appendRows(upTo = shown.next + PAGE) {
   // A series is in the order of its books: no headings there.
   for (const b of shown.rows.slice(shown.next, end)) {
     const day = shown.series ? '' : shown.heading(b);
-    if (!shown.query && day && day !== shown.lastDay) { frag.append(h('h2', { class: 'day', text: day })); shown.lastDay = day; }
+    if (!shown.query && day && day !== shown.lastDay) {
+      frag.append(h('h2', { class: 'day', text: day }));
+      const strip = shown.strip?.(b);   // a person's series: drawn book by book under its title
+      if (strip) frag.append(strip);
+      shown.lastDay = day;
+    }
     const number = shown.series && seriesNo(b) ? h('span', { class: 'badge', text: `#${seriesNo(b)}` }) : null;
     // A book opens with the list it is opened from, for previous and next. While books are
     // being selected a tap selects it instead; a Ctrl-click starts selecting.
@@ -2283,22 +2323,30 @@ function renderLibrary() {
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
   const key = `${addressOf()}|${sort.key}${sort.dir}|${view.mode}|${query}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
-  shown = { rows: rowsInOrder, faces, next: 0, lastDay: '', key, current, query, series: view.series, heading: (b) => by.heading(by.value(b, since), b) };
+  // A person's books in the order of their series: under each series' title the whole series,
+  // book by book (seriesStrip), with the books that aren't theirs as outlines.
+  const whole = view.author && sort.key === 'series' ? seriesMap() : null, theirs = whole && new Set(inScope);
+  shown = { rows: rowsInOrder, faces, next: 0, lastDay: '', key, current, query, series: view.series, heading: (b) => by.heading(by.value(b, since), b),
+    strip: whole && ((b) => (whole.get(b.series)?.length > 1 ? seriesStrip(whole.get(b.series), theirs) : null)) };
   $('library').replaceChildren();
   if (view.series) {
     const read = inScope.filter((b) => shelves(b).read).length;
     $('library').append(h('div', { class: 'series-head' },
       h('a', { class: 'link-btn', href: '#/series', onclick: (e) => { e.preventDefault(); setView({ seriesIndex: true }); } }, icon('back'), t('All series')),
       h('h2', { text: view.series }),
-      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.') }),
-      inScope.length > 1 && seriesStrip([...inScope].sort(bySeriesOrder))));
+      // How many the series has in all, once you have said so; said (and changed) from here.
+      h('p', null, inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.'),
+        inScope.length > 0 && (!VISITING || seriesTotal(view.series)) && ' · ',
+        inScope.length > 0 && (VISITING ? seriesTotal(view.series) && t('{n} in the series', { n: seriesTotal(view.series) })
+          : h('button', { class: 'link-btn series-total', type: 'button', onclick: () => openSeriesTotal(view.series),
+            text: seriesTotal(view.series) ? t('{n} in the series', { n: seriesTotal(view.series) }) : t('How many in the series?') }))),
+      inScope.length > 0 && seriesStrip([...inScope].sort(bySeriesOrder))));
   }
   if (view.author) {
     const read = inScope.filter((b) => shelves(b).read).length;
     $('library').append(h('div', { class: 'series-head' },
       h('h2', { text: view.author }),
-      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') }),
-      seriesStrips(inScope)));
+      h('p', { text: inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books by this author.') })));
   }
   if (!view.series && !view.author && current && !isScope(current)) {
     // A list that is a filter elsewhere, opened by its address: say where you are.

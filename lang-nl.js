@@ -228,6 +228,12 @@ export default {
   'No books by this author.': 'Geen boeken van deze auteur.',
   'Number {n} is not on the shelf': 'Nummer {n} staat niet in de boekenkast',
   'Numbers {from}–{to} are not on the shelf': 'Nummers {from}–{to} staan niet in de boekenkast',
+  '{n} in the series': '{n} in de reeks',
+  'How many in the series?': 'Hoeveel in de reeks?',
+  'How many books in the series?': 'Hoeveel boeken in de reeks?',
+  'The number of its last book': 'Het nummer van het laatste boek',
+  'The series then shows how many books you don’t have after your last one. Leave it empty when you don’t know.':
+    'De reeks toont dan hoeveel boeken je niet hebt na je laatste. Laat het leeg als je het niet weet.',
   'No series match that search.': 'Geen series gevonden.',
   'No books in a series yet. Give a book a series in its details.': 'Nog geen boeken in een serie. Geef een boek een serie bij zijn gegevens.',
   'Number': 'Nummer',

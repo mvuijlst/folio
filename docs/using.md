@@ -260,11 +260,13 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
 - **Series.** Books that share a series name form a series: *Series* in the navigation lists
   them all, and a series page shows its books in order. Set the series and its number in a
   book's details; a number such as 4.5 sorts between 4 and 5. Under the head of a series page,
-  and on a person's page for each series they have books in, the series is drawn book by book:
-  a square per book at its number, bluer the better you rated it (orange for a 4 or lower, grey
-  without a rating), a dot for a number that isn't on the shelf and "+n" for a longer run of
-  them. A square opens its book; on a person's page the books of the series that aren't theirs
-  are outlines, and the series' name opens the series.
+  and under each series' title on a person's page (in the order of their series), the series is
+  drawn book by book: a square per book at its number, bluer the better you rated it (orange for
+  a 4 or lower, grey without a rating), a dot for a number that isn't on the shelf and "+n" for a
+  longer run of them, also before your first book. Say how many books the series has (*How many
+  in the series?* beside the count on its page) and it shows what you lack after your last one
+  too. A square opens its book; on a person's page the books of the series that
+  aren't theirs are outlines.
 - **The cover, large.** Tap a cover (on a book's page, in its details, or on an edition's
   sheet) and it opens over everything at the best size there is: the picture you supplied,
   the booklog's own original, or the catalogue's large size. Tap it again for its real size.
