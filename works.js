@@ -14,7 +14,7 @@ export const MOVED = ['format', 'language', 'publisher', 'date', 'pages', 'durat
 export const STATUS = ['to-read', 'reading', 'read', 'abandoned'];
 /** A read that is planned or running: the book is on one of these. */
 export const OPEN = ['to-read', 'reading'];
-const COVER = ['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop'];
+export const COVER = ['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop'];
 // The facts of an edition that publishing tracks (boekenState), by how far a state goes.
 const TRACKED = {
   1: ['publisher', 'date', 'pages', 'isbn', 'cover', 'people'],
@@ -381,26 +381,29 @@ export function addEdition(work, flat, { status, added } = {}) {
 }
 
 /**
- * What was found (`flat`) written into `edition` of `work`: its facts, its own title where it
- * differs from the book's, and the lists of where a copy is that it names (on top of those the
- * edition is on). → the edition.
+ * What was found (`flat`) written into `edition` of `work`: the facts it doesn't say yet (a cover
+ * only where it has none), its own title where it differs from the book's, and the lists of where
+ * a copy is that it names (on top of those the edition is on). → the edition.
  */
 export function fillEdition(work, edition, flat, { status } = {}) {
   const statuses = statusSet(status);
-  Object.assign(edition, factsOf(flat));
-  if (!empty(flat.title) && fold(flat.title) !== fold(work.title)) edition.title = String(flat.title);
+  const covered = COVER.some((key) => !empty(edition[key]));
+  for (const [key, value] of Object.entries(factsOf(flat))) {
+    if (empty(edition[key]) && !(covered && COVER.includes(key))) edition[key] = value;
+  }
+  if (!edition.title && !empty(flat.title) && fold(flat.title) !== fold(work.title)) edition.title = String(flat.title);
   for (const [id, entry] of Object.entries(isObj(flat.lists) ? flat.lists : {})) if (!statuses.has(id)) (edition.lists ||= {})[id] ??= entry;
   return edition;
 }
 
 /**
- * An edition of `format` that says nothing else yet (one added as "the paperback, bought", with
- * no ISBN, publisher or cover): the copy found in that format fills it instead of being added
- * beside it. → the edition, or undefined.
+ * An edition of `format` that no scan or catalogue has said the ISBN of (one added as "the
+ * paperback, bought", or by hand): the copy found in that format fills it in instead of being
+ * added beside it. Not one with a title of its own (a translation). → the edition, or undefined.
  */
 export function blankEdition(work, format) {
   if (empty(format)) return undefined;
-  return (work.editions || []).find((e) => e.format === format && !e.title && MOVED.every((key) => key === 'format' || empty(e[key])));
+  return (work.editions || []).find((e) => e.format === format && !e.title && empty(e.isbn) && empty(e.asin));
 }
 
 /**

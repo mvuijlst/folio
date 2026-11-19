@@ -1436,3 +1436,14 @@ div.list-name { cursor: default; }
 .lang-input small { color: var(--faint); font-size: .76rem; }
 .bilingual .link-btn { align-self: flex-start; }
 .set-name:not(:empty) { margin-top: 16px; }
+
+/* Settings → Paper copies: a paper copy without a cover, and the covers of its other copies to give it. */
+.paper-all { justify-content: flex-start; gap: 18px; margin: 0 0 6px; }
+.paper-row { display: flex; align-items: center; gap: 14px; padding: 12px 0; border-top: 1px solid var(--border); }
+.paper-book { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; color: var(--text); font-size: .95rem; }
+.paper-book small { color: var(--muted); font-size: .8rem; }
+.paper-covers { display: flex; gap: 10px; flex-shrink: 0; }
+.paper-cover { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 3px; border-radius: 6px; color: var(--muted); font-size: .72rem; }
+.paper-cover .cover { width: 48px; }
+.paper-cover.on { box-shadow: 0 0 0 2px var(--accent); color: var(--text); }
+.paper-scan .book { width: 100%; }

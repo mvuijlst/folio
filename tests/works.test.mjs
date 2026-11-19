@@ -286,24 +286,32 @@ test('categoriesLike: the book itself, books without a category and scans still 
   assert.deepEqual(categoriesLike({ author: 'Jack Vance' }, [...shelf, shelved('f', 'Jack Vance', ['science-fiction'])]), ['science-fiction']);
 });
 
-test('blankEdition: a copy of that format that says nothing else yet', () => {
+test('blankEdition: a copy of that format that says no ISBN yet', () => {
   const work = { title: 'Last Argument of Kings', editions: [
     { id: 'e1', format: 'ebook', publisher: 'Gollancz' },
     { id: 'e2', format: 'audiobook', asin: 'B003NHEU1M', lists: { bib: { at: '2026-11-15' } } },
-    { id: 'e3', format: 'paper', added: '2026-11-19' }] };
+    { id: 'e3', format: 'paper', language: 'en', added: '2026-11-19' }] };
   assert.equal(blankEdition(work, 'paper').id, 'e3');
-  assert.equal(blankEdition(work, 'ebook'), undefined);                                          // it says its publisher
+  assert.equal(blankEdition(work, 'ebook').id, 'e1');                                            // a publisher, but no ISBN
+  assert.equal(blankEdition(work, 'audiobook'), undefined);                                      // its ASIN says which it is
   assert.equal(blankEdition(work, ''), undefined);
   assert.equal(blankEdition({ ...work, editions: [{ id: 'e1', format: 'paper', isbn: '9780575082014' }] }, 'paper'), undefined);
   assert.equal(blankEdition({ ...work, editions: [{ id: 'e1', format: 'paper', title: 'De laatste les' }] }, 'paper'), undefined);   // a translation
 });
 
-test('fillEdition: what was found goes into the edition, its lists on top of its own', () => {
-  const work = { title: 'Last Argument of Kings', editions: [{ id: 'e3', format: 'paper', added: '2026-11-19', lists: { mag: { at: '2026-11-01' } } }] };
-  const e = fillEdition(work, work.editions[0], { title: 'Last Argument of Kings', format: 'paper', isbn: '9780575082014', publisher: 'Gollancz',
+test('fillEdition: what was found fills in what the edition does not say, its lists on top of its own', () => {
+  const work = { title: 'Last Argument of Kings', editions: [{ id: 'e3', format: 'paper', language: 'en', publisher: 'Gollancz', added: '2026-11-19', lists: { mag: { at: '2026-11-01' } } }] };
+  const e = fillEdition(work, work.editions[0], { title: 'Last Argument of Kings', format: 'paper', isbn: '9780575082014', publisher: 'Orion', pages: 544, language: 'nl',
     lists: { read: { at: 'x' }, bib: { at: '2026-11-20' }, mag: { at: '2026-11-20' } } }, { status: [] });
-  assert.deepEqual(e, { id: 'e3', format: 'paper', added: '2026-11-19', isbn: '9780575082014', publisher: 'Gollancz',
+  assert.deepEqual(e, { id: 'e3', format: 'paper', language: 'en', publisher: 'Gollancz', added: '2026-11-19', isbn: '9780575082014', pages: 544,
     lists: { mag: { at: '2026-11-01' }, bib: { at: '2026-11-20' } } });
+});
+
+test('fillEdition: a cover comes whole, and only where there is none', () => {
+  const work = { title: 'X', editions: [{ id: 'e1', format: 'paper', cover: 'covers/own/a.webp', coverRatio: 0.66 }, { id: 'e2', format: 'paper' }] };
+  const found = { format: 'paper', isbn: '9780575082014', cover: 'https://covers.openlibrary.org/b/id/1-L.jpg', coverFull: 'covers/web/b.jpg', coverRatio: 0.7 };
+  assert.deepEqual(fillEdition(work, work.editions[0], found), { id: 'e1', format: 'paper', cover: 'covers/own/a.webp', coverRatio: 0.66, isbn: '9780575082014' });
+  assert.equal(fillEdition(work, work.editions[1], found).coverFull, 'covers/web/b.jpg');
 });
 
 test('placeEdition: a place goes on the paper copy where the e-book is shown', () => {

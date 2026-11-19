@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.27.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.28.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -6526,6 +6526,7 @@ function openSettings() {
       navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles))),
     navGroup(t('Your shelf'),
       sync.user && sharing?.allowed && navRow(t('Public library'), sharingAbout(), () => openPage(openLibraryPage)),
+      navRow(t('Paper copies'), paperAbout(), () => openPage(openPaperPage)),
       navRow(t('Lookups'), settings.googleKey ? t('Open Library, and Google Books with your key') : t('Open Library and Google Books'), () => openPage(openLookupsPage)),
       navRow(t('As a file'), t('JSON, or for Goodreads, StoryGraph…'), () => openPage(openFilePage)),
       navRow(t('About'), t('Version {version}', { version: APP_VERSION }), () => openPage(openAboutPage)))));
@@ -6701,6 +6702,94 @@ function openAboutPage() {
   keepShelf().then((yes) => {
     if (books.length) kept.textContent = yes ? t('This browser keeps your shelf even when space runs low.') : t('This browser may clear your shelf when space runs low, or after weeks unused (Safari, unless Folio is installed).');
   });
+}
+
+/* Paper copies to see to: those without a cover where another copy of the book has one (an
+   e-book's or audiobook's cover, chosen per book and copied onto the paper copy), and those no
+   scan has said the ISBN of, to scan again (a scan fills such a copy in: works.js blankEdition). */
+
+const isPaper = (book, e) => formatOf({ ...e, boeken: book.boeken }) === 'paper';
+const hasCover = (e) => !!(e.cover || e.thumb);
+const byTitle = (a, b) => fold(displayTitle(a.book)).localeCompare(fold(displayTitle(b.book)));
+/** [{book, paper, others}]: a paper copy without a cover, with the book's copies that have one. */
+const paperWithoutCover = () => books.flatMap((book) => {
+  const others = editionsOf(book).filter(hasCover);
+  return others.length ? editionsOf(book).filter((e) => isPaper(book, e) && !hasCover(e)).map((paper) => ({ book, paper, others })) : [];
+}).sort(byTitle);
+/** [{book, paper}]: a paper copy with no ISBN, which a scan of its barcode fills in. */
+const paperToScan = () => books.filter((book) => !book.pending)
+  .flatMap((book) => editionsOf(book).filter((e) => isPaper(book, e) && !e.isbn).map((paper) => ({ book, paper }))).sort(byTitle);
+function paperAbout() {
+  const covers = paperWithoutCover().length, scan = paperToScan().length;
+  return [covers && t('{n} without a cover', { n: covers }), scan && t('{n} to scan again', { n: scan })].filter(Boolean).join(' · ') || t('All in order');
+}
+
+function openPaperPage() {
+  const chosen = new Map();   // "bookId editionId" of a paper copy → the id of the copy whose cover it gets
+  const key = (row) => `${row.book.id} ${row.paper.id}`;
+  let rows = [], copyBtn = null;
+  const mark = () => {
+    for (const el of $('sheetBody').querySelectorAll('.paper-cover')) {
+      const on = chosen.get(el.dataset.row) === el.dataset.ed;
+      el.classList.toggle('on', on);
+      el.setAttribute('aria-pressed', String(on));
+    }
+    if (copyBtn) {
+      copyBtn.disabled = !chosen.size;
+      copyBtn.lastChild.textContent = chosen.size ? t('Copy {n}', { n: plural(chosen.size, 'cover') }) : t('Choose the covers to copy');
+    }
+  };
+  const inBooklog = ({ book, paper }) => (book.reviews || []).some((r) => r.ed === paper.id && r.boeken);
+
+  async function copy() {
+    const changed = [], before = [];
+    for (const row of rows) {
+      const from = chosen.get(key(row)) && W.editionOf(row.book, chosen.get(key(row)));
+      if (!from) continue;
+      if (!changed.includes(row.book)) { changed.push(row.book); before.push(structuredClone(row.book)); }
+      for (const k of W.COVER) if (from[k] != null && from[k] !== '') row.paper[k] = structuredClone(from[k]); else delete row.paper[k];
+    }
+    const n = chosen.size;
+    chosen.clear();
+    await saveBooks(changed);
+    draw();
+    toast(t('Copied {n}', { n: plural(n, 'cover') }), {
+      action: t('Undo'), ms: 10000,
+      onAction: async () => { for (const [i, book] of changed.entries()) await putBack(book, before[i]); if ($('sheetBody').querySelector('.paper-page')) draw(); },
+    });
+  }
+
+  function draw() {
+    rows = paperWithoutCover();
+    const scan = paperToScan();
+    for (const k of [...chosen.keys()]) if (!rows.some((row) => key(row) === k)) chosen.delete(k);
+    const top = $('sheetBody').querySelector('.paper-page') ? $('sheetBody').scrollTop : 0;
+    copyBtn = rows.length ? h('button', { class: 'btn btn-primary', type: 'button', onclick: copy }, icon('copy'), h('span')) : null;
+    sheet.open(h('div', { class: 'paper-page' },
+      pageHead(t('Paper copies'), paperAbout()),
+      h('div', { class: 'sheet-section' },
+        h('h3', { text: t('Without a cover') }),
+        h('p', { class: 'sheet-note', text: rows.length ? t('Another copy of these books has a cover. Tap the one the paper copy should get.') : t('Every paper copy has a cover, or no other copy of its book has one.') }),
+        rows.length > 0 && h('div', { class: 'btn-row paper-all' },
+          h('button', { class: 'link-btn', type: 'button', onclick: () => { for (const row of rows) if (!chosen.has(key(row))) chosen.set(key(row), row.others[0].id); mark(); } }, t('The first one for each')),
+          h('button', { class: 'link-btn', type: 'button', onclick: () => { chosen.clear(); mark(); } }, t('None'))),
+        h('div', { class: 'paper-rows' }, rows.map((row) => h('div', { class: 'paper-row' },
+          h('button', { class: 'paper-book', type: 'button', onclick: () => openBook(row.book, null) },
+            h('span', { text: displayTitle(row.book) }),
+            h('small', { text: [row.book.author, inBooklog(row) && t('in the booklog: the new cover goes there too')].filter(Boolean).join(' · ') })),
+          h('div', { class: 'paper-covers' }, row.others.map((e) => h('button', {
+            class: 'paper-cover', type: 'button', 'data-row': key(row), 'data-ed': e.id, 'aria-pressed': 'false',
+            onclick: () => { if (chosen.get(key(row)) === e.id) chosen.delete(key(row)); else chosen.set(key(row), e.id); mark(); },
+          }, coverEl({ ...look(row.book, e), title: row.book.title }), h('small', { text: formatName(formatOf({ ...e, boeken: row.book.boeken })) || e.publisher || '' }))))))),
+        copyBtn && h('div', { class: 'btn-row sheet-actions paper-actions' }, copyBtn)),
+      h('div', { class: 'sheet-section' },
+        h('h3', { text: t('To scan again') }),
+        h('p', { class: 'sheet-note', text: scan.length ? t('These paper copies have no ISBN. Scan their barcodes: each scan fills in what its copy doesn’t say yet.') : t('Every paper copy has an ISBN.') }),
+        h('div', { class: 'paper-scan' }, scan.map(({ book, paper }) => bookRow(book, () => openBook(book, null), null, null, paper))))));
+    mark();
+    if (top) $('sheetBody').scrollTop = top;
+  }
+  draw();
 }
 
 /* ───────────────────────── Categories and tags (words in two languages) ───────────────────────── */
