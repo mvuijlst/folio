@@ -167,10 +167,9 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   the year their edition came out, paper above the line and e-books and audiobooks below it;
   the books in translation, as ribbons from the language each was written in to the language
   of its edition; categories,
-  languages, ratings and the writers with the most books. Tapping a year read, a category, a
+  languages and ratings. Tapping a year read, a category, a
   language (also at either side of the translations) or a rating narrows the place by it, as the filter would (tapping it again lets it
-  go; a span of years is chosen with the filter's slider); tapping a writer opens
-  their books. A read counts in the year it is dated, of the edition it was of: with a filter
+  go; a span of years is chosen with the filter's slider). A read counts in the year it is dated, of the edition it was of: with a filter
   on copies (format, language) only reads of an edition that passes it count, and with a span
   of years only the reads within it. Reads given up are counted apart and are in no chart.
 - **Covers keep their own proportions**: a square audiobook cover is square, everywhere.

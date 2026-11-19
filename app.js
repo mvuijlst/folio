@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.22.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.22.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2695,12 +2695,6 @@ function statsOf(rows, faces, facets) {
   const ratingBucket = (r) => RATINGS.find(([, , fits]) => fits(r))?.[0];
   const ratings = tally(rows.map((b) => b.rating).filter((r) => r != null && Number.isFinite(Number(r))).map((r) => Math.round(Number(r))))
     .sort((a, b) => b[0] - a[0]);
-  const writers = new Map();
-  for (const b of rows) for (const name of authorsOf(b)) {
-    const entry = writers.get(fold(name)) || writers.set(fold(name), { name, n: 0 }).get(fold(name));
-    entry.n++;
-  }
-  const topWriters = [...writers.values()].sort((a, b) => b.n - a.n || surnameFirst(a.name).localeCompare(surnameFirst(b.name))).slice(0, 15);
 
   return h('div', { class: 'stats' },
     statFigures(rows, reads),
@@ -2713,9 +2707,7 @@ function statsOf(rows, faces, facets) {
     languages.length > 1 && panel(t('Languages'), t('Of the edition each book is shown as.'), barList(languages.map(([key, value]) => ({ key, label: languageName(key), value })),
       has('language') ? { onPick: (key) => toggleFilter('language', key), pressed: pressed('language') } : {})),
     ratings.length > 1 && panel(t('Ratings'), null, barList(ratings.map(([key, value]) => ({ key, label: `★ ${key}`, value })),
-      has('rating') ? { onPick: (key) => toggleFilter('rating', ratingBucket(key)), pressed: (key) => pressed('rating')(ratingBucket(key)) } : {})),
-    !view.author && topWriters.length > 1 && panel(t('Writers'), t('Most books first.'), barList(topWriters.map(({ name, n }) => ({ key: name, label: name, value: n })),
-      { onPick: (name) => setView({ author: name }) })));
+      has('rating') ? { onPick: (key) => toggleFilter('rating', ratingBucket(key)), pressed: (key) => pressed('rating')(ratingBucket(key)) } : {})));
 }
 
 // A chart is drawn to the width there is: drawn again when that changes.

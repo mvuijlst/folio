@@ -529,8 +529,6 @@ export default {
   'Languages': 'Talen',
   'Of the edition each book is shown as.': 'Van de kopie waarmee elk boek getoond wordt.',
   'Ratings': 'Scores',
-  'Writers': 'Schrijvers',
-  'Most books first.': 'Meeste boeken eerst.',
   'Shape': 'Vorm',
   'Columns': 'Kolommen',
   'Stream': 'Stroom',
