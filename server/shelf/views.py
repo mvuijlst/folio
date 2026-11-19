@@ -56,7 +56,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from django.conf import settings
 
-from . import covers, intake, original, works
+from . import categorise, covers, intake, original, works
 from . import public
 from .models import Book, Library, List, Term
 
@@ -260,6 +260,37 @@ def original_of(request):
             'language': str(data.get('language') or '').strip()[:5]}
     try:
         return JsonResponse(original.ask([book]).get('1') or {})
+    except intake.NotSetUp as err:
+        return error(str(err), 503)
+    except intake.IntakeError as err:
+        return error(str(err), 502)
+
+
+@require_POST
+def categories_of(request):
+    """Books without a category → the categories the assistant would give each, for the app to propose."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    books = (body(request) or {}).get('books')
+    if not isinstance(books, list) or not 0 < len(books) <= categorise.MOST:
+        return error('Bad request')
+    asked = []
+    for b in books:
+        if not isinstance(b, dict):
+            continue
+        uid, title = str(b.get('id') or '')[:64], ' '.join(str(b.get('title') or '').split())[:300]
+        if uid and title:
+            asked.append({'id': uid, 'title': title, 'author': ' '.join(str(b.get('author') or '').split())[:300],
+                          'series': ' '.join(str(b.get('series') or '').split())[:200],
+                          'year': str(b.get('year') or '')[:4], 'language': str(b.get('language') or '')[:5]})
+    if not asked:
+        return error('Bad request')
+    if settings.BOEKEN_REPO:
+        allowed = intake.known_terms(settings.BOEKEN_REPO, 'categories')
+    else:
+        allowed = {c for b in Book.objects.filter(user=request.user, deleted=False) for c in b.data.get('categories') or []}
+    try:
+        return JsonResponse({'books': categorise.ask(asked, allowed)})
     except intake.NotSetUp as err:
         return error(str(err), 503)
     except intake.IntakeError as err:

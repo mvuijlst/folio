@@ -300,3 +300,53 @@ export const mergeTag = (books, from, to) => rewriteList(books, 'tags', (list) =
 export const removeTag = (books, slug) => rewriteList(books, 'tags', (list) => list.filter((x) => x !== slug));
 /** Tag `slug` off the books for which where(book) holds. */
 export const removeTagWhere = (books, slug, where) => rewriteList((books || []).filter(where), 'tags', (list) => list.filter((x) => x !== slug));
+
+/* ───────────────────────── A catalogue's subjects, as categories ─────────────────────────
+
+   No catalogue has the shelf's categories, but Open Library (and Google Books) say what a book
+   is about in words of their own: "Fiction, science fiction, general", "Cooking". This reads
+   those words. It is a guess, and shown as one: on a sample of the shelf it gave the same
+   categories as were chosen by hand for six books in ten it proposed for, and one in common for
+   eight. English subjects mostly; Dutch editions have few. */
+const SUBJECT_RULES = [   // category, what a subject says, how much it counts
+  ['comic', /comic books|comics|graphic novel|cartoon|caricature|bandes dessin|stripverhal|comic strips/, 3],
+  ['koken', /cook|recipes|gastronom|baking|cuisine|ice cream|food and drink|canning|kookboek/, 3],
+  ['informatica', /programming|software|computer science|computers|electronic digital|\bsql\b|database|web site development|\bunix\b|\bjava\b/, 2],
+  ['design', /\bdesign|user interfaces|human-computer|typograph|graphic arts|information visualization|usability|information display/, 2],
+  ['science-fiction', /science.fiction/, 3],
+  ['fantasy', /fantasy|imaginary place|wizards|magic, fiction|dragons/, 3],
+  ['horror', /horror|ghost stories|vampires|zombies/, 3],
+  ['crime', /mystery|detective|thriller|suspense|crime, fiction|murder|espionage|spy stories/, 3],
+  ['romance', /love stories|romance|romantic/, 3],
+  ['geschiedenis', /history|archaeolog|civilization|world war|antiquities|middle ages|geschiedenis|histoire/, 1],
+  ['biografie', /biograph|diaries|memoirs|autobiograf/, 2],
+  ['wetenschap', /\bscience\b|physics|mathematic|evolution|biology|astronomy|psycholog|statistics|natural history|paleontolog|number theory|sociolog/, 2],
+  ['religie', /religio|christian|bible|biblical|theolog|\bgod\b|islam|buddhis|occult|mytholog|gospel|jesus|apocryph/, 2],
+  ['taal', /language|linguist|dictionar|grammar|slang|woordenboek|langue/, 2],
+  ['kunst', /\bart\b|painting|photograph|pictorial works|illustrat|in art|artists/, 2],
+];
+const SUBJECT_FICTION = /\bfiction\b|\bnovels?\b|stories|poetry|\bdrama\b|\broman\b|dutch literature|english literature/;
+const SUBJECT_GENRES = ['science-fiction', 'fantasy', 'horror', 'crime', 'romance'];
+
+/** A catalogue's `subjects` (strings) → at most two of the categories in `allowed`, or [] when they say nothing. */
+export function categoriesFromSubjects(subjects, allowed) {
+  const said = (subjects || []).filter((s) => typeof s === 'string').map((s) => s.toLowerCase());
+  const can = new Set(allowed || []);
+  let score = new Map();
+  for (const [category, pattern, weight] of SUBJECT_RULES) {
+    const n = said.filter((s) => pattern.test(s)).length;
+    if (n && can.has(category)) score.set(category, n * weight);
+  }
+  if (said.some((s) => SUBJECT_FICTION.test(s))) {
+    // A novel is its genre, not what happens in it (a science, a religion); history beside it makes it a historical novel.
+    const genre = SUBJECT_GENRES.some((category) => score.has(category));
+    score = new Map([...score].filter(([category]) => SUBJECT_GENRES.includes(category) || category === 'comic' || (category === 'geschiedenis' && !genre)));
+    if (!genre && !score.has('comic') && can.has('literatuur')) score.set('literatuur', (score.get('geschiedenis') || 0) + 1);
+  }
+  const top = [...score].sort((a, b) => b[1] - a[1]);
+  if (!top.length) return [];
+  const out = [top[0][0]];
+  if (top[1] && top[1][1] >= top[0][1] / 2) out.push(top[1][0]);
+  // A comic is a comic first, whatever it is about.
+  return score.has('comic') && !out.includes('comic') ? ['comic', out[0]] : out;
+}

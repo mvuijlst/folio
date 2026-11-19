@@ -112,3 +112,33 @@ test('merging and removing tags, with what was there', () => {
   T.removeTag(books, 'x');
   assert.equal('tags' in books[2], false);
 });
+
+const ALL = ['literatuur', 'fantasy', 'science-fiction', 'horror', 'crime', 'romance', 'comic', 'geschiedenis', 'biografie', 'wetenschap', 'religie',
+  'taal', 'design', 'kunst', 'koken', 'informatica', 'non-fictie'];
+
+test('categoriesFromSubjects reads what a catalogue says a book is about', () => {
+  const from = (...subjects) => T.categoriesFromSubjects(subjects, ALL);
+  assert.deepEqual(from('Fiction', 'Science Fiction', 'Fiction, science fiction, general'), ['science-fiction']);
+  assert.deepEqual(from('Canning and preserving', 'Cooking (Relishes)', 'Cookbooks'), ['koken']);
+  assert.deepEqual(from('Computer programming', 'Software Development'), ['informatica']);
+  assert.deepEqual(from('Dictionaries', 'Slang', 'English language'), ['taal']);
+  assert.deepEqual(from('Physics', 'Physicists', 'Biography', 'History'), ['biografie', 'wetenschap']);
+  assert.deepEqual(from('Graphic Novels', 'Mystery And Suspense Fiction', 'Comics & Graphic Novels'), ['comic', 'crime']);
+  assert.deepEqual(from('Humor', 'Comic books, strips, etc.'), ['comic']);
+});
+
+test('categoriesFromSubjects: a novel is its genre, or literature, not what it is about', () => {
+  const from = (...subjects) => T.categoriesFromSubjects(subjects, ALL);
+  assert.deepEqual(from('Fiction', 'Physics', 'Scientists'), ['literatuur']);
+  assert.deepEqual(from('Fiction', 'World War, 1939-1945', 'History'), ['literatuur', 'geschiedenis']);
+  assert.deepEqual(from('Fiction', 'Fantasy', 'History'), ['fantasy']);
+  assert.deepEqual(from('Large type books', 'Fiction, general'), ['literatuur']);
+});
+
+test('categoriesFromSubjects says nothing when the subjects do not, and only what the shelf has', () => {
+  assert.deepEqual(T.categoriesFromSubjects(['Reason', 'Democracy'], ALL), []);
+  assert.deepEqual(T.categoriesFromSubjects([], ALL), []);
+  assert.deepEqual(T.categoriesFromSubjects(null, ALL), []);
+  assert.deepEqual(T.categoriesFromSubjects(['Cookbooks', { key: 'x' }], ['fantasy']), []);   // a shelf without koken
+  assert.deepEqual(T.categoriesFromSubjects(['Fiction'], ['fantasy']), []);
+});

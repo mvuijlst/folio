@@ -1306,6 +1306,12 @@ div.list-name { cursor: default; }
 /* Straightening photographed covers at once: what each would become, ticked or not. */
 .straighten .sheet-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .straighten > .sheet-note { margin: 6px 0 18px; font-size: .84rem; }
+/* Categories proposed for the books selected: the assistant's list of proposals, with what each is going by. */
+.propose > .sheet-note { margin: 6px 0 4px; font-size: .84rem; }
+.propose .proposal .book-tags:empty { display: none; }
+.propose .proposal[data-state="guess"] .propose-say { color: var(--accent); }
+.propose .proposal[data-state="none"], .propose .proposal[data-state="looking"] { cursor: default; }
+.propose .proposal[data-state="none"] > :not(input) { opacity: .55; }
 .straighten-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 18px 14px; }
 .straighten-tile {
   display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 0; border: 0; background: none;
@@ -1333,8 +1339,11 @@ div.list-name { cursor: default; }
 .straighten .sheet-actions { margin-top: 24px; }
 /* On a phone the bar keeps its count: Straighten is its icon only, and the count its number only (the word is still read out). */
 @media (max-width: 480px) {
-  .pick-bar .pick-straighten { padding: 0 11px; }
-  .pick-bar .pick-straighten span { display: none; }
+  .pick-bar .pick-straighten, .pick-bar .pick-propose { padding: 0 11px; }
+  .pick-bar .pick-straighten span, .pick-bar .pick-propose span { display: none; }
+  /* Both of them there: Edit is its pencil, so the count keeps its room. */
+  .pick-bar .pick-straighten ~ .pick-propose ~ .btn-primary { padding: 0 13px; }
+  .pick-bar .pick-straighten ~ .pick-propose ~ .btn-primary span { display: none; }
   .pick-count { padding-left: 4px; }
   .pick-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }

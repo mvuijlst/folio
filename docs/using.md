@@ -155,6 +155,23 @@ Each part starts out changing nothing and shows, with a count on each choice, ho
 books have it now. A part that would change something says so (its name lit, with *Reset*),
 and only those parts are applied. *Undo* in the message afterwards puts every book back.
 
+When books without a category are among those selected, the bar also has *Categories* (the
+sparkles). It looks up what kind of book each of them is and shows what it would get, the
+surest way first:
+
+1. your shelf: the categories of its series, or the ones the other books of its writer agree
+   on (as a scan gets them);
+2. the assistant, with an account and where the server has one (see
+   [The assistant](#the-assistant)), twenty books at a time;
+3. your shelf again, less strictly (two other books by the writer, most of them alike);
+4. what Open Library and Google Books say the book is about.
+
+Each book says which of these it goes by. A book is ticked where that is clear (your shelf,
+or the assistant where it knows the book) and unticked where it is a guess to check; a tap
+ticks or unticks it. *Categorise* gives the ticked books their categories and leaves the
+others as they are; *Undo* takes them back. Nothing is published by it: a book only goes to
+the booklog when you say so.
+
 ## Views, covers and reviews
 
 - **Four views** of every list, chosen with the buttons beside the search box: the *list*

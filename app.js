@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.25.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.26.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2887,6 +2887,7 @@ function drawPicking() {
   const n = picking.ids.size;
   const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
   const photos = n ? pickedBooks().filter((b) => photoEditions(b).length) : [];
+  const bare = n ? pickedBooks().filter((b) => !b.pending && !b.categories?.length) : [];
   fill($('pickBar'),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Stop selecting'), title: t('Stop selecting'), onclick: closeLayer }, icon('x')),
     // The number apart from its word: on a phone there is only room for the number (styles.css).
@@ -2897,7 +2898,13 @@ function drawPicking() {
       class: 'btn btn-outline pick-straighten', type: 'button', title: t('Straighten covers'), 'aria-label': t('Straighten covers'),
       onclick: () => openStraightenCovers(photos),
     }, icon('crop'), h('span', { text: t('Straighten') })),
-    h('button', { class: 'btn btn-primary', type: 'button', disabled: !n, onclick: () => openBulkEdit(pickedBooks()) }, icon('pencil'), t('Edit')));
+    // Books without a category among them: what kind of books they are can be looked up.
+    bare.length > 0 && h('button', {
+      class: 'btn btn-outline pick-propose', type: 'button', title: t('Propose categories'), 'aria-label': t('Propose categories'),
+      onclick: () => openProposeCategories(bare),
+    }, icon('sparkles'), h('span', { text: t('Categories') })),
+    // Its word in a span: on a phone, beside both Straighten and Categories, there is only room for the pencil (styles.css).
+    h('button', { class: 'btn btn-primary', type: 'button', disabled: !n, title: t('Edit'), 'aria-label': t('Edit'), onclick: () => openBulkEdit(pickedBooks()) }, icon('pencil'), h('span', { text: t('Edit') })));
 }
 
 /** The edition a row of the shelf shows (in a list: the one that is there). */
@@ -3363,6 +3370,172 @@ function openStraightenCovers(chosen) {
       action: t('Undo'), ms: 8000,
       onAction: async () => {
         for (const [ed, was] of before) Object.assign(ed, was);
+        await saveBooks(changed);
+      },
+    }));
+  }
+}
+
+/** What the catalogues say a book is about: Open Library's subjects of the edition and of the work, and Google Books' categories. */
+async function catalogueSubjects(book) {
+  const isbn = editionsOf(book).map((e) => e.isbn).find((x) => /^97[89]\d{10}$/.test(x || ''));
+  const strings = (list) => (Array.isArray(list) ? list.filter((s) => typeof s === 'string') : []);
+  const subjects = [];
+  let olid = isOlid(book.olid) ? book.olid : '';
+  if (isbn) {
+    let google = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent('isbn:' + isbn)}&maxResults=1&fields=${encodeURIComponent('items(volumeInfo(categories))')}`;
+    if (settings.googleKey) google += `&key=${encodeURIComponent(settings.googleKey)}`;
+    const [edition, volumes] = await Promise.all([
+      getJSON(`https://openlibrary.org/isbn/${isbn}.json`, 6000).catch(() => null),
+      getJSON(google, 6000).catch(() => null)]);
+    subjects.push(...strings(edition?.subjects), ...strings(volumes?.items?.[0]?.volumeInfo?.categories));
+    const work = String(edition?.works?.[0]?.key || '').split('/').pop();
+    if (!olid && isOlid(work)) olid = work;
+  }
+  if (olid) subjects.push(...strings((await getJSON(`https://openlibrary.org/works/${olid}.json`, 6000).catch(() => null))?.subjects));
+  return subjects;
+}
+
+/**
+ * Categories for the books selected that have none, all at once. Each book is looked up, the
+ * surest way first, and what it would get is shown:
+ *   1. the shelf itself: the categories of its series, or the ones its writer's other books
+ *      agree on (as a scan gets them). Ticked.
+ *   2. the assistant, with an account and where the server has one, twenty books at a time.
+ *      Ticked when it knows the book.
+ *   3. the shelf again, less strictly (two other books by the writer, most of them the same).
+ *   4. what the catalogues say the book is about (terms.js reads their subjects).
+ * The last two are guesses and come unticked, as does a book the assistant doesn't know. A tap
+ * ticks or unticks a book; the ticked ones get their categories, and Undo takes them back.
+ * Nothing here needs an account: without one, the shelf and the catalogues are asked.
+ */
+function openProposeCategories(chosen) {
+  const allowed = categoryNames();
+  const items = chosen.map((book) => ({ book, state: 'looking', from: '', on: false, categories: null }));
+  let busy = false, unanswered = false;
+  const apply = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, onclick: submit });
+  const note = h('p', { class: 'sheet-note' });
+  const said = (it) => {
+    if (it.state === 'looking') return t('Looking…');
+    if (it.state === 'none') return t('Nothing found');
+    if (it.from === 'shelf') return it.state === 'sure' ? t('Going by your other books') : t('Going by your other books, but not sure: check it');
+    if (it.from === 'assistant') return it.state === 'sure' ? t('Going by the assistant') : t('The assistant doesn’t know this book: check it');
+    return t('Going by the catalogue’s subjects: check it');
+  };
+
+  for (const it of items) {
+    const b = look(it.book);
+    it.box = h('input', { type: 'checkbox', disabled: true, onchange: () => { it.on = it.box.checked; refresh(); } });
+    it.tags = h('div', { class: 'book-tags' });
+    it.say = h('div', { class: 'book-meta propose-say' });
+    it.el = h('label', { class: 'proposal' },
+      it.box, coverEl(b),
+      h('div', { class: 'book-text' },
+        h('div', { class: 'book-title', text: displayTitle(b) }),
+        (b.author || seriesLine(b)) && h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') }),
+        it.tags, it.say));
+    draw(it);
+  }
+  const list = h('div', { class: 'proposals' }, items.map((it) => it.el));
+
+  function draw(it) {
+    it.box.checked = it.on;
+    it.box.disabled = busy || !it.categories;
+    it.el.dataset.state = it.state;
+    fill(it.tags, ...(it.categories || []).map((slug) => h('span', { class: 'tag', text: categoryName(slug) })));
+    it.say.textContent = said(it);
+  }
+  function refresh() {
+    const n = items.filter((it) => it.on).length;
+    const left = items.filter((it) => it.state === 'looking').length;
+    apply.disabled = busy || !n;
+    fill(apply, icon('check'), t('Categorise {books}', { books: plural(n, 'book') }));
+    note.textContent = left
+      ? t('Looking up what kind of books these are: {n} to go.', { n: left })
+      : [t('Ticked where it is clear. Tap a book to tick or untick it; the others stay without a category.'),
+        unanswered && t('The assistant didn’t answer, so these go by your shelf and the catalogues.')].filter(Boolean).join(' ');
+  }
+  function found(it, categories, from, sure) {
+    Object.assign(it, { categories, from, state: sure ? 'sure' : 'guess', on: sure });
+    draw(it);
+  }
+
+  const titles = chosen.slice(0, 3).map(displayTitle).join(', ');
+  const body = h('div', { class: 'propose' },
+    sheetHead(t('Propose categories'), chosen.length > 3 ? t('{titles} and {n} more', { titles, n: chosen.length - 3 }) : titles),
+    note, list,
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => sheet.close() }),
+      apply));
+  refresh();
+  sheet.open(body);
+
+  const pause = () => new Promise((resolve) => setTimeout(resolve));   // let the page draw in between
+  (async () => {
+    // 1. The shelf itself, where it is clear.
+    let rest = [];
+    for (const it of items) {
+      const like = W.categoriesLike(it.book, books);
+      if (like) found(it, like, 'shelf', true); else rest.push(it);
+    }
+    refresh();
+    await pause();
+    // 2. The assistant, a batch at a time; when it doesn't answer, the rest goes on without it.
+    if (rest.length && canTranslate()) {
+      const asked = rest;
+      rest = [];
+      for (let i = 0; i < asked.length; i += 20) {
+        if (!list.isConnected) return;   // closed meanwhile
+        const batch = asked.slice(i, i + 20);
+        let got = null;
+        if (!unanswered) {
+          try {
+            got = (await api('categories', { books: batch.map(({ book }) => {
+              const b = look(book);
+              return { id: book.id, title: b.title || '', author: b.author || '', series: b.series || '', year: yearOf(b.date), language: b.language || '' };
+            }) })).books;
+          } catch (err) {
+            console.warn('Folio: the assistant gave no categories', err);
+            unanswered = true;
+          }
+        }
+        for (const it of batch) {
+          const answer = got?.[it.book.id];
+          const categories = (answer?.categories || []).filter((slug) => allowed.includes(slug)).slice(0, 2);
+          if (categories.length) found(it, categories, 'assistant', answer.known === true); else rest.push(it);
+        }
+        refresh();
+      }
+    }
+    // 3. The shelf, less strictly; 4. the catalogues' subjects. Guesses, both.
+    for (const it of rest) {
+      if (!list.isConnected) return;
+      let categories = W.categoriesLike(it.book, books, { least: 2, share: 0.6 }), from = 'shelf';
+      if (!categories && navigator.onLine !== false) {
+        categories = T.categoriesFromSubjects(await catalogueSubjects(it.book).catch(() => []), allowed);
+        from = 'catalogue';
+      }
+      if (categories?.length) found(it, categories, from, false);
+      else { it.state = 'none'; draw(it); }
+      refresh();
+      await pause();
+    }
+  })();
+
+  async function submit() {
+    // Only books that are still there and still have none: one given a category meanwhile keeps it.
+    const picked = items.filter((it) => it.on && it.categories?.length && books.includes(it.book) && !it.book.categories?.length);
+    if (!picked.length || busy) return;
+    busy = true;
+    items.forEach(draw);
+    refresh();
+    for (const it of picked) it.book.categories = [...it.categories];
+    const changed = picked.map((it) => it.book);
+    await saveBooks(changed);
+    closeLayersThen(() => toast(t('{books} categorised', { books: plural(changed.length, 'book') }), {
+      action: t('Undo'), ms: 8000,
+      onAction: async () => {
+        for (const book of changed) delete book.categories;
         await saveBooks(changed);
       },
     }));
