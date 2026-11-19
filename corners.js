@@ -83,9 +83,12 @@ function lines({ mag, gx, gy, w, h }, threshold) {
       const i = y * w + x, m = mag[i];
       if (m < threshold) continue;
       const phi = ((Math.round(Math.atan2(gy[i], gx[i]) * 180 / Math.PI) % 180) + 180) % 180;   // across the edge
+      // A strong edge counts little more than a faint one: what makes a line is its length. A worn,
+      // pale cover on pale stone has faint edges, yet they are the longest lines in the photo, and
+      // must not lose their place to the strong but short lines of the picture on the cover.
       for (let d = -3; d <= 3; d++) {
         const t = (phi + d + 180) % 180;
-        acc[t * R + Math.round(x * cos[t] + y * sin[t]) + D] += Math.min(m, 4 * threshold);
+        acc[t * R + Math.round(x * cos[t] + y * sin[t]) + D] += Math.min(m, 1.5 * threshold);
       }
     }
   }

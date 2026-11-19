@@ -82,6 +82,22 @@ test('a book held up, tilted, in front of shelves of spines', () => {
   assert.ok(near(found, quad, 10), JSON.stringify(found?.quad));
 });
 
+test('a worn pale cover on pale stone, with a strong dark banner near its top', () => {
+  // Its own edges are faint; the banner's are strong, and so are the lines of the title and the
+  // drawing below it, shorter than the cover is wide. The frame must not stop at the banner.
+  const rnd = random(5);
+  const quad = [[60, 90], [660, 100], [672, 960], [52, 966]];
+  const cover = (x, y) => {
+    if (y > 180 && y < 215) return [40, 40, 45];                                       // the banner
+    const row = Math.floor((y - 250) / 60);   // title and drawing: bands of different widths
+    if (y > 250 && y < 900 && (y - 250) % 60 < 22 && x > 120 + (row * 37) % 90 && x < 600 - (row * 53) % 110) return [50, 60, 120];
+    return [160 + rnd() * 8, 175 + rnd() * 8, 186 + rnd() * 8];   // a little darker than the stone, as in the photo
+  };
+  const found = findCover(picture(720, 1050, () => { const v = 186 + rnd() * 14; return [v, v, v - 3]; }, quad, cover));
+  assert.ok(found?.sure, 'sure');
+  assert.ok(near(found, quad, 10), JSON.stringify(found?.quad));
+});
+
 test('no book: plain stone, or only shelves, is never a sure frame', () => {
   const rnd = random(4);
   const stone = findCover(picture(600, 800, () => { const v = 170 + rnd() * 25; return [v, v, v]; }));
