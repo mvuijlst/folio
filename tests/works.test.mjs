@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, twinsOf, setApart, flatView, fold,
-  firstOut, writerOrder, categoriesLike,
+  firstOut, writerOrder, categoriesLike, blankEdition, fillEdition, placeEdition,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -284,4 +284,33 @@ test('categoriesLike: the book itself, books without a category and scans still 
   assert.equal(categoriesLike({ id: 'c', author: 'Jack Vance' }, shelf), null);                  // the same book, as a copy
   assert.equal(categoriesLike({ author: 'Jack Vance' }, shelf), null);                           // two in three is not clear
   assert.deepEqual(categoriesLike({ author: 'Jack Vance' }, [...shelf, shelved('f', 'Jack Vance', ['science-fiction'])]), ['science-fiction']);
+});
+
+test('blankEdition: a copy of that format that says nothing else yet', () => {
+  const work = { title: 'Last Argument of Kings', editions: [
+    { id: 'e1', format: 'ebook', publisher: 'Gollancz' },
+    { id: 'e2', format: 'audiobook', asin: 'B003NHEU1M', lists: { bib: { at: '2026-11-15' } } },
+    { id: 'e3', format: 'paper', added: '2026-11-19' }] };
+  assert.equal(blankEdition(work, 'paper').id, 'e3');
+  assert.equal(blankEdition(work, 'ebook'), undefined);                                          // it says its publisher
+  assert.equal(blankEdition(work, ''), undefined);
+  assert.equal(blankEdition({ ...work, editions: [{ id: 'e1', format: 'paper', isbn: '9780575082014' }] }, 'paper'), undefined);
+  assert.equal(blankEdition({ ...work, editions: [{ id: 'e1', format: 'paper', title: 'De laatste les' }] }, 'paper'), undefined);   // a translation
+});
+
+test('fillEdition: what was found goes into the edition, its lists on top of its own', () => {
+  const work = { title: 'Last Argument of Kings', editions: [{ id: 'e3', format: 'paper', added: '2026-11-19', lists: { mag: { at: '2026-11-01' } } }] };
+  const e = fillEdition(work, work.editions[0], { title: 'Last Argument of Kings', format: 'paper', isbn: '9780575082014', publisher: 'Gollancz',
+    lists: { read: { at: 'x' }, bib: { at: '2026-11-20' }, mag: { at: '2026-11-20' } } }, { status: [] });
+  assert.deepEqual(e, { id: 'e3', format: 'paper', added: '2026-11-19', isbn: '9780575082014', publisher: 'Gollancz',
+    lists: { mag: { at: '2026-11-01' }, bib: { at: '2026-11-20' } } });
+});
+
+test('placeEdition: a place goes on the paper copy where the e-book is shown', () => {
+  const ebook = { id: 'e1', format: 'ebook' }, paper = { id: 'e2', format: 'paper' }, audio = { id: 'e3', format: 'audiobook' };
+  assert.equal(placeEdition({ editions: [ebook, paper] }, ebook), paper);
+  assert.equal(placeEdition({ editions: [audio, ebook, paper] }, audio), paper);
+  assert.equal(placeEdition({ editions: [ebook] }, ebook), ebook);                               // no paper copy: the one shown
+  const other = { id: 'e4' };
+  assert.equal(placeEdition({ editions: [other, paper] }, other), other);                        // not said to be digital: as shown
 });

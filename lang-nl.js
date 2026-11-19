@@ -483,6 +483,7 @@ export default {
   'Add another edition': 'Nog een kopie toevoegen',
   'Of “{title}”: whatever is found becomes an edition of it.': 'Van “{title}”: wat gevonden wordt, wordt er een kopie van.',
   'Added to “{title}” as another edition': 'Als nog een kopie bij “{title}” gezet',
+  'Filled in the copy of “{title}” you already had': 'De kopie van “{title}” die je al had, is aangevuld',
   'Another copy of it added to “{title}”': 'Nog een exemplaar ervan bij “{title}” gezet',
   'Keep separate': 'Apart houden',
   'Make it a book of its own': 'Apart boek van maken',

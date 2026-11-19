@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.26.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.27.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2963,6 +2963,14 @@ function openBulkEdit(chosen) {
   // Reading status, series, authors, categories and tags are the book's; lists of where a copy is,
   // publisher, format and language are of the edition each selected row shows.
   const faceIn = (b) => shown.faces?.get(b) || W.mainEdition(b);
+  // A list of where a copy is goes on the paper copy, where the row shows the e-book or audiobook.
+  const placeIn = (b) => W.placeEdition(b, faceIn(b));
+  const offLists = (e, ids) => {
+    if (!ids.some((id) => e.lists?.[id])) return;
+    e.lists = { ...e.lists };
+    for (const id of ids) delete e.lists[id];
+    if (!Object.keys(e.lists).length) delete e.lists;
+  };
   const count = (test) => chosen.filter(test).length;
   /** How many of the books have each value: Map(value → n), most first. */
   const tally = (valuesOf) => {
@@ -3005,10 +3013,17 @@ function openBulkEdit(chosen) {
   const setOfLists = (label, members, none) => oneOf(label, members.map((l) => l.id), {
     name: (id) => listName(listById(id)), has: (b, id) => !!shelves(b)[id], none,
     set: (book, id) => {
-      const target = isStatus(members[0].id) ? book : faceIn(book);
-      const on = { ...target.lists };
-      if (id) place(on, id); else for (const l of members) delete on[l.id];
-      target.lists = on;
+      if (isStatus(members[0].id)) {
+        const on = { ...book.lists };
+        if (id) place(on, id); else for (const l of members) delete on[l.id];
+        book.lists = on;
+        return;
+      }
+      // Where a copy is: off this set wherever it was, and on the paper copy where the row shows the e-book.
+      const target = placeIn(book);
+      const kept = id && editionsOf(book).find((e) => e.lists?.[id])?.lists[id];
+      for (const e of editionsOf(book)) offLists(e, members.map((l) => l.id));
+      if (id) { target.lists = { ...target.lists }; place(target.lists, id, kept?.at); if (kept?.note) target.lists[id].note = kept.note; }
     },
   });
 
@@ -3105,14 +3120,19 @@ function openBulkEdit(chosen) {
         return h('label', { class: 'field bulk-note' }, h('span', { text: show(l.noteLabel) }), input);
       }),
       apply: (book, mode, picked) => {
-        const copy = faceIn(book);
-        const on = { ...copy.lists };
+        // Taken off: off every copy. Put on: on the paper copy where the row shows the e-book.
+        const copy = placeIn(book);
         for (const l of loose) {
           const wanted = picked.has(l.id);
-          if (mode === 'remove' ? wanted : mode === 'replace' && !wanted) delete on[l.id];
-          else if (wanted) { place(on, l.id); if (notes[l.id]) on[l.id] = { ...on[l.id], note: notes[l.id] }; }
+          if (mode === 'remove' ? wanted : mode === 'replace' && !wanted) for (const e of editionsOf(book)) offLists(e, [l.id]);
+          else if (wanted && !editionsOf(book).some((e) => e !== copy && e.lists?.[l.id])) {
+            copy.lists = place({ ...copy.lists }, l.id);
+            if (notes[l.id]) copy.lists[l.id] = { ...copy.lists[l.id], note: notes[l.id] };
+          } else if (wanted && notes[l.id]) {
+            const on = editionsOf(book).find((e) => e.lists?.[l.id]);
+            on.lists = { ...on.lists, [l.id]: { ...on.lists[l.id], note: notes[l.id] } };
+          }
         }
-        copy.lists = on;
       },
     }),
     ...sets.map((s) => setOfLists(show(s.label), s.members, true)),
@@ -4629,7 +4649,9 @@ async function addFound(flat, { say = true, match = false, sibling = null } = {}
     return (adding.last = { book, edition: book.editions[0], attached: false });
   }
   const before = structuredClone(same);
-  const edition = W.addEdition(same, flat, { status: statusIds(), added: new Date().toISOString() });
+  // A copy in that format that said nothing yet (the paperback, as bought) is this one: it is filled in.
+  const blank = W.blankEdition(same, flat.format);
+  const edition = blank ? W.fillEdition(same, blank, flat, { status: statusIds() }) : W.addEdition(same, flat, { status: statusIds(), added: new Date().toISOString() });
   // Put on a reading list while adding: the book goes there, and a read planned is of this edition.
   const status = Object.entries(flat.lists || {}).filter(([id]) => isStatus(id));
   for (const [id, entry] of status) place(same.lists, id, entry.at);
@@ -4637,16 +4659,53 @@ async function addFound(flat, { say = true, match = false, sibling = null } = {}
   for (const key of ['olid', 'series', 'seriesNumber', 'seriesLabel', 'originalLanguage', 'originalTitle']) if (!same[key] && flat[key]) same[key] = flat[key];
   await saveBook(same);
   findOriginal(same);
-  const { undo, keepSeparate } = detachable(same, edition, before, flat);
-  const done = adding.last = { book: same, edition, attached: true, undo, keepSeparate };
+  const { undo, keepSeparate } = blank ? refillable(same, edition, before, flat) : detachable(same, edition, before, flat);
+  const done = adding.last = { book: same, edition, attached: true, filled: !!blank, undo, keepSeparate };
   if (say) {
-    toast(t('Added to “{title}” as another edition', { title: displayTitle(same) }), {
+    toast(attachedText(done), {
       ms: 10000,
       actions: [[t('Undo'), undo], [t('Edit'), () => openEditionForm(same, edition, { back: () => openBook(same, null) })],
         [t('Keep separate'), keepSeparate]],
     });
   }
   return done;
+}
+
+/** What a card or toast says of something found that went to a book already there. */
+function attachedText({ book, copy, filled }) {
+  const title = displayTitle(book);
+  return copy ? t('Another copy of it added to “{title}”', { title })
+    : filled ? t('Filled in the copy of “{title}” you already had', { title })
+    : t('Added to “{title}” as another edition', { title });
+}
+
+/**
+ * Taking back what filled in an edition of `book` that said nothing yet (`before`: the book as it
+ * was then): that edition is put back as it was, and the reading status the adding gave the book.
+ * → {undo, keepSeparate}: keepSeparate makes what was found a book of its own.
+ */
+function refillable(book, edition, before, flat) {
+  const undo = async () => {
+    const was = W.editionOf(before, edition.id);
+    if (!books.includes(book) || !was || !W.editionOf(book, edition.id)) return;
+    for (const key of Object.keys(edition)) delete edition[key];
+    Object.assign(edition, structuredClone(was));
+    if (!W.OPEN.some((id) => before.lists?.[id]) || before.main !== book.main) {
+      book.lists = structuredClone(before.lists || {});
+      if (before.main && W.editionOf(book, before.main)) book.main = before.main; else delete book.main;
+    }
+    await saveBook(book);
+  };
+  return {
+    undo,
+    keepSeparate: async () => {
+      await undo();
+      const piece = await addBook(flat);
+      W.setApart(book, piece);
+      await saveBooks([book, piece]);
+      return piece;
+    },
+  };
 }
 
 /**
@@ -7330,7 +7389,7 @@ function addedCard(found) {
   const again = () => { if (scanner.open && books.includes(book)) showCard(addedCard(found)); else showCard(null); };
   if (found.attached) {
     return card({
-      status: found.copy ? t('Another copy of it added to “{title}”', { title: displayTitle(book) }) : t('Added to “{title}” as another edition', { title: displayTitle(book) }),
+      status: attachedText(found),
       tone: 'ok', statusIcon: 'check', book, edition,
       actions: [
         h('button', { class: 'btn btn-outline', type: 'button', onclick: async () => { await found.undo(); counted(-1); showCard(null); } }, icon('undo'), t('Undo')),

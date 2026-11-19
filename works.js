@@ -374,13 +374,42 @@ export function newWork(flat, status) {
  * Its reading-status lists are left to the caller. → the new edition (the work is changed).
  */
 export function addEdition(work, flat, { status, added } = {}) {
-  const statuses = statusSet(status);
-  const edition = { id: nextEditionId(work), ...factsOf(flat) };
-  if (!empty(flat.title) && fold(flat.title) !== fold(work.title)) edition.title = String(flat.title);
-  for (const [id, entry] of Object.entries(isObj(flat.lists) ? flat.lists : {})) if (!statuses.has(id)) (edition.lists ||= {})[id] = entry;
+  const edition = fillEdition(work, { id: nextEditionId(work) }, flat, { status });
   if (added) edition.added = added;
   work.editions.push(edition);
   return edition;
+}
+
+/**
+ * What was found (`flat`) written into `edition` of `work`: its facts, its own title where it
+ * differs from the book's, and the lists of where a copy is that it names (on top of those the
+ * edition is on). → the edition.
+ */
+export function fillEdition(work, edition, flat, { status } = {}) {
+  const statuses = statusSet(status);
+  Object.assign(edition, factsOf(flat));
+  if (!empty(flat.title) && fold(flat.title) !== fold(work.title)) edition.title = String(flat.title);
+  for (const [id, entry] of Object.entries(isObj(flat.lists) ? flat.lists : {})) if (!statuses.has(id)) (edition.lists ||= {})[id] ??= entry;
+  return edition;
+}
+
+/**
+ * An edition of `format` that says nothing else yet (one added as "the paperback, bought", with
+ * no ISBN, publisher or cover): the copy found in that format fills it instead of being added
+ * beside it. → the edition, or undefined.
+ */
+export function blankEdition(work, format) {
+  if (empty(format)) return undefined;
+  return (work.editions || []).find((e) => e.format === format && !e.title && MOVED.every((key) => key === 'format' || empty(e[key])));
+}
+
+/**
+ * The edition a list of where a copy is goes on, when `shown` is the one in view: that one,
+ * unless it is an e-book or audiobook and the book has a paper copy (a shelf holds paper).
+ */
+export function placeEdition(work, shown) {
+  if (!['ebook', 'audiobook'].includes(shown?.format)) return shown;
+  return (work.editions || []).find((e) => e.format === 'paper') || shown;
 }
 
 /** A title as it is compared: folded, and without what follows a colon or a dash (the subtitle). */
