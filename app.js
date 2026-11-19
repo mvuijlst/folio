@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.28.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.28.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -6716,9 +6716,16 @@ const paperWithoutCover = () => books.flatMap((book) => {
   const others = editionsOf(book).filter(hasCover);
   return others.length ? editionsOf(book).filter((e) => isPaper(book, e) && !hasCover(e)).map((paper) => ({ book, paper, others })) : [];
 }).sort(byTitle);
-/** [{book, paper}]: a paper copy with no ISBN, which a scan of its barcode fills in. */
-const paperToScan = () => books.filter((book) => !book.pending)
-  .flatMap((book) => editionsOf(book).filter((e) => isPaper(book, e) && !e.isbn).map((paper) => ({ book, paper }))).sort(byTitle);
+/** Whether a copy's cover is a photograph of it (taken in the scanner, straightened, or one's own picture). */
+const coverIsPhoto = (e) => !!(e.coverPhoto || e.coverOriginal || (/^covers\/own\//.test(e.cover || '') && !e.coverSource));
+/**
+ * [{book, paper}]: a paper copy read and logged in the booklog that says no ISBN and wasn't
+ * photographed, which a scan of its barcode fills in. Those added in Folio without an ISBN came
+ * by their cover, a description or a list (a barcode always gives one): they are left as they are.
+ */
+const paperToScan = () => books.filter((book) => !book.pending).flatMap((book) => editionsOf(book)
+  .filter((e) => isPaper(book, e) && !e.isbn && !coverIsPhoto(e) && (book.reviews || []).some((r) => r.ed === e.id && r.boeken))
+  .map((paper) => ({ book, paper }))).sort(byTitle);
 function paperAbout() {
   const covers = paperWithoutCover().length, scan = paperToScan().length;
   return [covers && t('{n} without a cover', { n: covers }), scan && t('{n} to scan again', { n: scan })].filter(Boolean).join(' · ') || t('All in order');
@@ -6784,7 +6791,7 @@ function openPaperPage() {
         copyBtn && h('div', { class: 'btn-row sheet-actions paper-actions' }, copyBtn)),
       h('div', { class: 'sheet-section' },
         h('h3', { text: t('To scan again') }),
-        h('p', { class: 'sheet-note', text: scan.length ? t('These paper copies have no ISBN. Scan their barcodes: each scan fills in what its copy doesn’t say yet.') : t('Every paper copy has an ISBN.') }),
+        h('p', { class: 'sheet-note', text: scan.length ? t('These paper copies, read and logged in the booklog, have no ISBN. A scan of the barcode fills in what its copy doesn’t say yet, and the booklog page gets the ISBN too.') : t('Every paper copy in the booklog has an ISBN.') }),
         // By where the copy is, in list order, so a shelf can be done at a time; nowhere last.
         lists.filter((l) => !isStatus(l.id)).map((l) => [l, scan.filter(({ paper }) => paper.lists?.[l.id])])
           .concat([[null, scan.filter(({ paper }) => !Object.keys(paper.lists || {}).some((id) => listById(id)))]])
