@@ -163,9 +163,12 @@ and only those parts are applied. *Undo* in the message afterwards puts every bo
   hours listened, writers and the average rating; reads per year by format, in books or in
   pages (an audiobook counts forty pages an hour, as the booklog reckons), as columns or as a
   stream (each format a band flowing through the years); a dot per read of
-  the year the edition came out against when it was read (a dot opens the book); categories,
-  languages, ratings and the writers with the most books. Tapping a year, a category, a
-  language or a rating narrows the place by it, as the filter would (tapping it again lets it
+  the year the edition came out against when it was read (a dot opens the book); the books by
+  the year their edition came out, paper above the line and e-books and audiobooks below it;
+  the books in translation, as ribbons from the language each was written in to the language
+  of its edition; categories,
+  languages, ratings and the writers with the most books. Tapping a year read, a category, a
+  language (also at either side of the translations) or a rating narrows the place by it, as the filter would (tapping it again lets it
   go; a span of years is chosen with the filter's slider); tapping a writer opens
   their books. A read counts in the year it is dated, of the edition it was of: with a filter
   on copies (format, language) only reads of an edition that passes it count, and with a span

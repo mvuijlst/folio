@@ -520,6 +520,12 @@ export default {
   'An audiobook counts forty pages an hour.': 'Een luisterboek telt voor veertig bladzijden per uur.',
   'Published, and read': 'Verschenen en gelezen',
   'A dot per read: the year the edition read came out, against when it was read.': 'Een punt per lezing: het jaar waarin de gelezen kopie verscheen, tegen wanneer ze gelezen werd.',
+  'Published per year': 'Verschenen per jaar',
+  'The year the edition each book is shown as came out: paper above the line, the rest below.': 'Het jaar waarin de kopie verscheen waarmee elk boek getoond wordt: papier boven de lijn, de rest eronder.',
+  'The year the edition each book is shown as came out.': 'Het jaar waarin de kopie verscheen waarmee elk boek getoond wordt.',
+  'In translation': 'In vertaling',
+  'Left, the language a book was written in; right, the language of the edition it is shown as. Not drawn: {same} in the language they were written in.':
+    'Links de taal waarin een boek geschreven is; rechts de taal van de kopie waarmee het getoond wordt. Niet getekend: {same} in de taal waarin ze geschreven zijn.',
   'Languages': 'Talen',
   'Of the edition each book is shown as.': 'Van de kopie waarmee elk boek getoond wordt.',
   'Ratings': 'Scores',

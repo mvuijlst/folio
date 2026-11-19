@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.21.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.22.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2537,6 +2537,151 @@ function ageChart(finished) {
         svg('title', null, label(d))))));
 }
 
+/**
+ * The books by the year their edition came out (the edition each is shown as): a column per
+ * year, paper above the line and the other formats below it, or all of them above when there
+ * is only one side. The few books much older than the rest share one column at the left.
+ */
+function publishedChart(rows, faces) {
+  const byYear = new Map(), years = [];
+  for (const b of rows) {
+    const e = faces.get(b);
+    const year = Number(yearOf(e?.date));
+    if (!year) continue;
+    const per = byYear.get(year) || byYear.set(year, {}).get(year);
+    const format = formatOf({ ...e, boeken: b.boeken }) || '';
+    per[format] = (per[format] || 0) + 1;
+    years.push(year);
+  }
+  if (years.length < 3 || byYear.size < 2) return null;
+  const all = [...byYear.keys()].sort((a, b) => a - b);
+  const last = all[all.length - 1];
+  // Where the years begin: the first of them, or, when a few old books would stretch the chart
+  // thin, the decade by which all but one in fifty have come out.
+  const most = Math.floor(years.sort((a, b) => a - b)[Math.floor((years.length - 1) * .02)] / 10) * 10;
+  const first = last - all[0] > 90 && most > all[0] ? most : all[0];
+  const early = {};
+  for (const [year, per] of byYear) if (year < first) for (const [format, n] of Object.entries(per)) early[format] = (early[format] || 0) + n;
+  const hasEarly = Object.keys(early).length > 0;
+  const columns = [...(hasEarly ? [{ year: null, per: early }] : []),
+    ...Array.from({ length: last - first + 1 }, (_, i) => ({ year: first + i, per: byYear.get(first + i) || {} }))];
+  const used = STAT_FORMATS.filter((format) => columns.some((column) => column.per[format]));
+  const below = used.includes('paper') && used.length > 1 ? used.filter((format) => format !== 'paper') : [];
+  const above = used.filter((format) => !below.includes(format));
+  const sum = (per, formats) => formats.reduce((n, format) => n + (per[format] || 0), 0);
+  const up = Math.max(1, ...columns.map((column) => sum(column.per, above))), down = Math.max(0, ...columns.map((column) => sum(column.per, below)));
+  const width = Math.max(280, $('library').clientWidth || 640), pad = 4, band = 22, height = below.length ? 260 : 190;
+  const apart = hasEarly ? 10 : 0;   // room between the column of older books and the years
+  const step = (width - pad * 2 - apart) / columns.length;
+  const thick = Math.max(.6, step - (step > 6 ? 2 : step > 3 ? 1 : .4));
+  const k = (height - band - pad * 2) / (up + down);
+  const mid = pad + up * k;   // the line: the years are written under it
+  const X = (i) => pad + step * i + (hasEarly && i > 0 ? apart : 0);
+  const round = (n) => Math.round(n * 10) / 10;
+  const formatLabel = (format) => formatName(format) || t('Not said');
+  const every = [1, 2, 5, 10, 20, 50].find((n) => step * n >= 36) || 100;
+  const marks = [];
+  columns.forEach((column, i) => {
+    let y = mid;
+    for (const format of above) {
+      const n = column.per[format]; if (!n) continue;
+      y -= n * k;
+      marks.push(svg('rect', { x: round(X(i)), y: round(y), width: round(thick), height: round(Math.max(.6, n * k - (above.length > 1 ? 1 : 0))), fill: STAT_COLOURS[format] }));
+    }
+    y = mid + band;
+    for (const format of below) {
+      const n = column.per[format]; if (!n) continue;
+      marks.push(svg('rect', { x: round(X(i)), y: round(y), width: round(thick), height: round(Math.max(.6, n * k - 1)), fill: STAT_COLOURS[format] }));
+      y += n * k;
+    }
+    const label = column.year == null ? `< ${first}` : column.year % every === 0 && (!hasEarly || column.year - first >= every / 2) ? String(column.year) : '';
+    if (label) marks.push(svg('text', { x: round(X(i) + thick / 2), y: round(mid + 15), 'text-anchor': column.year == null && step < 30 ? 'start' : 'middle' }, label));
+  });
+  // Over the columns, a strip per year that says what it holds.
+  const strips = columns.map((column, i) => {
+    const total = sum(column.per, used);
+    if (!total) return null;
+    const tip = [`${column.year ?? `< ${first}`}: ${plural(total, 'book')}`, ...(used.length > 1 ? used.filter((f) => column.per[f]).map((f) => `${formatLabel(f)} ${statNumber(column.per[f])}`) : [])].join(' · ');
+    return svg('rect', { class: 'strip', x: round(X(i) - (step - thick) / 2), y: 0, width: round(step), height }, svg('title', null, tip));
+  });
+  return h('section', { class: 'stat stat-wide' },
+    h('h2', { text: t('Published per year') }),
+    h('p', { class: 'stat-note', text: below.length
+      ? t('The year the edition each book is shown as came out: paper above the line, the rest below.')
+      : t('The year the edition each book is shown as came out.') }),
+    svg('svg', { class: 'stream pubs', viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': t('Published per year') }, marks, strips),
+    used.length > 1 && h('p', { class: 'legend' }, used.map((format) => h('span', null,
+      h('i', { style: `background: ${STAT_COLOURS[format]}` }), formatLabel(format)))));
+}
+
+/**
+ * Translations: the books whose edition (the one each is shown as) is in another language than
+ * the book was written in, as ribbons from the one language to the other, as thick as their
+ * books. A language at either side narrows the place to it, as its filter would.
+ */
+function translationChart(rows, faces, facets) {
+  const flows = new Map(), from = new Map(), to = new Map();
+  let same = 0, moved = 0;
+  for (const b of rows) {
+    const a = b.originalLanguage, z = faces.get(b)?.language;
+    if (!a || !z) continue;
+    if (a === z) { same++; continue; }
+    flows.set(`${a} ${z}`, (flows.get(`${a} ${z}`) || 0) + 1);
+    from.set(a, (from.get(a) || 0) + 1);
+    to.set(z, (to.get(z) || 0) + 1);
+    moved++;
+  }
+  if (!moved || from.size + to.size < 3) return null;
+  const order = (side) => [...side].sort((a, b) => b[1] - a[1] || languageName(a[0]).localeCompare(languageName(b[0]), LOCALE)).map(([code]) => code);
+  const sources = order(from), targets = order(to);
+  const width = Math.max(280, $('library').clientWidth || 640), narrow = width < 520;
+  const left = narrow ? 108 : 160, right = width - (narrow ? 96 : 150), node = 8, line = 15;
+  const k = Math.min(6, 260 / moved);   // a book's thickness
+  // Each language gets its books' thickness, and no less than a line of text.
+  const place = (codes, side, space) => {
+    const at = new Map();
+    let y = 2;
+    for (const code of codes) { at.set(code, y); y += Math.max(side.get(code) * k, line) + space; }
+    return [at, y - space + 2];
+  };
+  const [fromAt, fromHeight] = place(sources, from, 3);
+  const loose = targets.length > 1 ? (fromHeight - 4 - targets.reduce((n, code) => n + Math.max(to.get(code) * k, line), 0)) / (targets.length - 1) : 0;
+  const [toAt, toHeight] = place(targets, to, Math.max(3, Math.min(44, loose)));
+  const height = Math.ceil(Math.max(fromHeight, toHeight));
+  const colour = (code) => ['var(--series-1)', 'var(--series-2)', 'var(--series-3)'][targets.indexOf(code)] || 'var(--series-none)';
+  const round = (n) => Math.round(n * 10) / 10;
+  const has = (key) => facets.some((facet) => facet.key === key);
+  const fromUsed = new Map(), toUsed = new Map(), ribbons = [];
+  const x0 = left + node, x1 = right, bend = (x0 + x1) / 2;
+  for (const a of sources) for (const z of targets) {
+    const n = flows.get(`${a} ${z}`);
+    if (!n) continue;
+    const thick = Math.max(1, n * k);
+    const y0 = fromAt.get(a) + (fromUsed.get(a) || 0), y1 = toAt.get(z) + (toUsed.get(z) || 0);
+    fromUsed.set(a, (fromUsed.get(a) || 0) + n * k);
+    toUsed.set(z, (toUsed.get(z) || 0) + n * k);
+    ribbons.push(svg('path', { class: 'ribbon', fill: colour(z),
+      d: `M${x0},${round(y0)}C${bend},${round(y0)} ${bend},${round(y1)} ${x1},${round(y1)}L${x1},${round(y1 + thick)}C${bend},${round(y1 + thick)} ${bend},${round(y0 + thick)} ${x0},${round(y0 + thick)}Z` },
+    svg('title', null, `${languageName(a)} → ${languageName(z)}: ${statNumber(n)}`)));
+  }
+  const end = (code, side, at, x, key, fill, anchor, textX) => {
+    const tall = Math.max(1.5, side.get(code) * k);
+    const pick = has(key) ? () => toggleFilter(key, code) : null;
+    return svg('g', { class: pick ? 'end pickable' : 'end', 'aria-pressed': pick ? String((view.filters[key] || []).includes(code)) : null, onclick: pick },
+      svg('rect', { class: 'hit', x: anchor === 'end' ? 0 : x, y: round(at.get(code) - 1), width: anchor === 'end' ? x + node : width - x, height: round(Math.max(tall, line) + 2) }),
+      svg('rect', { x, y: round(at.get(code)), width: node, height: round(tall), fill }),
+      svg('text', { x: textX, y: round(at.get(code) + Math.min(Math.max(tall, line), 20) / 2 + 4), 'text-anchor': anchor },
+        languageName(code), svg('tspan', { class: 'n', dx: 5 }, statNumber(side.get(code)))));
+  };
+  return h('section', { class: 'stat stat-wide' },
+    h('h2', { text: t('In translation') }),
+    h('p', { class: 'stat-note', text: t('Left, the language a book was written in; right, the language of the edition it is shown as. Not drawn: {same} in the language they were written in.', { same: `${statNumber(same)} ${COUNTED[lang].book[same === 1 ? 0 : 1]}` }) }),
+    svg('svg', { class: 'flows', viewBox: `0 0 ${width} ${height}`, width, height, role: 'img', 'aria-label': t('In translation') },
+      ribbons,
+      sources.map((code) => end(code, from, fromAt, left, 'original', 'var(--faint)', 'end', left - 9)),
+      targets.map((code) => end(code, to, toAt, right, 'language', colour(code), 'start', right + node + 9))));
+}
+
 /** The statistics of the books `rows` (each shown as its edition in `faces`), with the filters `facets`. */
 function statsOf(rows, faces, facets) {
   const reads = readsIn(rows, facets);
@@ -2561,6 +2706,8 @@ function statsOf(rows, faces, facets) {
     statFigures(rows, reads),
     finished.length > 0 && yearChart(finished, facets),
     ageChart(finished),
+    publishedChart(rows, faces),
+    translationChart(rows, faces, facets),
     categories.length > 1 && panel(t('Categories'), null, barList(categories.map(([key, value]) => ({ key, label: categoryName(key), value })),
       has('category') ? { onPick: (key) => toggleFilter('category', key), pressed: pressed('category') } : {})),
     languages.length > 1 && panel(t('Languages'), t('Of the edition each book is shown as.'), barList(languages.map(([key, value]) => ({ key, label: languageName(key), value })),

@@ -486,6 +486,15 @@ button.col:hover .col-bar { opacity: .75; }
 .stream .strip { fill: transparent; }
 .stream .strip.pickable { cursor: pointer; }
 .stream .strip:hover { fill: var(--text); fill-opacity: .07; }
+.flows { display: block; width: 100%; height: auto; margin-top: 14px; overflow: visible; }
+.flows text { fill: var(--muted); font-family: var(--sans); font-size: 12px; font-variant-numeric: tabular-nums; }
+.flows .n { fill: var(--faint); font-size: 11px; }
+.flows .ribbon { fill-opacity: .5; transition: fill-opacity .15s ease; }
+.flows .ribbon:hover { fill-opacity: .85; }
+.flows .hit { fill: transparent; }
+.flows .pickable { cursor: pointer; }
+.flows .pickable:hover text { fill: var(--text); }
+.flows .end[aria-pressed="true"] text { fill: var(--accent); font-weight: 600; }
 
 /* Cards view */
 .library.mode-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; align-items: start; }
