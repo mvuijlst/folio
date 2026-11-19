@@ -13,7 +13,7 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
 
-const APP_VERSION = '2.21.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.21.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2646,7 +2646,7 @@ function drawPicking() {
   if (!picking.on) return;
   const n = picking.ids.size;
   const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
-  const photos = n ? pickedBooks().filter((b) => photographed(rowEdition(b))) : [];
+  const photos = n ? pickedBooks().filter((b) => photoEditions(b).length) : [];
   fill($('pickBar'),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Stop selecting'), title: t('Stop selecting'), onclick: closeLayer }, icon('x')),
     h('span', { class: 'pick-count', text: n ? t('{n} selected', { n }) : t('Select books') }),
@@ -2662,6 +2662,11 @@ function drawPicking() {
 const rowEdition = (b) => shown.faces?.get(b) || W.mainEdition(b);
 /** A photo of the cover as it was taken in the scanner: not yet straightened or replaced. */
 const photographed = (ed) => !!ed?.coverPhoto && ownCover(ed);
+/** A book's editions whose cover is such a photo: the one its row shows first, then the others. */
+const photoEditions = (b) => {
+  const first = rowEdition(b);
+  return [first, ...(b.editions || []).filter((e) => e !== first)].filter(photographed);
+};
 
 /** A long press on a book starts selecting, with that book; Escape and Ctrl+A do what they do. */
 function initPicking() {
@@ -3001,7 +3006,8 @@ function openBulkEdit(chosen) {
  * can still be straightened one by one, from their cover.
  */
 function openStraightenCovers(chosen) {
-  const items = chosen.map((book) => ({ book, ed: rowEdition(book), state: 'looking', on: false }));
+  // Every photographed edition of each book: a book scanned twice has two photos to straighten.
+  const items = chosen.flatMap((book) => photoEditions(book).map((ed) => ({ book, ed, state: 'looking', on: false })));
   let busy = false;
   const apply = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, onclick: submit });
   const note = h('p', { class: 'sheet-note' });
@@ -3055,10 +3061,12 @@ function openStraightenCovers(chosen) {
     for (const it of items) {
       if (!grid.isConnected) return;   // closed meanwhile
       try {
-        const res = await fetch(fullCover(it.ed));
+        it.source = storedPicture(it.ed);   // kept with the result: it can be straightened again from the whole photo
+        const res = await fetch(abs(it.source));
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         it.blob = await res.blob();
         const bitmap = await createImageBitmap(it.blob);
+        it.size = [bitmap.width, bitmap.height];
         const found = bookIn(bitmap);
         if (found) {
           it.quad = found.quad;
@@ -3094,6 +3102,7 @@ function openStraightenCovers(chosen) {
         const out = straighten(bitmap, it.quad);
         bitmap.close?.();
         it.picture = await pictureOf(out, out.width, out.height);
+        Object.assign(it.picture, { original: it.source, crop: toCrop(it.quad, ...it.size) });
         done.push(it);
       } catch (err) {
         console.warn('Folio: could not straighten the cover of', displayTitle(it.book), err);
@@ -3101,7 +3110,7 @@ function openStraightenCovers(chosen) {
       await pause();
     }
     if (!grid.isConnected || !done.length) return;
-    const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull', 'coverPhoto'];
+    const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull', 'coverPhoto', 'coverOriginal', 'coverCrop'];
     const before = done.map((it) => [it.ed, Object.fromEntries(keys.map((key) => [key, it.ed[key]]))]);
     for (const it of done) Object.assign(it.ed, coverFields({ picture: it.picture }));
     const changed = [...new Set(done.map((it) => it.book))];
@@ -3206,6 +3215,16 @@ function fullCover(subject) {
 /** Is the cover a picture of your own (one a canvas may read, to straighten it)? */
 const ownCover = (subject) => !!(subject.coverFull || (!subject.cover && subject.thumb) || String(subject.cover || '').startsWith('covers/own/'));
 
+/* A straightened cover keeps the photo it was made from (`coverOriginal`, as that photo was
+   stored: the server's large copy, or the small one in the book) and the frame it was made with
+   (`coverCrop`: the four corners as fractions of the photo's width and height). Straighten then
+   starts again from the whole photo, with that frame, so a frame too tight can be put right. */
+
+/** The picture a cover of your own is, as it is stored. */
+const storedPicture = (s) => s.coverFull || (String(s.cover || '').startsWith('covers/own/') ? s.cover : '') || (!s.cover ? s.thumb || '' : '');
+const toCrop = (quad, w, h) => quad.map(([x, y]) => [Math.round((x / w) * 1e4) / 1e4, Math.round((y / h) * 1e4) / 1e4]);
+const fromCrop = (crop, w, h) => (Array.isArray(crop) && crop.length === 4 ? crop.map(([x, y]) => [x * w, y * h]) : null);
+
 /** A cover large, only to look at (a public library): a lightbox, the cover in the middle of the
     darkened page, as large as fits. The large copy the server keeps, the small one while it
     comes. A click anywhere (on the cover too), Escape or Back closes it. */
@@ -3232,8 +3251,8 @@ function openCoverLarge(subject, title) {
 /** What a chosen cover makes of a book (or an edition): {picture} is one of your own, {url, ratio} a catalogue's. */
 function coverFields(choice) {
   return choice.picture
-    ? { thumb: choice.picture.thumb, cover: '', coverRatio: choice.picture.ratio, coverSource: '', coverFull: '', coverPhoto: '' }
-    : { cover: choice.url, coverSource: choice.url, coverRatio: choice.ratio || null, thumb: '', coverFull: '', coverPhoto: '' };
+    ? { thumb: choice.picture.thumb, cover: '', coverRatio: choice.picture.ratio, coverSource: '', coverFull: '', coverPhoto: '', coverOriginal: choice.picture.original || '', coverCrop: choice.picture.crop || '' }
+    : { cover: choice.url, coverSource: choice.url, coverRatio: choice.ratio || null, thumb: '', coverFull: '', coverPhoto: '', coverOriginal: '', coverCrop: '' };
 }
 
 /**
@@ -3493,16 +3512,24 @@ function openCoverRoom({ subject, query, onChoose }) {
 
   /* Straightening: the picture with a frame of four corners to drag onto the book's. */
   async function startStraighten() {
+    // What is shown: a picture just chosen, or the cover now. Straightened before, it is the whole
+    // photo it came from that is straightened again. What is straightened is remembered with the
+    // result when it is stored somewhere (a photo just taken isn't, yet).
+    const fresh = choice?.picture;
+    const before = fresh ? { original: fresh.original, crop: fresh.crop } : { original: current.coverOriginal, crop: current.coverCrop };
+    const original = before.original || (fresh ? '' : storedPicture(current));
     let bitmap;
     try {
-      const blob = choice?.picture ? choice.picture.large : await fetch(fullCover(current)).then((r) => r.blob());
+      const blob = before.original ? await fetch(abs(before.original)).then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.blob(); })
+        : fresh ? fresh.large : await fetch(fullCover(current)).then((r) => r.blob());
       bitmap = await createImageBitmap(blob);
     } catch { toast(t('That picture couldn’t be opened')); return; }
-    // The frame starts on the book when it can be found; otherwise a little in from the edges.
-    const found = bookIn(bitmap);
+    // The frame starts where it was last time; else on the book, when it can be found; else a little in from the edges.
+    const again = before.original ? fromCrop(before.crop, bitmap.width, bitmap.height) : null;
+    const found = again ? null : bookIn(bitmap);
     const k = 0.07;
-    const quad = found?.sure ? found.quad.map(([x, y]) => [x, y])
-      : [[k, k], [1 - k, k], [1 - k, 1 - k], [k, 1 - k]].map(([x, y]) => [x * bitmap.width, y * bitmap.height]);
+    const quad = again || (found?.sure ? found.quad.map(([x, y]) => [x, y])
+      : [[k, k], [1 - k, k], [1 - k, 1 - k], [k, 1 - k]].map(([x, y]) => [x * bitmap.width, y * bitmap.height]));
     const base = h('canvas', { class: 'room-crop-image', width: bitmap.width, height: bitmap.height });
     base.getContext('2d').drawImage(bitmap, 0, 0);
     const svg = document.createElementNS(SVG_NS, 'svg');
@@ -3547,7 +3574,8 @@ function openCoverRoom({ subject, query, onChoose }) {
     redraw();
     room.classList.add('cropping');
     stage.replaceChildren(frame);
-    caption.textContent = found?.sure ? t('The frame found the book. Drag a corner where it’s off.') : t('Drag the corners onto the corners of the book.');
+    caption.textContent = again ? t('The whole photo, with the frame it was straightened with. Drag a corner to change it.')
+      : found?.sure ? t('The frame found the book. Drag a corner where it’s off.') : t('Drag the corners onto the corners of the book.');
     const done =() => { room.classList.remove('cropping'); stage.replaceChildren(picture); normalFooter(); };
     fill(footer,
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => { done(); caption.textContent = picture.naturalWidth ? `${picture.naturalWidth} × ${picture.naturalHeight}` : ''; } }),
@@ -3556,7 +3584,9 @@ function openCoverRoom({ subject, query, onChoose }) {
         onclick: async () => {
           const out = straighten(bitmap, quad);
           done();
-          choosePicture(await pictureOf(out, out.width, out.height));
+          const pic = await pictureOf(out, out.width, out.height);
+          if (original) Object.assign(pic, { original, crop: toCrop(quad, bitmap.width, bitmap.height) });
+          choosePicture(pic);
         },
       }, icon('crop'), t('Straighten')));
   }
@@ -3646,7 +3676,7 @@ function coverViewer(book, again, ed = W.mainEdition(book)) {
     subject: () => look(book, ed),
     query: { isbn: ed.isbn, title: ed.title || book.title, author: book.author },
     onChoose: (choice) => {
-      const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull', 'coverPhoto'];
+      const keys = ['cover', 'thumb', 'coverRatio', 'coverSource', 'coverFull', 'coverPhoto', 'coverOriginal', 'coverCrop'];
       const before = Object.fromEntries(keys.map((key) => [key, ed[key]]));
       Object.assign(ed, coverFields(choice));
       saveBook(book);
@@ -3901,7 +3931,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
 function openEditionForm(book, ed, { back, from, onSaved } = {}) {
   const isNew = !ed;
   // A new edition starts from the facts of the one it is next to, but not its cover, nor whoever is on that one alone (a voice).
-  const src = isNew ? Object.fromEntries(Object.entries(W.factsOf(from || {})).filter(([key]) => !['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'people'].includes(key))) : ed;
+  const src = isNew ? Object.fromEntries(Object.entries(W.factsOf(from || {})).filter(([key]) => !['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop', 'people'].includes(key))) : ed;
   const view = look(book, isNew ? src : ed);
   const facts = editionFields(view);
   const title = h('input', { name: 'edtitle', value: ed?.title || '', placeholder: book.title, autocomplete: 'off', autocapitalize: 'sentences' });
@@ -4678,7 +4708,7 @@ async function openCoverFor(blob) {
   const results = h('div', { class: 'cand-list' });
 
   async function put(book, edition) {
-    Object.assign(edition, { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '', coverSource: '', coverPhoto: '' });
+    Object.assign(edition, { thumb: picture.thumb, cover: '', coverRatio: picture.ratio, coverFull: '', coverSource: '', coverPhoto: '', coverOriginal: '', coverCrop: '' });
     await saveBook(book);
     uploadCover(edition, picture, book);
     sheet.close();

@@ -172,6 +172,7 @@ export default {
   'Straighten': 'Rechtzetten',
   'Drag the corners onto the corners of the book.': 'Sleep de hoeken op de hoeken van het boek.',
   'The frame found the book. Drag a corner where it’s off.': 'Het kader heeft het boek gevonden. Sleep een hoek waar het niet klopt.',
+  'The whole photo, with the frame it was straightened with. Drag a corner to change it.': 'De hele foto, met het kader waarmee hij rechtgezet is. Sleep een hoek om het te veranderen.',
   'Straighten covers': 'Covers rechtzetten',
   'Straighten {covers}': '{covers} rechtzetten',
   'Straightening {i} of {n}…': '{i} van {n} rechtzetten…',

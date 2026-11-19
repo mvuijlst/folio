@@ -9,12 +9,12 @@
 
 /** What moved from a book into its editions in the new shape (v: 2). */
 export const MOVED = ['format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin',
-  'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'people'];
+  'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop', 'people'];
 /** The lists of the app's reading-status set; a user's own lists in that set come on top. */
 export const STATUS = ['to-read', 'reading', 'read', 'abandoned'];
 /** A read that is planned or running: the book is on one of these. */
 export const OPEN = ['to-read', 'reading'];
-const COVER = ['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto'];
+const COVER = ['cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop'];
 // The facts of an edition that publishing tracks (boekenState), by how far a state goes.
 const TRACKED = {
   1: ['publisher', 'date', 'pages', 'isbn', 'cover', 'people'],

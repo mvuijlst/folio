@@ -16,10 +16,10 @@ from .boeken import fold, tidy_people
 
 # What moved from a book into its editions (v: 2).
 MOVED = ('format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin',
-         'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'people')
+         'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop', 'people')
 STATUS = ('to-read', 'reading', 'read', 'abandoned')
 OPEN = ('to-read', 'reading')
-COVER = ('cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto')
+COVER = ('cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop')
 # The facts of an edition that publishing tracks (boekenState), by how far a state goes.
 TRACKED = {
     1: ('publisher', 'date', 'pages', 'isbn', 'cover', 'people'),
