@@ -12,7 +12,7 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 
-const APP_VERSION = '2.20.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.20.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -6325,6 +6325,7 @@ async function suggestNames(kind, back) {
 const scannerEl = $('scanner'), video = $('video');
 const scanner = {
   open: false, session: 0, mode: 'barcode',
+  home: 'barcode',   // the mode the session was started in: after each book, the scanner returns to it
   stream: null, track: null, detector: null,
   busy: false, capturing: false,
   lastCode: '', lastSeen: 0,
@@ -6345,12 +6346,13 @@ function setHint(text, ms) {
   if (ms) scanner.hintTimer = setTimeout(() => setHint(), ms);
 }
 
-/** `mode`: 'barcode', or 'cover' to start at photographing the front cover. */
+/** `mode`: 'barcode', or 'cover' to start at photographing the front cover. Started at the
+    cover, the session stays there: the next book is photographed too. */
 function openScanner(mode = 'barcode') {
   if (scanner.open) return;
   scanner.open = true;
   const session = ++scanner.session;
-  Object.assign(scanner, { added: 0, busy: false, capturing: false, lastCode: '', pendingIsbn: '' });
+  Object.assign(scanner, { added: 0, busy: false, capturing: false, lastCode: '', pendingIsbn: '', home: mode === 'cover' ? 'cover' : 'barcode' });
   // Scanned books go where the last book added went.
   scanner.target = addTarget();
   scannerEl.hidden = false;
@@ -6828,7 +6830,7 @@ function manualEntry(isbn = '') {
   openBookForm({
     book: { isbn, lists: targetLists() }, isNew: true,
     onSaved: () => { scanner.added++; updateScanCount(); },
-    onClose: (saved) => { if (saved && scanner.open) { setMode('barcode'); addedToast(); } },
+    onClose: (saved) => { if (saved && scanner.open) { setMode(scanner.home); addedToast(); } },
   });
 }
 
@@ -6959,7 +6961,7 @@ async function processCover({ canvas, thumb }) {
     $('shutterBtn').disabled = false;
     if (!scanner.open) return;
     video.play().catch(() => {});
-    if (saved) { scanner.added++; updateScanCount(); setMode('barcode'); addedToast(); }
+    if (saved) { scanner.added++; updateScanCount(); setMode(scanner.home); addedToast(); }
     else setHint();
   };
 
@@ -7018,7 +7020,7 @@ function bindEvents() {
   $('scanTargetBtn').addEventListener('click', openTargetSheet);
   $('typeIsbnBtn').addEventListener('click', openIsbnSheet);
   $('noBarcodeBtn').addEventListener('click', () => { if (!scanner.capturing) openAdd(true); });
-  $('backToBarcodeBtn').addEventListener('click', () => { if (!scanner.capturing) setMode('barcode'); });
+  $('backToBarcodeBtn').addEventListener('click', () => { if (!scanner.capturing) { scanner.home = 'barcode'; setMode('barcode'); } });
   $('byHandBtn').addEventListener('click', () => { if (!scanner.capturing) manualEntry(scanner.pendingIsbn); });
   $('shutterBtn').addEventListener('click', () => { if (scanner.stream) captureCover(); else $('coverFile').click(); });
   $('coverFile').addEventListener('change', (e) => { const file = e.target.files[0]; e.target.value = ''; coverFromFile(file); });
