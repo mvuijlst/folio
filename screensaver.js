@@ -71,12 +71,12 @@ export function start(covers, { onExit }) {
   const gap = Math.round(col / 14);
   // Where the camera may look: a stretch of the wall with room enough around it on every side
   // (measured at the steepest angles and farthest distance a view can have).
-  const left = 1.4 * vw + 0.15 * side, right = 0.75 * vw + 0.05 * side;
-  const top = 1.3 * vh + 0.05 * side, bottom = 0.7 * vh + 0.1 * side;
+  const left = 1.8 * vw + 0.15 * side, right = 0.75 * vw + 0.15 * side;
+  const top = 1.7 * vh + 0.05 * side, bottom = 0.7 * vh + 0.1 * side;
   const roamX = 0.3 * side, roamY = 0.15 * side;
   const W = Math.round(left + roamX + right), H = Math.round(top + roamY + bottom);
   const tiles = [];
-  for (let x = 0; x + col <= W; x += col + gap) {
+  for (let x = 0; x < W; x += col + gap) {
     let y = -rand(0, col);   // columns start out of step
     while (y < H) {
       const cover = deal();
@@ -105,7 +105,7 @@ export function start(covers, { onExit }) {
   root.style.perspective = `${perspective}px`;
   const view = () => {
     const x = left + rand(0, roamX), y = top + rand(0, roamY);
-    return `translateZ(${rand(-perspective * 0.25, perspective * 0.12).toFixed(0)}px) rotateX(${rand(20, 32).toFixed(1)}deg) rotateY(${rand(-32, -22).toFixed(1)}deg) rotateZ(${rand(2, 9).toFixed(1)}deg) translate(${-x.toFixed(0)}px, ${-y.toFixed(0)}px)`;
+    return `translateZ(${rand(-perspective * 0.25, perspective * 0.12).toFixed(0)}px) rotateX(${rand(28, 40).toFixed(1)}deg) rotateY(${rand(-32, -22).toFixed(1)}deg) rotateZ(${rand(2, 9).toFixed(1)}deg) translate(${-x.toFixed(0)}px, ${-y.toFixed(0)}px)`;
   };
   wall.style.transform = view();
   const timers = new Set();
