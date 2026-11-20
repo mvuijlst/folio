@@ -639,6 +639,10 @@ button.col:hover .col-bar { opacity: .75; }
 .note-toggle { width: 32px; height: 32px; margin: 0 -6px 18px 0; color: var(--faint); }
 .note-toggle .icon { width: 16px; height: 16px; }
 .note-toggle[aria-pressed="true"] { color: var(--accent); }
+/* Typing an ISBN: the number pad has no X, so a key for it sits beside the field. */
+.isbn-entry { display: flex; gap: 8px; }
+.isbn-entry input { flex: 1; min-width: 0; }
+.isbn-x { flex: none; min-height: 0; padding: 0 16px; font-size: 1.05rem; }
 .field-error { color: var(--danger); font-size: .88rem; margin: -6px 0 12px; }
 
 /* ───────────── Bottom sheet ───────────── */

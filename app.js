@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.36.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.36.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -8281,6 +8281,18 @@ function manualEntry(isbn = '') {
 function openIsbnSheet() {
   const input = h('input', { name: 'isbn', inputmode: 'numeric', autocomplete: 'off', placeholder: '978…', enterkeyhint: 'search' });
   const error = h('p', { class: 'field-error', hidden: true, text: t('That isn’t a valid ISBN — check the digits.') });
+  // A ten-digit ISBN can end in X (a check digit of 10), and the number pad has no X key.
+  // pointerdown is cancelled so the field keeps its focus and the keyboard stays up.
+  const check = h('button', {
+    class: 'btn btn-outline isbn-x', type: 'button', text: 'X', 'aria-label': t('Add X (check digit)'),
+    onpointerdown: (e) => e.preventDefault(),
+    onclick: () => {
+      input.value = input.value.replace(/x$/i, '') + 'X';
+      error.hidden = true;
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    },
+  });
   const form = h('form', {
     novalidate: true,
     onsubmit: (e) => {
@@ -8292,7 +8304,7 @@ function openIsbnSheet() {
     },
   },
     sheetHead(t('Type the ISBN'), t('The 10 or 13 digits printed above the barcode or on the copyright page.')),
-    h('label', { class: 'field' }, h('span', { text: 'ISBN' }), input),
+    h('label', { class: 'field' }, h('span', { text: 'ISBN' }), h('div', { class: 'isbn-entry' }, input, check)),
     error,
     h('button', { class: 'btn btn-primary btn-block', type: 'submit' }, icon('search'), t('Look up')));
   input.addEventListener('input', () => { error.hidden = true; });
