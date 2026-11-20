@@ -428,6 +428,11 @@ export default {
   'No match': 'Niets gevonden',
   'This ISBN isn’t in the catalogues': 'Dit ISBN staat niet in de catalogi',
   '{isbn} · Try a photo of the front cover.': '{isbn} · Probeer een foto van de voorkant.',
+  // Which catalogues knew a scanned ISBN, and which didn't answer (national catalogues: KB, BnF)
+  '{some} and {last}': '{some} en {last}',
+  'No answer from {names}': 'Geen antwoord van {names}',
+  '{isbn} · Not in {names}. Try again, or photograph the front cover.': '{isbn} · Niet in {names}. Probeer opnieuw, of fotografeer de voorkant.',
+  '{isbn} · Not in {names}. Try a photo of the front cover.': '{isbn} · Niet in {names}. Probeer een foto van de voorkant.',
   'Photograph the cover': 'Cover fotograferen',
   'Saved the ISBN — details follow when you’re online': 'ISBN bewaard — de gegevens volgen zodra je online bent',
   'Saved for later': 'Bewaard voor later',

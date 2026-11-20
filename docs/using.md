@@ -8,10 +8,19 @@ What the app does and how, screen by screen. For running it yourself see
 1. **Scan** the ISBN barcode on the back cover. The book is looked up in Open Library and
    Google Books and added to your shelf with title, author, publication date, publisher, language and
    page count. Keep scanning — each hit is added straight away, with *Undo* and *Edit* on the card.
+   A Dutch or Flemish ISBN (978-90, 978-94) is also looked up in the Dutch national library, the
+   KB, and a French one (978-2, 979-10) in the BnF; what they say of the publisher, year, page
+   count and language wins. Title and writers stay as Open Library and Google Books write them
+   (the national catalogues write names in full), unless those don't know the book. Their year
+   is that of the printing they have for the ISBN, sometimes a later one than yours. Flemish
+   publishers are thinner at the KB (on 2026-11-20 it knew 53 of 77 of yours).
    No catalogue says what kind of book it is, but your shelf often does: when you have at least
    three other books by its writer and three in four of them have the same categories, the
    scan gets those too. The card says them; *Edit* puts them right.
-2. **No match?** Photograph the front cover. Where the server has an assistant (see [The assistant](#the-assistant)) it
+   When a catalogue doesn't answer, the card says which; a book found without it is asked again
+   later, for what it still lacks.
+2. **No match?** The card says which catalogues don't know the ISBN, and which didn't answer
+   (then *Try again*). Photograph the front cover. Where the server has an assistant (see [The assistant](#the-assistant)) it
    looks at the photograph and names the book, for you to confirm.
 3. **Still nothing?** Without an assistant (no account, or offline), or when it cannot tell,
    the photograph becomes the cover of a book you fill in by hand.
@@ -587,8 +596,8 @@ rename them.
 - Google Books' keyless quota is shared and often exhausted. Open Library still answers, but
   for the best hit rate add a free Google Books API key under the settings icon.
 - Nothing about you is collected: no analytics, no advertising, no cookies but those that
-  keep you signed in. Lookups go from your device to Open Library and Google Books, which see
-  what is looked up. With an account, what you describe or photograph for the assistant goes
+  keep you signed in. Lookups go from your device to Open Library and Google Books (and for a
+  Dutch or French ISBN the KB or the BnF), which see what is looked up. With an account, what you describe or photograph for the assistant goes
   through the server to OpenAI, and the server keeps the usual log of visits (address, time,
   page).
 - Barcode scanning uses the browser's built-in detector on Android and falls back to a

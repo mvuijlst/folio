@@ -13,8 +13,9 @@ import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
+import * as N from './national.js';
 
-const APP_VERSION = '2.34.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.35.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1317,6 +1318,20 @@ async function sourceOpenLibraryIsbn(isbn) {
   } catch { return { ok: false }; }
 }
 
+/** The national catalogue of the ISBN's group (national.js): the KB or the BnF. One request, a short wait. */
+async function sourceNational(isbn, which) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const res = which === 'kb'
+      ? await fetch(N.kbUrl(isbn), { signal: ctl.signal, headers: { Accept: 'application/sparql-results+json' } })
+      : await fetch(N.bnfUrl(isbn), { signal: ctl.signal });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const book = which === 'kb' ? N.fromKb(await res.json()) : N.fromBnf(await res.text());
+    return { ok: true, book };
+  } catch { return { ok: false }; } finally { clearTimeout(timer); }
+}
+
 function mergeBooks(list) {
   const out = {};
   for (const key of FIELDS) out[key] = list.map((b) => b[key]).find(Boolean) || (key === 'pages' ? null : '');
@@ -1329,31 +1344,43 @@ function mergeBooks(list) {
 }
 
 /**
- * Asks Google Books and Open Library at once. Returns as soon as the record is
- * complete, otherwise waits for both and merges whatever each one knows.
- * → {status: 'found', book} | {status: 'notfound'} | {status: 'unreachable'}
+ * Asks Google Books and Open Library at once, and for a Dutch or French ISBN its national
+ * catalogue too (national.js: it wins on publisher, year, pages and language). Returns as soon as
+ * the record is complete and the national catalogue has answered, otherwise waits for all of them.
+ * → {status: 'found' | 'notfound' | 'unreachable', book?, sources}: `sources` says of each catalogue
+ *   asked whether it 'found' the book, had 'none', 'failed' to answer, or was still 'waiting'.
  */
 async function lookupIsbn(isbn) {
-  if (navigator.onLine === false) return { status: 'unreachable' };
-  const tasks = [sourceGoogleIsbn(isbn), sourceOpenLibraryIsbn(isbn)];
-  const results = [];
+  if (navigator.onLine === false) return { status: 'unreachable', sources: {} };
+  const which = N.nationalFor(isbn);
+  const tasks = [['google', sourceGoogleIsbn(isbn)], ['openlibrary', sourceOpenLibraryIsbn(isbn)], ...(which ? [[which, sourceNational(isbn, which)]] : [])];
+  const results = {};
   const merged = () => {
-    const found = results.filter((r) => r?.book?.title).map((r) => r.book);
-    return found.length ? mergeBooks(found) : null;
+    const found = ['google', 'openlibrary'].map((name) => results[name]).filter((r) => r?.book?.title).map((r) => r.book);
+    const national = which && results[which]?.book;
+    if (!found.length && !national?.title) return null;
+    return N.withNational(mergeBooks(found), national);
   };
   await new Promise((resolve) => {
     let left = tasks.length;
-    tasks.forEach((task, i) => task.then((r) => {
-      results[i] = r;
+    for (const [name, task] of tasks) task.then((r) => {
+      results[name] = r;
       const m = merged();
-      if ((m && FIELDS.every((k) => m[k])) || --left === 0) resolve();
-    }));
+      if ((m && FIELDS.every((k) => m[k]) && (!which || results[which])) || --left === 0) resolve();
+    });
   });
+  const sources = Object.fromEntries(tasks.map(([name]) => [name, !results[name] ? 'waiting' : !results[name].ok ? 'failed' : results[name].book?.title ? 'found' : 'none']));
   const book = merged();
   if (book && !book.language) { const language = isbnLanguage(isbn); if (language) book.language = language; }
-  if (book) return { status: 'found', book };
-  return results.some((r) => r?.ok) ? { status: 'notfound' } : { status: 'unreachable' };
+  if (book) return { status: 'found', book, sources };
+  return Object.values(results).some((r) => r?.ok) ? { status: 'notfound', sources } : { status: 'unreachable', sources };
 }
+
+/** "Open Library and KB": the catalogues of a lookup that answered so (`state`: 'none', 'failed'). */
+const cataloguesThat = (sources, state) => {
+  const names = Object.entries(sources || {}).filter(([, s]) => s === state).map(([name]) => N.CATALOGUE_NAMES[name] || name);
+  return names.length > 1 ? t('{some} and {last}', { some: names.slice(0, -1).join(', '), last: names.at(-1) }) : names[0] || '';
+};
 
 /* The language a book was first written in, and its title then (`originalLanguage`, `originalTitle`:
    the book's own, whichever edition you have). Looked up when a book is added: Wikidata, by the
@@ -8186,6 +8213,8 @@ async function onIsbn(isbn) {
     // categories the other books of its writer agree on (an edition of a book you have has that book's).
     const like = W.categoriesLike(result.book, books);
     const done = await addFound({ ...result.book, ...(like && { categories: like }), isbn, format: 'paper', lists: targetLists() }, { say: !alive(session), sibling: sibling?.book });   // a barcode is on a paper book
+    // A catalogue that didn't answer may know more: asked again later (retryPending), for what is still empty.
+    if (Object.values(result.sources).includes('failed')) { done.book.relook = done.edition.id; saveBook(done.book); }
     if (!alive(session)) { if (!done.attached) toast(t('Added “{title}”', { title: done.book.title })); return; }
     scanner.added++;
     updateScanCount();
@@ -8194,14 +8223,19 @@ async function onIsbn(isbn) {
     showCard(addedCard(done));
   } else if (result.status === 'notfound') {
     if (!alive(session)) { toast(t('No match found for ISBN {isbn}', { isbn })); return; }
+    // Which catalogues don't know it, and which didn't answer (then it is worth asking again).
+    const silent = cataloguesThat(result.sources, 'failed'), unknown = cataloguesThat(result.sources, 'none');
     // Scanning stays paused until one of these is chosen.
     showCard(card({
-      status: t('No match'), tone: 'warn', title: t('This ISBN isn’t in the catalogues'), sub: t('{isbn} · Try a photo of the front cover.', { isbn }),
+      status: t('No match'), tone: 'warn',
+      title: silent ? t('No answer from {names}', { names: silent }) : t('This ISBN isn’t in the catalogues'),
+      sub: silent ? t('{isbn} · Not in {names}. Try again, or photograph the front cover.', { isbn, names: unknown }) : t('{isbn} · Not in {names}. Try a photo of the front cover.', { isbn, names: unknown }),
       onDismiss: () => { scanner.busy = false; },
       actions: [
-        h('button', { class: 'btn btn-primary', type: 'button', onclick: () => setMode('cover', isbn) }, icon('camera'), t('Photograph the cover')),
+        silent && h('button', { class: 'btn btn-primary', type: 'button', onclick: () => { showCard(null); onIsbn(isbn); } }, icon('sync'), t('Try again')),
+        h('button', { class: silent ? 'btn btn-outline' : 'btn btn-primary', type: 'button', onclick: () => setMode('cover', isbn) }, icon('camera'), t('Photograph the cover')),
         h('button', { class: 'btn btn-outline btn-narrow', type: 'button', onclick: () => manualEntry(isbn) }, t('By hand')),
-      ],
+      ].filter(Boolean),
     }));
   } else {
     const book = await addBook({ isbn, pending: true, format: 'paper', lists: targetLists() });
@@ -8464,6 +8498,20 @@ async function retryPending() {
         await saveBook(book);
         findOriginal(book);
       }
+    }
+    // Books found while a catalogue didn't answer (`relook`: the edition): asked again, and given
+    // only what that edition doesn't say yet. Done once every catalogue has answered, or after five tries.
+    for (const book of books.filter((b) => b.relook && !b.pending)) {
+      const ed = W.editionOf(book, book.relook) || W.mainEdition(book);
+      const result = ed.isbn ? await lookupIsbn(ed.isbn) : { status: 'notfound', sources: {} };
+      if (result.status === 'unreachable') break;
+      if (result.status === 'found') {
+        for (const key of ['publisher', 'date', 'pages', 'language']) if (!ed[key] && result.book[key]) ed[key] = result.book[key];
+        if (!book.olid && result.book.olid) book.olid = result.book.olid;
+      }
+      book.relookTries = (book.relookTries || 0) + 1;
+      if (!Object.values(result.sources).includes('failed') || book.relookTries >= 5) { delete book.relook; delete book.relookTries; }
+      await saveBook(book);
     }
   } finally {
     retrying = false;

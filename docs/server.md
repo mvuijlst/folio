@@ -208,6 +208,15 @@ go`, 2026-11-20); make a database copy first, as for any bulk change.
 
 ## Filling in what a shelf lacks
 
+`manage.py fill_from_national --user NAME` fills an edition's empty publisher, year, page count
+and language from its national catalogue (`shelf/national.py`, as `national.js` in the app): the
+KB for 978-90 and 978-94, the BnF for 978-2 and 979-10. What is said already is never changed.
+The KB is asked 50 ISBNs at a time, the BnF one at a time, `--pause` seconds apart (1 by
+default). Books on the booklog are left out unless `--booklog` (filling them publishes their pages
+again). Without `--write` it only says what it would fill. The year is that of the printing the
+catalogue has, which may be later than the copy's. Make a database copy first. The server's own
+lookup of an ISBN (for the assistant's proposals) asks the national catalogue the same way.
+
 `manage.py fill_original --user NAME` gives books the language they were first written in and
 their original title (`originalLanguage`, `originalTitle`), from Wikidata (through each book's
 Open Library work) and Open Library's record of an ISBN; `--assistant` also asks the assistant,

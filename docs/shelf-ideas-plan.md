@@ -253,6 +253,13 @@ shared pages.
 - Be a polite client: one request per scan, a short timeout, never a burst (the backfill
   paces itself).
 
+**Status, 2026-11-20:** measured (the KB knew 216 of his 254 978-90/94 ISBNs, Flemish
+publishers 53 of 77; would fill 113 copies; its year is often a later printing), then built as
+2.35.0. Deviation: title and writers stay as Open Library and Google Books have them (the national
+catalogues write names in full), taken from the national record only when those know nothing.
+Years are filled too (his choice). The DNB answered 403 and then 429 and is not asked.
+bibliotheek.be and KBR could not be used (their robots.txt).
+
 **Done when:** scanning a Dutch book whose record Open Library has thin gives publisher, year
 and pages; switching the network off for one source gives a card that says so.
 

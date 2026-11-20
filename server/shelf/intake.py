@@ -557,11 +557,12 @@ def lookup_audible(url):
 
 
 def lookup_isbn(isbn):
-    """Open Library's edition with this ISBN, as the model would have proposed it; None if it has none."""
+    """Open Library's edition with this ISBN, as the model would have proposed it, with what its
+    national catalogue says (with_national); None if neither has it."""
     try:
         edition = get_json(f'https://openlibrary.org/isbn/{isbn}.json')
     except Exception:
-        return None
+        edition = {}   # the national catalogue may still know it
     olid, work = '', {}
     for entry in edition.get('works') or []:
         key = re.match(r'^/works/(OL\d+W)$', entry.get('key', ''))
@@ -592,6 +593,26 @@ def lookup_isbn(isbn):
     }
     if edition.get('covers'):
         proposal['cover'] = f'https://covers.openlibrary.org/b/id/{edition["covers"][0]}-L.jpg'
+    return with_national(proposal, isbn)
+
+
+def with_national(proposal, isbn):
+    """A proposal with what the ISBN's national catalogue says (national.py): its publisher, year,
+    pages and language win; its title and writers only where Open Library had none."""
+    from . import national
+    try:
+        found = national.lookup(isbn)
+    except Exception:
+        found = None
+    if found:
+        for key, theirs in (('publisher', found['publisher']), ('year', int(found['date']) if found['date'] else None),
+                            ('pages', found['pages']), ('language', found['language'])):
+            if theirs:
+                proposal[key] = theirs
+        if not proposal['title'] and found['title']:
+            proposal['title'] = found['title']
+        if not proposal['authors'] and found['author']:
+            proposal['authors'] = [{'name': name.strip(), 'role': None} for name in found['author'].split(',') if name.strip()]
     return proposal if proposal['title'] else None
 
 
