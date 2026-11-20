@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.31.7'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.31.8'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -130,7 +130,8 @@ function initTheme() {
     which is only loaded then): the place, filters and search as they are, each book as the edition
     it shows; covers repeat if there are too few to fill the wall. The whole shelf from the list of
     series, or where nothing in view has a cover. Full screen where the browser allows it; a key, a
-    click or a touch ends it (or Back), moving the mouse doesn't. */
+    click or a touch ends it (or Back), moving the mouse doesn't. On a public library too, of its
+    books: the mark leads nowhere there. */
 function initScreensaver() {
   let clicks = 0, last = 0, stop = null;
   document.querySelector('.mark').addEventListener('click', () => {
@@ -8225,11 +8226,6 @@ async function visit() {
     class: 'icon-btn lang-btn', type: 'button', lang: other, text: other.toUpperCase(), title: LANGS[other], 'aria-label': LANGS[other],
     onclick: () => { store.set('lang', other); location.reload(); },
   }));
-  // Folio itself, quietly: the mark leads there.
-  const mark = document.querySelector('.mark');
-  const home = h('a', { class: 'mark-link', href: abs('./'), title: 'Folio', 'aria-label': 'Folio' });
-  mark.before(home);
-  home.append(mark);
   let data = null, status = 0;
   try {
     const res = await fetch(abs(`api/public/${encodeURIComponent(VISITING)}`), { credentials: 'omit', cache: 'no-cache' });
@@ -8273,8 +8269,8 @@ async function init() {
   localize();
   initTheme();
   bindEvents();
-  if (VISITING) { await visit(); return; }
   initScreensaver();
+  if (VISITING) { await visit(); return; }
   showMoved();
   try {
     await loadLists();

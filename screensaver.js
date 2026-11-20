@@ -56,18 +56,14 @@ export function start(covers, { onExit }) {
   document.body.append(root);
 
   // Covers in a shuffled order, dealt again from the top once all have been used: with only a few
-  // they come round again and again, in another order each time. `not`: a cover not to deal now
-  // (the one just above, or the one turning), when there is any other.
+  // they come round again and again, in another order each time.
   let deck = [];
-  const deal = (not) => {
-    for (let i = 0; ; i++) {
-      if (!deck.length) {
-        deck = covers.slice();
-        for (let k = deck.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [deck[k], deck[j]] = [deck[j], deck[k]]; }
-      }
-      const cover = deck.pop();
-      if (cover.src !== not || covers.length < 2 || i > 4) return cover;
+  const deal = () => {
+    if (!deck.length) {
+      deck = covers.slice();
+      for (let k = deck.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [deck[k], deck[j]] = [deck[j], deck[k]]; }
     }
+    return deck.pop();
   };
 
   // The wall: columns of covers at their own height, as on a masonry wall, just large enough to
@@ -91,36 +87,82 @@ export function start(covers, { onExit }) {
   slide.className = 'ss-slide';
   wall.append(slide);
   const step = col + gap;
-  const tiles = [];
+  // The columns from left to right, each with its covers from top to bottom: {el, x, tiles}, a
+  // tile being {img, src, ratio, top, height, busy}.
   const columns = [];
   for (let x = 0; x < W + step; x += step) {
-    const column = document.createElement('div');
-    column.className = 'ss-col';
-    column.style.left = `${x}px`;
+    const el = document.createElement('div');
+    el.className = 'ss-col';
+    el.style.left = `${x}px`;
+    slide.append(el);
+    columns.push({ el, x, tiles: [] });
+  }
+  const span = columns.length * step;
+
+  // No cover near another copy of itself: a place gets the next cover in the deck that is not
+  // within two columns either way and a few covers up or down, or, when there are too few covers
+  // for that, the one whose nearest copy is farthest off. A cover about to turn over (`except`)
+  // prefers one of much the same shape (`ratio`), and never itself while there is another.
+  const reach = 4 * col;
+  const nearby = (column, top, bottom, except) => {
+    const ci = columns.indexOf(column);
+    const found = new Map();
+    for (let k = Math.max(0, ci - 2); k <= Math.min(columns.length - 1, ci + 2); k++) {
+      for (const t of columns[k].tiles) {
+        if (t === except) continue;
+        const d = Math.abs(k - ci) * step + Math.max(0, t.top - bottom, top - (t.top + t.height));
+        if (d < reach && d < (found.get(t.src) ?? Infinity)) found.set(t.src, d);
+      }
+    }
+    return found;
+  };
+  const pick = (column, top, height, { except = null, ratio = 0 } = {}) => {
+    const near = nearby(column, top, top + height, except);
+    if (except) near.set(except.src, -1);
+    let best = null, bestScore = -Infinity;
+    const drawn = [];
+    for (let i = 0; i < Math.min(24, covers.length); i++) {
+      const cover = deal();
+      drawn.push(cover);
+      const free = !near.has(cover.src);
+      const shaped = ratio > 0 && Math.abs(clampRatio(cover.ratio) - ratio) <= 0.08;
+      const score = (free ? 1e7 : near.get(cover.src) * 1000) + (shaped ? 1 : 0);
+      if (score > bestScore) { best = cover; bestScore = score; }
+      if (free && (shaped || !ratio)) break;
+    }
+    // The ones drawn and not used go back under the deck.
+    for (const cover of drawn) if (cover !== best) deck.unshift(cover);
+    return best;
+  };
+
+  // A column filled from top to bottom (again, when it has come round to the near side).
+  const fill = (column) => {
+    column.el.replaceChildren();
+    column.tiles = [];
     let y = -rand(0, col);   // columns start out of step
-    let above = null;
     while (y < H) {
-      const cover = deal(above);
-      above = cover.src;
+      const top = Math.round(y);
+      const cover = pick(column, top, Math.round(col * 1.5));
       const ratio = clampRatio(cover.ratio);
       const height = Math.round(col / ratio);
       const img = new Image();
       img.alt = '';
       img.decoding = 'async';
-      Object.assign(img.style, { top: `${Math.round(y)}px`, width: `${col}px`, height: `${height}px` });
+      Object.assign(img.style, { top: `${top}px`, width: `${col}px`, height: `${height}px` });
+      const tile = { img, src: cover.src, ratio, top, height, busy: false };
       let tries = 0;
-      img.onerror = () => { if (++tries < 4) img.src = deal().src; else img.style.visibility = 'hidden'; };
+      img.onerror = () => {
+        if (++tries < 4) { tile.src = pick(column, top, height, { except: tile }).src; img.src = tile.src; } else img.style.visibility = 'hidden';
+      };
       // Open Library answers a missing cover with a 1×1 pixel image.
       img.onload = () => { if (img.naturalWidth < 8) img.onerror(); };
       img.src = cover.src;
-      column.append(img);
-      tiles.push({ img, ratio, height, busy: false });
+      column.el.append(img);
+      column.tiles.push(tile);
       y += height + gap;
     }
-    slide.append(column);
-    columns.push({ el: column, x });
-  }
-  const span = columns.length * step;
+  };
+  for (const column of columns) fill(column);
   Object.assign(wall.style, { width: `${W}px`, height: `${H}px` });
   // A layer of its own needs a size of its own, or the browser may not draw it at all.
   Object.assign(slide.style, { width: `${span}px`, height: `${H}px` });
@@ -146,15 +188,20 @@ export function start(covers, { onExit }) {
     later(drift, ms);
   };
   // Meanwhile the wall slides to the left, a cover's width in some twenty seconds. A column that
-  // has gone past the far edge is moved round to the near one.
+  // has gone past the far edge is moved round to the near one, out of sight, and filled anew for
+  // its new neighbours.
   const speed = side / 170;   // px a second
   const far = 1e6;
   const sliding = reduced ? null : slide.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-far}px)` }],
     { duration: (far / speed) * 1000, easing: 'linear', fill: 'forwards' });
   const goRound = () => {
     const offset = (sliding.currentTime / 1000) * speed;
-    for (const c of columns) {
-      if (c.x - offset < -step) { c.x += span; c.el.style.left = `${c.x}px`; }
+    while (columns[0].x - offset < -step && !columns[0].tiles.some((t) => t.busy)) {
+      const column = columns.shift();
+      column.x += span;
+      column.el.style.left = `${column.x}px`;
+      columns.push(column);
+      fill(column);
     }
     later(goRound, 1000);
   };
@@ -170,21 +217,24 @@ export function start(covers, { onExit }) {
   };
   const picture = (src) => { const img = new Image(); img.alt = ''; img.src = src; return img.decode().then(() => img); };
   const flip = async () => {
-    let tile = null;
+    let tile = null, column = null;
     for (let i = 0; i < 16 && !tile; i++) {
-      const t = tiles[Math.floor(Math.random() * tiles.length)];
-      if (!t.busy && t.img.style.visibility !== 'hidden' && inSight(t.img)) tile = t;
+      const c = columns[Math.floor(Math.random() * columns.length)];
+      const t = c.tiles[Math.floor(Math.random() * c.tiles.length)];
+      if (t && !t.busy && t.img.style.visibility !== 'hidden' && inSight(t.img)) { tile = t; column = c; }
     }
     if (!tile) return;
+    const was = tile.src;
+    const next = pick(column, tile.top, tile.height, { except: tile, ratio: tile.ratio });
+    if (next.src === was) return;   // only one cover: nothing to turn into
+    // The tile counts as the new cover from now on, so no other place takes it nearby meanwhile.
     tile.busy = true;
-    const now = tile.img.src;
-    let next = deal(now);
-    for (let i = 0; i < 24 && Math.abs(clampRatio(next.ratio) - tile.ratio) > 0.08; i++) next = deal(now);
-    if (next.src === now) { tile.busy = false; return; }   // only one cover: nothing to turn into
+    tile.src = next.src;
     try {
       const [front, back] = await Promise.all([picture(tile.img.src), picture(next.src)]);
       if (back.naturalWidth >= 8 && root.isConnected) await turn(tile, front, back);
-    } catch {}
+      else tile.src = was;
+    } catch { tile.src = was; }
     tile.busy = false;
   };
   const flips = () => { flip(); if (root.isConnected) later(flips, rand(500, 1900)); };

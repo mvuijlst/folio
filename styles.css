@@ -175,7 +175,6 @@ img { display: block; max-width: 100%; }
 .mark { width: 56px; height: 56px; flex: none; border-radius: 50%; box-shadow: 0 6px 18px rgba(10, 6, 36, .35); }
 .count { color: var(--muted); font-size: .9rem; margin-top: 6px; font-variant-numeric: tabular-nums; }
 /* A public library (visiting, app.js: visit): its own name and introduction, nothing to add or change. */
-.mark-link { flex: none; display: block; border-radius: 50%; }
 .visit-about { color: var(--muted); font-size: .95rem; margin-top: 8px; max-width: 60ch; white-space: pre-line; }
 .lang-btn { font-size: .82rem; font-weight: 650; letter-spacing: .06em; }
 .visiting .dock { display: none; }
