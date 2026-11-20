@@ -331,26 +331,32 @@ the booklog when you say so.
   and under each series' title on a person's page (in the order of their series), the series is
   drawn book by book: a square per book at its number, bluer the better you rated it (orange for
   a 4 or lower, grey without a rating), a dot for a number that isn't on the shelf and "+n" for a
-  longer run of them, also before your first book. Say how many books the series has (*How many
-  in the series?* beside the count on its page) and it shows what you lack after your last one
-  too. A square opens its book; on a person's page the books of the series that
+  longer run of them, also before your first book, and after your last one when the series'
+  length is known. A square opens its book; on a person's page the books of the series that
   aren't theirs are outlines.
-- **Series from Hardcover.** Signed in, where the server has a Hardcover token, a series page
-  offers **Look up on Hardcover**. The series is found by its name (of several with that name,
-  the one with the most books); where Hardcover names it otherwise (*Kiekeboe* for *De
-  Kiekeboes*) you choose it, or search another name, and your name stays. Then the dots of the
-  numbers you don't have get names: a dot opens that volume (title, writer, year, cover) with
-  **Want it**, which puts it on *To read*, in no place, with the series and its number; "+n"
-  opens all the volumes it stands for. **All I lack** offers every missing volume at once, with
-  *Want them all* and one *Undo*. *Its length: n* takes Hardcover's count as the series'
-  length (never by itself). **Your numbers win**: where Hardcover numbers a book you have
-  differently, the volume says *You have it as #n*; nothing is renumbered. Tick **Still running**
-  and the series is asked again once a month; what is new is said quietly, at the head of
-  *Series* (*New on Hardcover: Discworld (1)*) and on the series page, until you have seen it.
-  No notifications. *Ask again* asks now; *Not this series* forgets what Hardcover said.
-  Hardcover is strong on English novel series and weak on Flemish comics (on 2026-11-20 it knew
-  Thorgal in French, half of Suske en Wiske, 7 Jommeke albums, 4 Kiekeboes). A volume's cover
-  is copied to the server, like every other.
+- **Look up a series.** Beside the count on a series page, **Look up** asks Hardcover (signed
+  in, where the server has a Hardcover token) and Wikidata (always, from the device) what the
+  series has, and opens it number by number: your books in their places, the rest as the
+  sources name them (a title in the language of your books where Wikidata has one, else
+  Hardcover's; Hardcover's cover). **What I lack** and **All** switch between the missing ones
+  and the whole series; a long series comes 40 at a time (*Show 40 more*), covers as they come
+  into view. **To read** puts a volume on *To read*, in no place, with the series and its
+  number; *All on To read* does them all with one *Undo* (above 10 it asks once more). Beside a
+  book of yours, **Take this cover** gives your copy Hardcover's cover, if you want it: book by
+  book. At the top: **Length** (found as the highest number anyone knows, yours included, and
+  never shown below your own highest), **Complete** (no more volumes are coming) and **Done with
+  it** (what you lack isn't offered any more: the strip's dots stay plain). Both are said on the
+  page (*complete*, *done with it*). A series that is neither is asked again on Hardcover once a
+  month; what is new is said quietly, at the head of *Series* (*New on Hardcover: Discworld (1)*)
+  and on the series page, until you have seen it. No notifications. **Your numbers win**: where a
+  source numbers a book you have differently, that is said (*Hardcover has it as #3*); nothing is
+  renumbered. Where Hardcover names the series otherwise (*Kiekeboe* for *De Kiekeboes*), *Choose
+  on Hardcover* (or *Another series on Hardcover*) searches it, and your name stays; *None of
+  these* stops asking Hardcover about it. Measured on 2026-11-20/21: Hardcover is strong on
+  English novel series and weak on Flemish comics (Thorgal in French, half of Suske en Wiske, 7
+  Jommeke albums, 4 Kiekeboes); Wikidata has Dutch titles and years for novels and Thorgal (41)
+  but numbers few Flemish albums (Suske 39 of 400, Jommeke 4, Kiekeboes 1). Covers are copied to
+  the server, like every other.
 - **The cover, large.** Tap a cover (on a book's page, in its details, or on an edition's
   sheet) and it opens over everything at the best size there is: the picture you supplied,
   the booklog's own original, or the catalogue's large size. Tap it again for its real size.

@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.39.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.40.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2268,14 +2268,17 @@ function drawActiveFilters(facets, only = false) {
 }
 
 /** All series, by name: a few covers, how many books, how many of them read. */
-// What you know of a series beyond its books: how many it has in all (the number its last book
-// has). A record like a list word's: {id: "series:Discworld", kind: "series", value:
-// "Discworld", total: 41}, kept on the device and synced with an account.
+// What you know of a series beyond its books, on a record like a list word's: {id:
+// "series:Discworld", kind: "series", value: "Discworld", total: 41, complete, doneWith,
+// hardcover, wikidata} (see lookUpSeries), kept on the device and synced with an account.
 const seriesFacts = () => (wordCache.series ??= new Map(terms.filter((r) => r?.kind === 'series' && r.value && !r.gone).map((r) => [r.value, r])));
-/** How many books a series has in all, when you have said so: a whole number, or null. */
+const seriesRecord = (name) => seriesFacts().get(name) || null;
+/** The highest whole number a book of yours has in a series, or 0. */
+const ownHighest = (name) => Math.max(0, ...books.filter((b) => b.series === name).map((b) => Math.floor(seriesOrder(b))).filter(Number.isFinite));
+/** How many books a series has in all (the number of its last book), when that is known: never fewer than the highest number you have; or null. */
 function seriesTotal(name) {
-  const n = Math.floor(Number(seriesFacts().get(name)?.total));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  const n = Math.floor(Number(seriesRecord(name)?.total));
+  return Number.isFinite(n) && n > 0 ? Math.max(n, ownHighest(name)) : null;
 }
 /** A record's id for a series: its name, or for a long one the start of it and a number made of all of it (an id is at most 64 characters). */
 function seriesId(name) {
@@ -2284,10 +2287,15 @@ function seriesId(name) {
   for (const ch of name) sum = (sum * 33 + ch.codePointAt(0)) >>> 0;
   return `series:${name.slice(0, 44)}~${sum.toString(36)}`;
 }
-async function saveSeriesTotal(name, total) {
+/** Changes a series' record: `patch`'s fields, a null one taken away. */
+async function saveSeries(name, patch) {
   const id = seriesId(name), prior = terms.find((x) => x.id === id);
-  if (!prior && !total) return;
-  await saveTerm({ ...(prior || { id, kind: 'series', value: name }), total: total || null });
+  if (!prior && Object.values(patch).every((v) => v == null || v === false)) return;
+  const record = { ...(prior || { id, kind: 'series', value: name }), ...patch };
+  for (const [k, v] of Object.entries(patch)) if (v == null) delete record[k];
+  // The server asks Hardcover again each month about a series neither complete nor done with (check_series).
+  if (record.hardcover?.id) record.hardcover = { ...record.hardcover, running: !record.complete && !record.doneWith };
+  await saveTerm(record);
 }
 
 /**
@@ -2346,91 +2354,281 @@ function seriesStrip(members, mine, total = seriesTotal(members[0]?.series)) {
   return h('div', { class: 'strip' }, cells);
 }
 
-/* Series from Hardcover (server/shelf/hardcover.py): what a series has, volume by volume, kept on the
-   series' record (`hardcover`: {id, name, count, completed, checked, volumes: [{n, id, title, year,
-   authors, cover}], running, news}). It names the numbers the shelf doesn't have; a volume you want
-   goes on To read, in no place, with its series and number. Your numbers win: where Hardcover
-   numbers a book you have differently, that is said, never changed. Asked only through the server
-   (the token is the owner's), so only with an account and when the server says it has Hardcover. */
+/* A series looked up (Look up, on its page): what Hardcover and Wikidata say it has, number by
+   number, kept on the series' record. `hardcover`: {id, name, count, completed, checked, volumes:
+   [{n, id, title, year, date, authors, cover}], running, news}, asked through the server (the token
+   is the owner's, server/shelf/hardcover.py), so only with an account and when the server says it
+   has Hardcover; {none: true} when it is not the series there. `wikidata`: {id, checked, volumes:
+   [{n, id, title, other, year, authors}]}, asked from this device, with or without an account
+   (`title` in the series' language, `other` in another). With your marks: `total` (its length),
+   `complete` (no more volumes are coming) and `doneWith` (what you lack isn't offered any more).
+   A series neither complete nor done with is asked again monthly (server: check_series). Your
+   numbers win: where a source numbers a book of yours differently, that is said, never changed. */
 
 /** What Hardcover said of a series, or null. */
-const seriesHardcover = (name) => seriesFacts().get(name)?.hardcover || null;
-/** Hardcover's volumes of a series by their whole number (a novella at 4.5 has no dot of its own). */
-const volumesByNumber = (name) => new Map((seriesHardcover(name)?.volumes || []).filter((v) => Number.isInteger(v.n)).map((v) => [v.n, v]));
-async function saveSeriesHardcover(name, hardcover) {
-  const id = seriesId(name), prior = terms.find((x) => x.id === id);
-  const record = { ...(prior || { id, kind: 'series', value: name }) };
-  if (hardcover) record.hardcover = hardcover; else delete record.hardcover;
-  await saveTerm(record);
+const seriesHardcover = (name) => { const hc = seriesRecord(name)?.hardcover; return hc?.id ? hc : null; };
+const saveSeriesHardcover = (name, hardcover) => saveSeries(name, { hardcover });
+/** What the sources say a series has, in order: [{n, id, title, authors, year, cover}]. A title in the series' language (Wikidata) first, then Hardcover's; Hardcover's cover. */
+function seriesVolumes(name) {
+  const byN = new Map();
+  for (const v of seriesRecord(name)?.wikidata?.volumes || []) {
+    if (Number.isFinite(v.n) && !byN.has(v.n)) byN.set(v.n, { n: v.n, id: v.id, title: v.title || v.other, authors: v.authors || [], year: v.year || null, cover: '', own: v.title, source: 'Wikidata' });
+  }
+  for (const v of seriesHardcover(name)?.volumes || []) {
+    if (!Number.isFinite(v.n)) continue;
+    const w = byN.get(v.n);
+    byN.set(v.n, { ...v, source: 'Hardcover', ...(w && { title: w.own || v.title || w.title, year: w.year || v.year, authors: v.authors?.length ? v.authors : w.authors }) });
+  }
+  return [...byN.values()].sort((a, b) => a.n - b.n);
 }
-/** A book of yours that is this volume (the same title, by the same writer or none said), and the number you gave it. */
+/** The volumes by their whole number (a novella at 4.5 has no dot of its own); none for a series you are done with. */
+const volumesByNumber = (name) => (seriesRecord(name)?.doneWith ? new Map() : new Map(seriesVolumes(name).filter((v) => Number.isInteger(v.n)).map((v) => [v.n, v])));
+/** A book of yours that is this volume (the same title, by the same writer or none said). */
 function onShelfAs(name, v) {
   const title = W.fold(v.title);
   return books.find((b) => b.series === name && W.fold(b.title) === title) || books.find((b) => W.fold(b.title) === title && (!v.authors?.length || v.authors.some((a) => fold(b.author).includes(fold(a)))));
 }
-
-/** Asks the server about a series by name, or by Hardcover's id (`id`), and keeps what it says. → the record, or null. */
-async function lookUpSeries(name, id) {
-  if (!id) {
-    const { found } = await api('hardcover', { name });
-    const same = found.find((s) => W.fold(s.name) === W.fold(name));
-    if (!same) return { found };   // not by its name: choose among what Hardcover proposes
-    id = same.id;
+/** The language most of your books in a series are in (two letters): the language its titles are wanted in. */
+function seriesLanguage(name) {
+  const count = {};
+  for (const b of books) {
+    if (b.series !== name) continue;
+    const l = String(W.mainEdition(b)?.language || '').toLowerCase().slice(0, 2);
+    if (/^[a-z]{2}$/.test(l)) count[l] = (count[l] || 0) + 1;
   }
-  const { series } = await api('hardcover', { id });
-  if (!series) return { found: [] };
-  const before = seriesHardcover(name);
-  const record = {
-    id: series.id, name: series.name, count: series.books_count, completed: series.completed,
-    checked: new Date().toISOString().slice(0, 10), volumes: series.volumes,
-    running: before?.id === series.id ? !!before.running : !series.completed, news: [],
-  };
-  await saveSeriesHardcover(name, record);
-  return { record };
+  return Object.entries(count).sort((a, b) => b[1] - a[1])[0]?.[0] || (lang === 'nl' ? 'nl' : 'en');
 }
 
-/** The series page's part for Hardcover: look it up, or what it said, with what can be done with it. */
-function seriesHardcoverPart(name, inScope) {
-  if (VISITING || !sync.user || !sync.hardcover) return null;
-  const hc = seriesHardcover(name);
-  const busy = (btn, text) => { btn.disabled = true; btn.textContent = text; };
-  const lookUp = async (e, id) => {
-    busy(e.currentTarget, t('Asking Hardcover…'));
-    try {
-      const got = await lookUpSeries(name, id);
-      if (got.found) { openSeriesChoice(name, got.found); return; }
-      toast(t('{n} volumes on Hardcover', { n: got.record.volumes.length }));
-    } catch (err) { toast(err.status ? err.message : t('Couldn’t reach the server. Are you online?')); }
-    renderLibrary();
-  };
-  if (!hc) return h('div', { class: 'series-hardcover' }, h('button', { class: 'link-btn', type: 'button', onclick: (e) => lookUp(e) }, icon('search'), t('Look up on Hardcover')));
-  // What you lack: the whole numbers Hardcover has that no book of yours has (and no book you want either).
-  const have = new Set(inScope.map((b) => Math.floor(seriesOrder(b))).filter(Number.isFinite));
-  const lack = (hc.volumes || []).filter((v) => Number.isInteger(v.n) && !have.has(v.n) && !onShelfAs(name, v));
-  const highest = Math.max(0, ...(hc.volumes || []).map((v) => Math.floor(v.n)).filter(Number.isFinite));
-  const news = (hc.volumes || []).filter((v) => (hc.news || []).includes(v.id));
-  return h('div', { class: 'series-hardcover' },
-    h('p', { class: 'sheet-note' },
-      t('Hardcover: {n} volumes, checked {date}', { n: (hc.volumes || []).length, date: longDate(hc.checked) }),
-      hc.name && W.fold(hc.name) !== W.fold(name) && ` (${t('as “{name}”', { name: hc.name })})`,
-      news.length > 0 && h('strong', { class: 'series-news', text: ` · ${t('{n} new', { n: news.length })}`, title: news.map((v) => `#${v.n} ${v.title}`).join('\n') })),
-    h('div', { class: 'series-hardcover-actions' },
-      lack.length > 0 && h('button', { class: 'link-btn', type: 'button', onclick: () => openVolumes(name, lack, true) }, icon('plus'), t('All I lack ({n})', { n: lack.length })),
-      highest > 0 && highest !== seriesTotal(name) && h('button', { class: 'link-btn', type: 'button', onclick: async () => { await saveSeriesTotal(name, highest); renderLibrary(); } }, t('Its length: {n}', { n: highest })),
-      h('label', { class: 'check-line series-running', title: t('Asked again once a month for new volumes') },
-        h('input', { type: 'checkbox', checked: !!hc.running, onchange: async (e) => { await saveSeriesHardcover(name, { ...hc, running: e.target.checked }); } }),
-        h('span', { text: t('Still running') })),
-      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: (e) => lookUp(e, hc.id) }, t('Ask again')),
-      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => { await saveSeriesHardcover(name, null); renderLibrary(); } }, t('Not this series'))));
+const WDQS = 'https://query.wikidata.org/sparql?format=json&query=';
+const sparql = async (query) => (await getJSON(WDQS + encodeURIComponent(query), 20000)).results?.bindings || [];
+/**
+ * Wikidata's works of a series that have a number in it (P179 part of the series, its P1545
+ * series ordinal). `id`: the series' item, else found by its name (of what the name finds in
+ * the series' language and in English, the item with most numbered works). → {id, volumes} or null.
+ */
+async function seriesFromWikidata(name, id, language) {
+  const lang = /^[a-z]{2,3}$/.test(language) ? language : 'en';
+  if (!id) {
+    const found = [];
+    for (const l of new Set([lang, 'en'])) {
+      const hits = (await getJSON(`${WIKIDATA}&action=wbsearchentities&type=item&limit=5&language=${l}&search=${encodeURIComponent(name)}`)).search || [];
+      for (const x of hits) if (/^Q\d+$/.test(x.id) && !found.includes(x.id)) found.push(x.id);
+    }
+    if (!found.length) return null;
+    const counts = await sparql(`SELECT ?s (COUNT(?w) AS ?n) WHERE { VALUES ?s { ${found.slice(0, 8).map((q) => `wd:${q}`).join(' ')} } ?w p:P179 ?st . ?st ps:P179 ?s ; pq:P1545 ?o . } GROUP BY ?s`);
+    const best = counts.sort((a, b) => Number(b.n.value) - Number(a.n.value))[0];
+    if (!best) return null;
+    id = best.s.value.split('/').pop();
+  }
+  if (!/^Q\d+$/.test(id)) return null;
+  const rows = await sparql(`SELECT ?w ?o (MIN(?d) AS ?date) (SAMPLE(?l1) AS ?own) (SAMPLE(?l2) AS ?other) (GROUP_CONCAT(DISTINCT ?an; separator="|") AS ?authors) WHERE {
+  ?w p:P179 ?st . ?st ps:P179 wd:${id} ; pq:P1545 ?o .
+  OPTIONAL { ?w rdfs:label ?l1 FILTER(LANG(?l1) = "${lang}") }
+  OPTIONAL { ?w rdfs:label ?l2 FILTER(LANG(?l2) IN ("en", "nl", "fr", "de")) }
+  OPTIONAL { ?w wdt:P577 ?d }
+  OPTIONAL { ?w wdt:P50|wdt:P58 ?a . ?a rdfs:label ?an FILTER(LANG(?an) = "en") }
+} GROUP BY ?w ?o LIMIT 3000`);
+  const seen = new Set(), volumes = [];
+  for (const r of rows) {
+    const n = Number(r.o?.value), title = r.own?.value || '', other = r.other?.value || '';
+    if (!Number.isFinite(n) || seen.has(n) || !(title || other)) continue;
+    seen.add(n);
+    const year = Number(String(r.date?.value || '').slice(0, 4));
+    volumes.push({ n, id: r.w.value.split('/').pop(), title, other, year: year > 0 ? year : null, authors: (r.authors?.value || '').split('|').filter(Boolean) });
+  }
+  return volumes.length ? { id, volumes: volumes.sort((a, b) => a.n - b.n) } : null;
 }
 
-/** The series Hardcover proposes when the name doesn't find one: choose the right one, or search another name. */
-function openSeriesChoice(name, found) {
+/**
+ * Asks Hardcover (`hardcoverId`: that series there) and Wikidata about a series, at the same
+ * time, and keeps what they say; its length becomes the highest number anyone knows, yours
+ * included, unless you marked it complete. → {failed: [source names], choose: Hardcover's
+ * proposals when it knows no series by this name}.
+ */
+async function lookUpSeries(name, hardcoverId) {
+  const rec = seriesRecord(name) || {};
+  const today = new Date().toISOString().slice(0, 10);
+  const patch = {}, said = { failed: [] };
+  const hardcover = async () => {
+    let id = hardcoverId || rec.hardcover?.id;
+    if (!id) {
+      const { found } = await api('hardcover', { name });
+      const same = found.find((s) => W.fold(s.name) === W.fold(name));
+      if (!same) { said.choose = found; return; }
+      id = same.id;
+    }
+    const { series } = await api('hardcover', { id });
+    if (!series) return;
+    patch.hardcover = { id: series.id, name: series.name, count: series.books_count, completed: series.completed, checked: today, volumes: series.volumes, news: [] };
+  };
+  const wikidata = async () => {
+    const got = await seriesFromWikidata(name, rec.wikidata?.id, seriesLanguage(name));
+    if (got) patch.wikidata = { ...got, checked: today };
+  };
+  const asks = [wikidata().catch(() => said.failed.push('Wikidata'))];
+  if (sync.user && sync.hardcover && (hardcoverId || !rec.hardcover?.none)) asks.push(hardcover().catch(() => said.failed.push('Hardcover')));
+  await Promise.all(asks);
+  if (!Object.keys(patch).length) return said;
+  if (!rec.complete) {
+    const highest = Math.max(0, ...[...(patch.hardcover || rec.hardcover)?.volumes || [], ...(patch.wikidata || rec.wikidata)?.volumes || []]
+      .map((v) => v.n).filter(Number.isInteger), ownHighest(name));
+    if (highest > (Number(rec.total) || 0)) patch.total = highest;
+  }
+  await saveSeries(name, patch);
+  return said;
+}
+
+/** Look up, on a series' page: asks, then shows the window; what was asked before is shown when no one answers. */
+async function lookUp(btn, name) {
+  btn.disabled = true;
+  btn.textContent = t('Looking up…');
+  let said = { failed: [] };
+  try { said = await lookUpSeries(name); } catch { said.failed.push('?'); }
+  renderLibrary();
+  openSeries(name, said);
+}
+
+/**
+ * The whole series, number by number: what the sources say it has, with your books in their
+ * places (yours win); what you lack can go on To read, a book of yours can take Hardcover's
+ * cover, and the series gets its length and your two marks. A long series comes a page at a
+ * time, its covers as they come into view.
+ */
+function openSeries(name, said = { failed: [] }) {
+  const PAGE = 40;
+  let filter = null, shown = PAGE;
+  const body = h('div', { class: 'volumes' });
+  const filters = h('div', { class: 'seg', role: 'group', 'aria-label': t('Show') });
+  const head = h('div', { class: 'series-window-head' });
+  const marks = h('div', { class: 'series-marks' });
+  const foot = h('div', { class: 'series-window-foot' });
+
+  // The series' places: each source's volume with the book of yours at its number (or of its
+  // title), then the books of yours no source has, at their own numbers.
+  const places = () => {
+    const mine = books.filter((b) => b.series === name);
+    const used = new Set(), out = [];
+    for (const v of seriesVolumes(name)) {
+      const yours = mine.find((b) => !used.has(b) && seriesOrder(b) === v.n) || mine.find((b) => !used.has(b) && W.fold(b.title) === W.fold(v.title)) || onShelfAs(name, v);
+      if (yours) used.add(yours);
+      out.push({ n: v.n, v, yours });
+    }
+    for (const b of mine) if (!used.has(b)) out.push({ n: seriesOrder(b), yours: b });
+    return out.sort((a, b) => (Number.isFinite(a.n) ? a.n : Infinity) - (Number.isFinite(b.n) ? b.n : Infinity));
+  };
+
+  const row = (p) => {
+    const { v, yours } = p;
+    const no = Number.isFinite(p.n) ? `#${yours && seriesNo(yours) ? seriesNo(yours) : p.n} · ` : '';
+    const title = yours ? yours.title : v.title;
+    const status = [];
+    if (yours) {
+      const on = shelves(yours);
+      status.push(h('small', { class: 'volume-remark', text: on['to-read'] && !on.read ? t('On To read') : t('On your shelf') }));
+      if (v && seriesNo(yours) && Number(seriesNo(yours)) !== v.n) status.push(h('small', { class: 'volume-remark', text: t('{source} has it as #{n}', { source: v.source, n: v.n }) }));
+      if (v?.cover && sync.user && W.mainEdition(yours)?.coverSource !== v.cover) {
+        status.push(h('button', { class: 'volume-take', type: 'button', title: t('Use Hardcover’s cover for your copy'), onclick: async (e) => {
+          const btn = e.currentTarget, edition = W.mainEdition(yours);
+          Object.assign(edition, coverFields({ url: v.cover }));
+          await saveBook(yours);
+          keepCover(edition, { url: v.cover }, yours);   // the server keeps the picture; no book points at another site
+          btn.replaceWith(h('small', { class: 'volume-remark', text: t('Cover taken') }));
+          renderLibrary();
+        } }, h('img', { src: v.cover, alt: '', loading: 'lazy' }), h('span', { text: t('Take this cover') })));
+      }
+    } else {
+      status.push(h('button', { class: 'link-btn volume-want', type: 'button', onclick: async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        await wantVolumes(name, [v]);
+        draw();
+      } }, icon('bookmark'), t('To read')));
+    }
+    return h('div', { class: `volume${yours ? ' yours' : ''}` },
+      yours ? coverEl(look(yours)) : v.cover ? h('img', { class: 'volume-cover', src: v.cover, alt: '', loading: 'lazy' }) : coverEl({ title: v.title }),
+      h('div', { class: 'volume-text' },
+        h('strong', { text: no + title }),
+        h('small', { text: [(yours ? yours.author : v.authors?.join(', ')), v?.year].filter(Boolean).join(' · ') }),
+        ...status));
+  };
+
+  function draw() {
+    const rec = seriesRecord(name) || {};
+    const all = places();
+    const lack = all.filter((p) => !p.yours && !onShelfAs(name, p.v));
+    filter ??= lack.length && !rec.doneWith ? 'lack' : 'all';
+    if (filter === 'lack' && !lack.length) filter = 'all';
+    const list = filter === 'lack' ? lack : all;
+
+    const total = seriesTotal(name);
+    fill(head, sheetHead(name, [t('You have {n}', { n: all.filter((p) => p.yours).length }), total && t('{n} in the series', { n: total })].filter(Boolean).join(' · ')));
+
+    // Its length and your marks, saved as they change.
+    const length = h('input', { type: 'number', min: 1, step: 1, inputmode: 'numeric', autocomplete: 'off', value: total ?? '', 'aria-label': t('Its length'),
+      onchange: async (e) => { const n = Math.floor(Number(e.target.value)); await saveSeries(name, { total: n > 0 ? n : null }); renderLibrary(); draw(); } });
+    const mark = (key, label, note) => h('label', { class: 'check-line' },
+      h('input', { type: 'checkbox', checked: !!rec[key], onchange: async (e) => { await saveSeries(name, { [key]: e.target.checked || null }); filter = null; renderLibrary(); draw(); } }),
+      h('span', null, h('span', { text: label }), h('small', { text: note })));
+    fill(marks,
+      h('label', { class: 'series-length' }, h('span', { text: t('Its length') }), length),
+      mark('complete', t('Complete'), t('No more volumes are coming')),
+      mark('doneWith', t('Done with it'), t('What I lack isn’t offered any more')));
+
+    fill(filters, lack.length ? [['lack', t('What I lack ({n})', { n: lack.length })], ['all', t('All ({n})', { n: all.length })]].map(([key, label]) => h('button', {
+      type: 'button', 'aria-pressed': String(filter === key), text: label, onclick: () => { filter = key; shown = PAGE; draw(); },
+    })) : []);
+    filters.hidden = !lack.length;
+
+    const wantAll = filter === 'lack' && lack.length > 1 && !rec.doneWith && lack.every((p) => p.v)
+      && h('button', { class: 'btn btn-outline', type: 'button', onclick: async (e) => {
+        // More than a few: asked once more first.
+        const btn = e.currentTarget;
+        if (lack.length > 10 && !btn.dataset.sure) { btn.dataset.sure = '1'; btn.lastChild.textContent = t('Sure? {n} books on To read', { n: lack.length }); return; }
+        btn.disabled = true;
+        await wantVolumes(name, lack.map((p) => p.v));
+        draw();
+      } }, icon('bookmark'), h('span', { text: t('All on To read ({n})', { n: lack.length }) }));
+    fill(body,
+      wantAll || '',
+      list.length ? list.slice(0, shown).map(row) : h('p', { class: 'sheet-note', text: t('Nothing known of this series yet.') }),
+      list.length > shown ? h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => { shown += PAGE; draw(); } }, t('Show {n} more', { n: Math.min(PAGE, list.length - shown) })) : '');
+
+    // Where it comes from, and what can be asked again.
+    const hc = seriesHardcover(name), wd = rec.wikidata;
+    const from = [hc && `Hardcover${W.fold(hc.name) !== W.fold(name) ? ` (${t('as “{name}”', { name: hc.name })})` : ''}`, wd && 'Wikidata'].filter(Boolean);
+    const checked = [hc?.checked, wd?.checked].filter(Boolean).sort().pop();
+    fill(foot,
+      h('p', { class: 'sheet-note' },
+        from.length ? t('From {sources}, {date}', { sources: from.length > 1 ? t('{some} and {last}', { some: from[0], last: from[1] }) : from[0], date: longDate(checked) })
+          : sync.user && sync.hardcover ? t('Neither Hardcover nor Wikidata knows this series by its name.') : t('Wikidata doesn’t know this series by its name.'),
+        said.failed.length > 0 && ` ${t('{sources} didn’t answer.', { sources: said.failed.filter((s) => s !== '?').join(', ') || t('The sources') })}`,
+        said.choose && ` ${t('Hardcover knows no series by this name.')}`),
+      h('div', { class: 'series-hardcover-actions' },
+        h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async (e) => {
+          const btn = e.currentTarget;
+          btn.disabled = true;
+          btn.textContent = t('Looking up…');
+          said = await lookUpSeries(name).catch(() => ({ failed: ['?'] }));
+          renderLibrary();
+          draw();
+        } }, t('Ask again')),
+        sync.user && sync.hardcover && h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => {
+          let found = said.choose;
+          if (!found) try { found = (await api('hardcover', { name })).found; } catch (err) { toast(err.message); return; }
+          openSeriesChoice(name, found, () => openSeries(name));
+        } }, hc ? t('Another series on Hardcover') : t('Choose on Hardcover'))));
+  }
+  draw();
+  sheet.open(h('div', { class: 'volumes-sheet series-window' }, head, marks, filters, body, foot));
+}
+
+/** The series Hardcover proposes when the name doesn't find one: choose the right one, search another name, or none of them; then `back`. */
+function openSeriesChoice(name, found, back) {
   const query = h('input', { name: 'q', value: name, autocomplete: 'off', autocapitalize: 'words' });
   const list = h('div', { class: 'list-rows' });
   const draw = (rows) => fill(list, rows.length ? rows.map((s) => h('div', { class: 'list-row nav-row' },
     h('button', { class: 'list-name', type: 'button', onclick: async () => {
-      try { await lookUpSeries(name, s.id); closeLayersThen(renderLibrary); } catch (err) { toast(err.message); }
+      try { await lookUpSeries(name, s.id); renderLibrary(); back(); } catch (err) { toast(err.message); }
     } }, h('span', { text: s.name }), h('small', { text: [s.author, plural(s.books_count, 'book')].filter(Boolean).join(' · ') })),
     h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')))) : h('p', { class: 'sheet-note', text: t('Hardcover doesn’t know a series by that name.') }));
   sheet.open(h('form', {
@@ -2443,13 +2641,15 @@ function openSeriesChoice(name, found) {
     sheetHead(t('Which series on Hardcover?'), name),
     h('div', { class: 'field-row' }, h('label', { class: 'field' }, query), h('button', { class: 'btn btn-outline', type: 'submit' }, icon('search'), t('Search'))),
     list,
-    h('p', { class: 'sheet-note', text: t('Its name there may differ from yours (De Kiekeboes, Kiekeboe). Your name stays.') })));
+    h('p', { class: 'sheet-note', text: t('Its name there may differ from yours (De Kiekeboes, Kiekeboe). Your name stays.') }),
+    h('div', { class: 'series-hardcover-actions' },
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => { await saveSeries(name, { hardcover: { none: true } }); renderLibrary(); back(); } }, t('None of these')),
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: back }, t('Back')))));
   draw(found);
 }
 
-/** One or more volumes the shelf doesn't have: what each is, with Want it; `all`: offered as all you lack, with Want them all. */
-function openVolumes(name, volumes, all = false) {
-  const wantable = volumes.filter((v) => !onShelfAs(name, v));
+/** Volumes the strip names (a dot, or "+n"): what each is, with To read. */
+function openVolumes(name, volumes) {
   const row = (v) => {
     const yours = onShelfAs(name, v);
     return h('div', { class: 'volume' },
@@ -2459,12 +2659,12 @@ function openVolumes(name, volumes, all = false) {
         h('small', { text: [v.authors?.join(', '), v.year].filter(Boolean).join(' · ') }),
         // Your numbers win: said, never changed.
         yours && h('small', { class: 'volume-remark', text: seriesNo(yours) && seriesNo(yours) !== String(v.n) ? t('You have it as #{n}', { n: seriesNo(yours) }) : t('On your shelf') }),
-        !yours && h('button', { class: 'btn btn-outline volume-want', type: 'button', onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; await wantVolumes(name, [v]); btn.textContent = t('On To read'); } }, icon('bookmark'), t('Want it'))));
+        !yours && h('button', { class: 'link-btn volume-want', type: 'button', onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; await wantVolumes(name, [v]); btn.textContent = t('On To read'); } }, icon('bookmark'), t('To read'))));
   };
   sheet.open(h('div', { class: 'volumes-sheet' },
-    sheetHead(all ? t('What you lack of {name}', { name }) : name, all ? t('{n} volumes, from Hardcover', { n: wantable.length }) : t('From Hardcover')),
-    all && wantable.length > 1 && h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: async () => { sheet.close(); await wantVolumes(name, wantable); } }, icon('bookmark'), t('Want them all ({n})', { n: wantable.length })),
-    h('div', { class: 'volumes' }, volumes.map(row))));
+    sheetHead(name, volumes.length > 1 ? t('{n} you don’t have', { n: volumes.length }) : t('One you don’t have')),
+    h('div', { class: 'volumes' }, volumes.slice(0, 40).map(row)),
+    h('button', { class: 'link-btn', type: 'button', onclick: () => openSeries(name) }, t('The whole series'))));
 }
 
 /** Volumes you want: each a book on To read, in no place, with the series and its number, and Hardcover's cover (kept on the server). One Undo. */
@@ -2475,33 +2675,14 @@ async function wantVolumes(name, volumes) {
       title: v.title, author: (v.authors || []).join(', '), series: name, seriesNumber: v.n, date: v.year ? String(v.year) : '',
       ...(v.cover && { cover: v.cover, coverSource: v.cover }), lists: { 'to-read': { at: new Date().toISOString() } },
     });
-    if (v.cover) keepCover(W.mainEdition(book), { url: v.cover }, book);   // the server keeps the picture; no book points at another site
     added.push(book);
   }
+  // The server keeps the pictures, one after another (no book points at another site).
+  (async () => { for (const [b, v] of added.map((b, i) => [b, volumes[i]])) if (v.cover) await keepCover(W.mainEdition(b), { url: v.cover }, b); })();
   renderLibrary();
   toast(added.length === 1 ? t('On To read: {title}', { title: added[0].title }) : t('{n} on To read', { n: plural(added.length, 'book') }), {
     action: t('Undo'), ms: 8000, onAction: async () => { for (const b of added) await removeBook(b); },
   });
-}
-
-/** How many books does this series have in all? Said once, the strip shows what is missing up to its end. */
-function openSeriesTotal(name) {
-  const input = h('input', { name: 'total', type: 'number', min: 1, step: 1, inputmode: 'numeric', autocomplete: 'off', value: seriesTotal(name) ?? '' });
-  const form = h('form', {
-    novalidate: true,
-    onsubmit: async (e) => {
-      e.preventDefault();
-      const n = Math.floor(Number(input.value));
-      await saveSeriesTotal(name, Number.isFinite(n) && n > 0 ? n : null);
-      closeLayersThen(renderLibrary);
-    },
-  },
-    sheetHead(t('How many books in the series?'), name),
-    h('label', { class: 'field' }, h('span', { text: t('The number of its last book') }), input),
-    h('p', { class: 'sheet-note', text: t('The series then shows how many books you don’t have after your last one. Leave it empty when you don’t know.') }),
-    h('div', { class: 'sheet-actions' }, h('button', { class: 'btn btn-primary btn-block', type: 'submit', text: t('Save') })));
-  sheet.open(form);
-  input.focus();
 }
 
 function renderSeriesIndex(query) {
@@ -2698,14 +2879,16 @@ function renderLibrary() {
     $('library').append(h('div', { class: 'series-head' },
       h('a', { class: 'link-btn', href: '#/series', onclick: (e) => { e.preventDefault(); setView({ seriesIndex: true }); } }, icon('back'), t('All series')),
       h('h2', { text: view.series }),
-      // How many the series has in all, once you have said so; said (and changed) from here.
-      h('p', null, inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.'),
-        inScope.length > 0 && (!VISITING || seriesTotal(view.series)) && ' · ',
-        inScope.length > 0 && (VISITING ? seriesTotal(view.series) && t('{n} in the series', { n: seriesTotal(view.series) })
-          : h('button', { class: 'link-btn series-total', type: 'button', onclick: () => openSeriesTotal(view.series),
-            text: seriesTotal(view.series) ? t('{n} in the series', { n: seriesTotal(view.series) }) : t('How many in the series?') }))),
-      inScope.length > 0 && seriesStrip([...inScope].sort(bySeriesOrder)),
-      seriesHardcoverPart(view.series, inScope)));
+      // What is known of the series as a whole, and Look up: the whole series, number by number (openSeries).
+      h('p', null, [
+        inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.'),
+        seriesTotal(view.series) && t('{n} in the series', { n: seriesTotal(view.series) }),
+        seriesRecord(view.series)?.complete && t('complete'),
+        !VISITING && seriesRecord(view.series)?.doneWith && t('done with it'),
+        !VISITING && seriesHardcover(view.series)?.news?.length && h('strong', { class: 'series-news', text: t('{n} new', { n: seriesHardcover(view.series).news.length }) }),
+        !VISITING && h('button', { class: 'link-btn series-look-up', type: 'button', onclick: (e) => lookUp(e.currentTarget, view.series) }, t('Look up')),
+      ].filter(Boolean).flatMap((part, i) => (i ? [' · ', part] : [part]))),
+      inScope.length > 0 && seriesStrip([...inScope].sort(bySeriesOrder))));
     // New volumes from the monthly check are said here (and at the head of Series) until the page has been seen.
     const hc = !VISITING && seriesHardcover(view.series);
     if (hc?.news?.length) saveSeriesHardcover(view.series, { ...hc, news: [] });

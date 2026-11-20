@@ -117,6 +117,10 @@ class MonthlyCheck(TestCase):
                                             'hardcover': {'id': 1638, 'running': True, 'volumes': old}})
         done = Term.objects.create(user=user, uid='series:Cradle', value='Cradle', modified=t0, changed=t0,
                                    data={'id': 'series:Cradle', 'kind': 'series', 'value': 'Cradle', 'hardcover': {'id': 4968, 'volumes': old}})
+        # Marked complete: not asked, even with an old running flag.
+        complete = Term.objects.create(user=user, uid='series:Sandman', value='Sandman', modified=t0, changed=t0,
+                                       data={'id': 'series:Sandman', 'kind': 'series', 'value': 'Sandman', 'complete': True,
+                                             'hardcover': {'id': 77, 'running': True, 'volumes': old}})
         fresh = {'id': 1638, 'name': 'Wayward Children', 'books_count': 2, 'completed': False, 'author': '',
                  'volumes': [*old, {'n': 2, 'id': 22, 'title': 'Two', 'year': 2027}]}
         out = StringIO()
@@ -127,7 +131,10 @@ class MonthlyCheck(TestCase):
         running.refresh_from_db()
         self.assertEqual(running.data['hardcover']['news'], [22])
         self.assertEqual(len(running.data['hardcover']['volumes']), 2)
+        self.assertEqual(running.data['total'], 2)                       # its length grows with the new one
         self.assertEqual(running.modified, t0)
         self.assertGreater(running.changed, t0)
         done.refresh_from_db()
         self.assertEqual(done.changed, t0)
+        complete.refresh_from_db()
+        self.assertEqual(complete.changed, t0)
