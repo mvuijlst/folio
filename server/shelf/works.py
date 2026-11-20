@@ -15,7 +15,7 @@ import re
 from .boeken import fold, tidy_people
 
 # What moved from a book into its editions (v: 2).
-MOVED = ('format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin',
+MOVED = ('format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin', 'publication',
          'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop', 'people')
 STATUS = ('to-read', 'reading', 'read', 'abandoned')
 OPEN = ('to-read', 'reading')

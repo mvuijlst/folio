@@ -70,17 +70,17 @@ CANON_ORDER = [
     'title', 'series', 'series_number', 'series_number_label', 'date', 'slug',
     'rereadOf', 'wpId', 'rating', 'review', 'publisher', 'year', 'year_until', 'format',
     'pages', 'pagesRead', 'duration', 'durationLeft', 'progressLog', 'isbn',
-    'olid', 'language', 'issues', 'roles', 'cover', 'status', 'categories',
+    'olid', 'language', 'issues', 'publication', 'roles', 'cover', 'status', 'categories',
     'tags', 'authors', 'draft', 'aliases',
 ]
 QUOTED_KEYS = {'title', 'publisher', 'duration', 'durationLeft', 'series_number_label', 'status',
-               'cover', 'slug', 'isbn', 'olid', 'rereadOf', 'language', 'format'}
+               'cover', 'slug', 'isbn', 'olid', 'rereadOf', 'language', 'format', 'publication'}
 LIST_KEYS = {'categories', 'tags', 'authors', 'series', 'aliases'}
 # What a reread copies from the read before it: the facts of the book and of the edition.
 BOOK_FACTS = ('title', 'series', 'series_number', 'series_number_label', 'publisher', 'year', 'format', 'pages',
-              'duration', 'isbn', 'olid', 'language', 'roles', 'cover', 'categories', 'tags', 'authors')
+              'duration', 'isbn', 'olid', 'language', 'issues', 'publication', 'roles', 'cover', 'categories', 'tags', 'authors')
 # The facts of a book that are its edition's: a post about another edition must not get them.
-EDITION_KEYS = {'publisher', 'date', 'pages', 'isbn', 'language', 'people', 'format', 'duration', 'cover'}
+EDITION_KEYS = {'publisher', 'date', 'pages', 'isbn', 'language', 'people', 'format', 'duration', 'cover', 'publication'}
 
 
 def quote(value):
@@ -211,7 +211,12 @@ def changed_keys(data):
         return set()
     before, now = data['boekenState'] or {}, boeken.state_of(data)
     tracked = boeken.TRACKED.get(before.get('tracks'), boeken.TRACKED[1])   # as far as that state went
-    return {key for key in (*tracked, 'list') if before.get(key) != now.get(key)}
+    changed = {key for key in (*tracked, 'list') if before.get(key) != now.get(key)}
+    # The booklog had no publication lines before states tracked them (one old post aside): one
+    # said in the app is a change even where the state is older.
+    if 'publication' not in tracked and now.get('publication') and now.get('publication') != before.get('publication'):
+        changed.add('publication')
+    return changed
 
 
 def for_booklog(data):
@@ -318,6 +323,7 @@ def plan_book(repo, data, group, taken, now):
             'duration': (str(edition.get('duration') or '').strip() or None) if audio else None,
             'isbn': str(edition.get('isbn') or '').strip() or None,
             'language': str(edition.get('language') or '').strip() or None,
+            'publication': ' '.join(str(edition.get('publication') or '').split()) or None,
         }
 
     def file_picture(picture, slug, day):
@@ -602,6 +608,8 @@ def plan_book(repo, data, group, taken, now):
         edit(latest)['front']['pages'] = state.get('pages')
     if 'isbn' in changed:
         edit(latest)['front']['isbn'] = state.get('isbn')
+    if 'publication' in changed:
+        edit(latest)['front']['publication'] = ' '.join(str(state.get('publication') or '').split()) or None
     if 'date' in changed:
         years = re.fullmatch(r'(\d{4})(?:\s*[–-]\s*(\d{4}))?', str(state.get('date') or ''))
         if years:
@@ -616,7 +624,7 @@ def plan_book(repo, data, group, taken, now):
         if minutes != parse_duration(latest.get('duration')):
             edit(latest)['front']['duration'] = format_duration(minutes) if minutes is not None else None
             kinds.append('edit')
-    if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date', 'language', 'categories', 'tags'}:
+    if changed & {'title', 'series', 'seriesNumber', 'seriesLabel', 'publisher', 'pages', 'isbn', 'date', 'language', 'categories', 'tags', 'publication'}:
         kinds.append('edit')
 
     # 5. A new cover: the picture the server kept goes into the booklog's media folder (a

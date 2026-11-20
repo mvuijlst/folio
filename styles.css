@@ -634,6 +634,11 @@ button.col:hover .col-bar { opacity: .75; }
 .field input:focus, .field textarea:focus { border-color: var(--accent); }
 .field .serif { font-family: var(--serif); font-size: 1.14rem; font-weight: 500; }
 .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+/* The pen at the end of the year and pages: a publication line in words, for the exceptions. Quiet until used. */
+.field-row.with-note { grid-template-columns: 1fr 1fr auto; align-items: end; }
+.note-toggle { width: 32px; height: 32px; margin: 0 -6px 18px 0; color: var(--faint); }
+.note-toggle .icon { width: 16px; height: 16px; }
+.note-toggle[aria-pressed="true"] { color: var(--accent); }
 .field-error { color: var(--danger); font-size: .88rem; margin: -6px 0 12px; }
 
 /* ───────────── Bottom sheet ───────────── */

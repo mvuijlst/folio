@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.35.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.36.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1204,12 +1204,14 @@ function someChips(options, initial, name = (v) => v) {
 /** Every tag on the shelf, for suggesting. */
 const tagNames = () => [...new Set(books.flatMap((b) => b.tags || []).map((slug) => tagName(slug)))].sort((a, b) => a.localeCompare(b, LOCALE));
 
-/** The line under a book's title: of `b` as one edition (look), and, given the book itself, how many editions it has. */
-function metaLine(b, book) {
+/** The line under a book's title: of `b` as one edition (look), and, given the book itself, how many editions it has.
+ *  `words`: on the book's own page, an edition's publication line in words (`publication`) stands for publisher, year and pages. */
+function metaLine(b, book, { words = false } = {}) {
   // Rating (0–10) and how far along come with books from the booklog at boeken.tsuk.org.
   const { percent } = progressOf(b);
   const progress = percent ? t('{n}% read', { n: percent }) : '';
-  return [b.publisher, yearOf(b.date) || b.date, extentOf(b), progress, b.rating != null && `★ ${b.rating}`,
+  const facts = words && b.publication ? [formatOf(b) === 'ebook' && t('E-book'), b.publication] : [b.publisher, yearOf(b.date) || b.date, extentOf(b)];
+  return [...facts, progress, b.rating != null && `★ ${b.rating}`,
     book && several(book) && t('{n} editions', { n: editionsOf(book).length })]
     .filter(Boolean).join(' · ');
 }
@@ -1730,7 +1732,10 @@ function languageLine(e, book) {
 
 /** One line about an edition: "Audiobook · 11u 36m · Audible · 2018 · stem: Roy Dotrice", its own title and language first when it has another title. */
 function editionLine(e, book) {
-  return [e.title, e.title && e.language && e.language.toUpperCase(), extentOf(book ? { ...e, boeken: book.boeken } : e), e.publisher, yearOf(e.date) || e.date,
+  const x = book ? { ...e, boeken: book.boeken } : e;
+  // A publication line in words stands for publisher, year and pages (the format still said).
+  const facts = e.publication ? [formatName(formatOf(x)), e.publication] : [extentOf(x), e.publisher, yearOf(e.date) || e.date];
+  return [e.title, e.title && e.language && e.language.toUpperCase(), ...facts,
     ...(book ? peopleSplit(book).own(e).filter((person) => !isWriter(person)).reduce((by, person) => {
       const row = by.find(([role]) => role === person.role);
       if (row) row[1].push(person.name); else by.push([person.role, [person.name]]);
@@ -2348,7 +2353,7 @@ function searchText(b) {
   const cached = searchCache.get(b);
   if (cached && cached.modified === b.modified) return cached.text;
   const text = fold([b.title, b.author, b.series, ...listsOf(b).map((m) => m.note), ...(b.reviews || []).map((r) => r.text),
-    ...editionsOf(b).flatMap((e) => [e.title, e.publisher, e.isbn, e.date, ...(e.people || []).map((person) => person.name)])].join(' '));
+    ...editionsOf(b).flatMap((e) => [e.title, e.publisher, e.publication, e.isbn, e.date, ...(e.people || []).map((person) => person.name)])].join(' '));
   searchCache.set(b, { modified: b.modified, text });
   return text;
 }
@@ -4361,6 +4366,9 @@ function editionFields(src, { format: initialFormat } = {}) {
     duration: input('duration', { placeholder: '11u 36m' }),
     // ISBN / ASIN: one field, showing the ISBN, else the ASIN (Audible, Kindle). Stored apart.
     isbn: input('isbn', { value: src.isbn || src.asin || '', autocapitalize: 'characters', spellcheck: 'false' }),
+    // The exception: a publication line in words, for what publisher, year and pages can't say
+    // (a run spread over publishers and volumes). Shown in their place; behind a small pen until used.
+    publication: h('textarea', { name: 'publication', rows: 2, value: src.publication || '' }),
   };
   const shown = src.isbn ? 'isbn' : src.asin ? 'asin' : null;
   const field = (label, control) => h('label', { class: 'field' }, h('span', { text: label }), control);
@@ -4370,12 +4378,20 @@ function editionFields(src, { format: initialFormat } = {}) {
   const showExtent = () => { extent.duration.hidden = format.value !== 'audiobook'; extent.pages.hidden = format.value === 'audiobook'; };
   format.onChange = showExtent;
   showExtent();
+  const publicationRow = h('div', { hidden: !src.publication },
+    field(t('In words'), f.publication),
+    h('p', { class: 'sheet-note people-hint', text: t('Shown instead of publisher, year and pages, for what those can’t say. Leave empty to show them.') }));
+  const noteToggle = h('button', {
+    class: 'icon-btn note-toggle', type: 'button', 'aria-label': t('Say it in words'), title: t('Say it in words'), 'aria-pressed': String(!!src.publication),
+    onclick: () => { publicationRow.hidden = false; noteToggle.setAttribute('aria-pressed', 'true'); f.publication.focus(); },
+  }, icon('pen-line'));
   const v = (k) => f[k].value.replace(/\s+/g, ' ').trim();
   return {
     f, format, field,
     publisherRow: field(t('Publisher'), f.publisher),
     formatRow: h('div', { class: 'field' }, h('span', { text: t('Format') }), format.el),
-    extentRow: h('div', { class: 'field-row' }, field(t('Published'), f.date), extent.pages, extent.duration),
+    extentRow: h('div', { class: 'field-row with-note' }, field(t('Published'), f.date), extent.pages, extent.duration, noteToggle),
+    publicationRow,
     isbnRow: field(t('ISBN / ASIN'), f.isbn),
     /** → the facts as typed, or a sentence saying what is wrong (and the field is focused) */
     read() {
@@ -4384,6 +4400,7 @@ function editionFields(src, { format: initialFormat } = {}) {
         pages: parseInt(v('pages'), 10) > 0 ? parseInt(v('pages'), 10) : null,
         ...codesOf(v('isbn'), src, shown),
         format: format.value,
+        publication: v('publication'),
       };
       // An audiobook has a length and no pages; said to be paper or an e-book, pages and no length.
       if (format.value === 'audiobook') Object.assign(data, { pages: null, duration: v('duration').toLowerCase().replace(/h/g, 'u') });
@@ -4491,6 +4508,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     whole && facts.publisherRow,
     whole && facts.formatRow,
     whole && facts.extentRow,
+    whole && facts.publicationRow,
     whole && facts.isbnRow,
     h('div', { class: 'field-row series-fields' }, field(t('Series'), f.series), field(t('Number'), f.seriesNumber)),
     seriesNames,
@@ -4623,6 +4641,7 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
     facts.formatRow,
     facts.publisherRow,
     facts.extentRow,
+    facts.publicationRow,
     facts.isbnRow,
     h('div', { class: 'field' }, h('span', { text: t('Language') }), language.el),
     facts.field(t('Title of this edition'), title),
@@ -5969,7 +5988,7 @@ function openBook(book, rows) {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
           onclick: () => closeLayersThen(() => setView({ series: book.series })),
         }),
-        metaLine(b) && h('p', { class: 'book-meta', text: metaLine(b) }),
+        metaLine(b) && h('p', { class: 'book-meta', text: metaLine(b, undefined, { words: true }) }),
         // What it is in and about, quietly: the language and categories, then the tags.
         (b.language || book.originalLanguage || book.categories?.length > 0 || book.tags?.length > 0) && h('p', { class: 'book-meta page-about' },
           [languageLine(b, book), ...(book.categories || []).map(categoryName)].filter(Boolean).join(' · '),

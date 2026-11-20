@@ -323,6 +323,28 @@ class PublishTests(BooklogCase):
         self.assertEqual(self.flat('katabasis')['format'], 'ebook')
         self.assertEqual(self.publish()[0]['published'], 0)
 
+    def test_a_publication_line_in_words_goes_to_the_post_and_comes_back(self):
+        line = 'Antarctic Press (vol. 1, 1-3), Abstract Studio (vol. 2, 1-14), ca. 4000 blz.'
+        self.change('katabasis', lambda data: data.update(publication=line))
+        self.publish()
+        self.assertEqual(self.changed_lines('katabasis'), [f'+publication: "{line}"'])
+        self.import_booklog()
+        self.assertEqual(self.flat('katabasis')['publication'], line)
+        self.assertEqual(self.publish()[0]['published'], 0)
+        # Emptied in the app, it goes from the post again.
+        self.change('katabasis', lambda data: data.pop('publication'))
+        self.publish()
+        self.assertNotIn('publication:', self.post('katabasis'))
+
+    def test_a_publication_line_on_a_state_from_before_them_is_a_change(self):
+        row = self.book('katabasis')
+        older = {k: v for k, v in row.data['boekenState'].items() if k != 'publication'}
+        row.data = {**row.data, 'boekenState': {**older, 'tracks': 3}}
+        row.save()
+        self.assertEqual(publish.changed_keys(works.flat(row.data)), set())
+        self.change('katabasis', lambda data: data.update(publication='Vol. 1 en 2'))
+        self.assertEqual(publish.changed_keys(works.flat(self.book('katabasis').data)), {'publication'})
+
     def test_the_book_turned_audiobook_trades_pages_for_a_length(self):
         def audio(data):
             data.update(format='audiobook', duration='18u 30m')

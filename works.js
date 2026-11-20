@@ -8,7 +8,7 @@
 // and what each must become, and both sides are tested against them.
 
 /** What moved from a book into its editions in the new shape (v: 2). */
-export const MOVED = ['format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin',
+export const MOVED = ['format', 'language', 'publisher', 'date', 'pages', 'duration', 'isbn', 'asin', 'publication',
   'cover', 'coverRatio', 'coverSource', 'coverFull', 'thumb', 'coverPhoto', 'coverOriginal', 'coverCrop', 'people'];
 /** The lists of the app's reading-status set; a user's own lists in that set come on top. */
 export const STATUS = ['to-read', 'reading', 'read', 'abandoned'];

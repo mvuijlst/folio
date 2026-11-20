@@ -97,12 +97,13 @@ def body_text(text, relative=()):
 
 # What of a book can be changed in the app and is then published to the booklog (shelf/publish.py).
 PUBLISHED = ('title', 'publisher', 'date', 'pages', 'isbn', 'series', 'seriesNumber', 'seriesLabel',
-             'pagesRead', 'durationLeft', 'cover', 'people', 'format', 'duration', 'language', 'categories', 'tags')
+             'pagesRead', 'durationLeft', 'cover', 'people', 'format', 'duration', 'language', 'categories', 'tags',
+             'publication')
 # What is published grew over time. A book's `boekenState` says under 'tracks' how far it
 # goes, and is only compared that far: a fact that wasn't tracked when the state was written
 # (a length the book already had) is not a change made in the app.
-TRACKED = {1: PUBLISHED[:12], 2: PUBLISHED[:14], 3: PUBLISHED}
-TRACKS = 3
+TRACKED = {1: PUBLISHED[:12], 2: PUBLISHED[:14], 3: PUBLISHED[:17], 4: PUBLISHED}
+TRACKS = 4
 
 # What a read was read as. A post says so under `format`; one that doesn't is an audiobook if
 # it has a length, and otherwise it isn't said. (The booklog's audiobook and kindle categories
@@ -156,9 +157,13 @@ def state_of(book):
 # carries the edition that was read in `edition` (in the flat view, shelf/works.py), with these
 # facts (and `coverRatio`). `title` only for an edition titled otherwise than the book (a
 # translation): its posts carry that title.
-EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people', 'format', 'title')
+# `publication`: the publication line in words, for what publisher, year and pages can't say (a
+# run spread over publishers and volumes); shown in their place. The book's state tracks it, so
+# no fingerprint covers it (SUMMED).
+EDITION = ('publisher', 'date', 'pages', 'duration', 'isbn', 'language', 'cover', 'people', 'format', 'title', 'publication')
+SUMMED = EDITION[:10]
 # What a review's fingerprint covered, by its version: editions came to say more over time.
-EDITION_AT = {2: EDITION[:7], 3: EDITION[:8], 4: EDITION[:9], 5: EDITION}
+EDITION_AT = {2: EDITION[:7], 3: EDITION[:8], 4: EDITION[:9], 5: SUMMED}
 SUM_VERSION = 4   # 5 for a read of an edition with a title of its own: other fingerprints stay as they were
 
 
@@ -175,6 +180,7 @@ def edition_of(post, names=None):
         'isbn': str(post.get('isbn') or ''),
         'language': str(post.get('language') or ''),
         'cover': SITE + cover if cover.startswith('/') else '',
+        'publication': ' '.join(str(post.get('publication') or '').split()),
     }
     if names is not None:
         edition['people'] = people_of(post.get('authors'), post.get('roles'), names)
@@ -206,7 +212,7 @@ def in_step(review):
     version = int(left[0]) if left[:2] in ('2:', '3:', '4:', '5:') else 1
     edition = review.get('edition') or {}
     # (A fingerprint from before editions can't tell: every read has an edition now, the book's own.)
-    if version > 1 and any(key in edition for key in EDITION if key not in EDITION_AT.get(version, EDITION_AT[2])):
+    if version > 1 and any(key in edition for key in SUMMED if key not in EDITION_AT.get(version, EDITION_AT[2])):
         return False   # something the fingerprint knows nothing of was said in the app since
     if version > 1:
         return review_sum(review, version=version) == left
