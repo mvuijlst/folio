@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.30.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.31.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -123,6 +123,38 @@ function initTheme() {
     theme = theme === 'dark' ? 'light' : 'dark';
     try { localStorage.setItem('bookscan.theme', theme); } catch {}
     apply(theme);
+  });
+}
+
+/** Three clicks on the mark: a screensaver of the covers on the shelf (screensaver.js, which is
+    only loaded then). Full screen where the browser allows it; Back, a key, a click or moving the
+    mouse ends it. */
+function initScreensaver() {
+  let clicks = 0, last = 0, stop = null;
+  document.querySelector('.mark').addEventListener('click', () => {
+    const now = performance.now();
+    clicks = now - last < 500 ? clicks + 1 : 1;
+    last = now;
+    if (clicks < 3 || stop) return;
+    clicks = 0;
+    const seen = new Set();
+    const covers = [];
+    for (const book of books) {
+      const ed = [W.mainEdition(book), ...editionsOf(book)].find((e) => e && (e.cover || e.thumb));
+      const src = ed && (ed.cover ? abs(ed.cover) : ed.thumb);
+      if (src && !seen.has(src)) { seen.add(src); covers.push({ src, ratio: ed.coverRatio }); }
+    }
+    if (covers.length < 6) return;
+    // Asked for while the click still counts as one, or the browser refuses.
+    document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
+    stop = () => {};
+    import('./screensaver.js').then(({ start }) => {
+      stop = start(covers, { onExit: () => closeLayer() });
+      openLayer(() => { stop(); stop = null; });
+    }).catch(() => {
+      stop = null;
+      if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    });
   });
 }
 
@@ -8235,6 +8267,7 @@ async function init() {
   initTheme();
   bindEvents();
   if (VISITING) { await visit(); return; }
+  initScreensaver();
   showMoved();
   try {
     await loadLists();
