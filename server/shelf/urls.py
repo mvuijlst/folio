@@ -8,6 +8,7 @@ urlpatterns = [
     path('logout', views.logout_view, name='logout'),
     path('sync', views.sync, name='sync'),
     path('gone', views.gone, name='gone'),
+    path('hardcover', views.hardcover_series, name='hardcover'),
     path('cover', views.cover, name='cover'),
     path('suggest', views.suggest, name='suggest'),
     path('translate', views.translate, name='translate'),

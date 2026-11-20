@@ -197,6 +197,28 @@ while it is in the Trash; put back, the app sets `boekenWanted` and it is publis
 `unpublish` (slugs) takes posts off the booklog on purpose: the posts go, the book and its reads
 stay, those reads marked `local` and never published again (`for_booklog` leaves them out).
 
+## Series from Hardcover
+
+With `HARDCOVER_API_TOKEN` in `server/.env` (a personal token from hardcover.app; it expires on the
+date chosen when it was made, then answers 401), `/api/hardcover` answers a staff account: `{"name"}`
+finds a series, `{"id"}` gives its volumes (`shelf/hardcover.py`, answers kept a day). The sync tells
+the app whether it may ask (`hardcover`). The free plan allows 5,000 requests a day and 60 a minute.
+
+What a series' list holds is sorted as measured on 2026-11-20: of series with one name, the one with
+the most books; per number the book most people shelved (translations and parts lose to it); no box
+sets, nothing without a number; in a widely read series nothing under 1% of the most-read book's
+readers unless it isn't out yet; a small series (comics) keeps all.
+
+`manage.py check_series --user NAME [--write]` asks again about the series marked *Still running*
+and keeps their new volumes on the series' record (`news`), which the app shows until seen. Installed
+once a month (the 1st, 04:30 UTC) by:
+
+```bash
+sudo bash /home/django/folio-yusupov/server/setup-series-check.sh mvuijlst
+```
+
+See what it did with `journalctl -u folio-series-check.service`.
+
 ## A list that became a mark
 
 `manage.py list_to_have --user NAME --list ID --have go|gone [--write]` gives the paper copies on

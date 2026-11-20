@@ -381,6 +381,13 @@ Before building the screens, run the lookup for ten of his series, half of them 
 show him what comes back. If the comics come back empty, say so; he may want another source
 for those (he was offered Wikipedia read by the assistant, and chose Hardcover).
 
+**Status, 2026-11-20:** measured on ten of his series (novels strong; Flemish comics weak: Thorgal
+in French, Suske half, Jommeke 7, Kiekeboes 4), then built as 2.39.0 on his "build it". The key is
+`HARDCOVER_API_TOKEN` (shared with the page counts). The raw-list filters changed after the
+measurement: of series with one name the fullest; per number the most-read book (dropping every
+book marked a copy dropped real volumes); the 1% readers rule only for widely read series. The
+monthly timer is installed with `setup-series-check.sh` (his go-ahead).
+
 **Done when:** on a series Hardcover knows, every dot has a name and one tap puts the lacking
 volumes on *To read*; a month later a newly announced volume shows without his asking.
 

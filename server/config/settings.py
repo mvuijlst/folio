@@ -7,7 +7,7 @@ Configuration comes from environment variables (see .env.example):
   BOEKEN_REPO_PATH    a clone of the booklog to publish to (optional)
   BOEKEN_GIT_AUTHOR   "Name <address>" for the commits made there
   BOEKEN_PUSH         "1" to push those commits (which publishes them)
-  HARDCOVER_API_TOKEN for page counts the catalogues lack (optional)
+  HARDCOVER_API_TOKEN for page counts the catalogues lack, and the volumes of series (optional)
   OPENAI_API_KEY      for the assistant that proposes books from a description (optional)
   OPENAI_MODEL        the model it asks
   OPENAI_COVER_EFFORT how long it may think about a photographed cover ("low" by default; "" for the model's own)

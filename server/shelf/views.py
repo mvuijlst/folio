@@ -58,7 +58,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from django.conf import settings
 
-from . import categorise, covers, intake, original, pages, works
+from . import categorise, covers, hardcover, intake, original, pages, works
 from . import public
 from .models import Book, Library, List, Term
 
@@ -596,6 +596,7 @@ def sync(request):
         **({'terms': [t.as_change() for t in terms.values()]} if 'terms' in data else {}),
         'user': user.get_username(),
         'assistant': bool(settings.OPENAI_API_KEY),   # whether /api/suggest will answer
+        'hardcover': bool(settings.HARDCOVER_API_TOKEN) and user.is_staff,   # whether /api/hardcover answers (the token is the owner's)
         **({'backup': last_backup()} if user.is_staff else {}),
     })
 
@@ -637,3 +638,30 @@ def gone(request):
         rows = model.objects.filter(user=request.user, deleted=True).values_list('uid', 'modified')
         out[key] = {uid: modified.isoformat().replace('+00:00', 'Z') for uid, modified in rows if uid in asked}
     return JsonResponse(out)
+
+
+@require_POST
+def hardcover_series(request):
+    """A series on Hardcover (shelf/hardcover.py): {"name"} → {"found": [{id, name, books_count, author}]};
+    {"id"} → {"series": {id, name, books_count, completed, author, volumes}}. Staff only: it is the
+    owner's token. 503 when there is no token or Hardcover doesn't answer."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    if not request.user.is_staff or not settings.HARDCOVER_API_TOKEN:
+        return error('Hardcover is not set up here.', 503)
+    data = body(request) or {}
+    try:
+        if data.get('id') is not None:
+            try:
+                found = hardcover.series(int(data['id']))
+            except (TypeError, ValueError):
+                return error('Bad request')
+            return JsonResponse({'series': found})
+        name = str(data.get('name') or '').strip()[:200]
+        if not name:
+            return error('Bad request')
+        return JsonResponse({'found': hardcover.find(name)})
+    except hardcover.Unavailable:
+        logger.exception('Hardcover')
+        return error('Hardcover didn’t answer. Try again later.', 503)
+

@@ -472,6 +472,27 @@ img { display: block; max-width: 100%; }
 .strip-hole { width: 14px; height: 14px; display: grid; place-items: center; }
 .strip-hole::before { content: ''; width: 3px; height: 3px; border-radius: 50%; background: var(--faint); opacity: .7; }
 .strip-gap { padding: 0 2px; font-size: .68rem; line-height: 14px; color: var(--faint); font-variant-numeric: tabular-nums; }
+/* A number Hardcover names (app.js: seriesStrip): the dot a little stronger, and it opens */
+button.strip-hole.named, button.strip-gap.named { cursor: pointer; border-radius: 3px; }
+button.strip-hole.named::before { width: 5px; height: 5px; background: var(--muted); opacity: 1; }
+button.strip-gap.named { color: var(--muted); text-decoration: underline dotted; text-underline-offset: 2px; }
+button.strip-hole.named:hover, button.strip-gap.named:hover { background: var(--surface-2); }
+/* The series page's Hardcover part, and the volumes it names */
+.series-hardcover { margin-top: 12px; }
+.series-hardcover > .sheet-note { margin: 0; }
+.series-hardcover .series-news { color: var(--accent); font-weight: 600; }
+.series-hardcover-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 16px; }
+.series-hardcover-actions .link-btn { padding: 6px 0; }
+.series-hardcover .series-running { border-top: 0; padding: 6px 0; font-size: .9rem; color: var(--muted); }
+.series-news-head { grid-column: 1 / -1; color: var(--muted); font-size: .9rem; margin: 0 0 12px; }
+.series-news-head a { color: var(--accent); }
+.volumes { display: flex; flex-direction: column; gap: 14px; margin-top: 14px; }
+.volume { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: start; }
+.volume-cover, .volume .cover { width: 56px; border-radius: 4px; }
+.volume-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.volume-text small { color: var(--muted); font-size: .84rem; }
+.volume-text .volume-remark { color: var(--faint); font-style: italic; }
+.volume-want { align-self: start; margin-top: 6px; }
 .strip-space { width: 8px; }
 @media (max-width: 480px) {
   .strip { gap: 4px; }

@@ -335,6 +335,22 @@ the booklog when you say so.
   in the series?* beside the count on its page) and it shows what you lack after your last one
   too. A square opens its book; on a person's page the books of the series that
   aren't theirs are outlines.
+- **Series from Hardcover.** Signed in, where the server has a Hardcover token, a series page
+  offers **Look up on Hardcover**. The series is found by its name (of several with that name,
+  the one with the most books); where Hardcover names it otherwise (*Kiekeboe* for *De
+  Kiekeboes*) you choose it, or search another name, and your name stays. Then the dots of the
+  numbers you don't have get names: a dot opens that volume (title, writer, year, cover) with
+  **Want it**, which puts it on *To read*, in no place, with the series and its number; "+n"
+  opens all the volumes it stands for. **All I lack** offers every missing volume at once, with
+  *Want them all* and one *Undo*. *Its length: n* takes Hardcover's count as the series'
+  length (never by itself). **Your numbers win**: where Hardcover numbers a book you have
+  differently, the volume says *You have it as #n*; nothing is renumbered. Tick **Still running**
+  and the series is asked again once a month; what is new is said quietly, at the head of
+  *Series* (*New on Hardcover: Discworld (1)*) and on the series page, until you have seen it.
+  No notifications. *Ask again* asks now; *Not this series* forgets what Hardcover said.
+  Hardcover is strong on English novel series and weak on Flemish comics (on 2026-11-20 it knew
+  Thorgal in French, half of Suske en Wiske, 7 Jommeke albums, 4 Kiekeboes). A volume's cover
+  is copied to the server, like every other.
 - **The cover, large.** Tap a cover (on a book's page, in its details, or on an edition's
   sheet) and it opens over everything at the best size there is: the picture you supplied,
   the booklog's own original, or the catalogue's large size. Tap it again for its real size.

@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.38.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.39.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -731,6 +731,7 @@ const sync = {
   last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
   error: '',
   assistant: store.get('assistant', false),   // whether the server can propose books from a description
+  hardcover: store.get('hardcover', false),   // whether the server can say a series' volumes (Hardcover)
   backup: store.get('serverBackup', null),     // staff only: when the server's nightly copy last ran ({made, checked})
   running: null, again: false, timer: 0,
   box: null,                               // the account section, while the settings sheet shows it
@@ -856,6 +857,11 @@ async function runSync({ loud = false } = {}) {
         if ('assistant' in res && sync.assistant !== !!res.assistant) {
           sync.assistant = !!res.assistant;
           store.set('assistant', sync.assistant);
+          renderLibrary();
+        }
+        if (sync.hardcover !== !!res.hardcover) {
+          sync.hardcover = !!res.hardcover;
+          store.set('hardcover', sync.hardcover);
           renderLibrary();
         }
         if ('backup' in res) { sync.backup = res.backup; store.set('serverBackup', sync.backup); }
@@ -2295,11 +2301,23 @@ async function saveSeriesTotal(name, total) {
 function seriesStrip(members, mine, total = seriesTotal(members[0]?.series)) {
   const cells = [];
   let last = null, loose = false, ended = false;
+  // What Hardcover says the series has (seriesVolumes): a number not on the shelf gets a name, and opens.
+  const name = members[0]?.series, volumes = name && !VISITING ? volumesByNumber(name) : new Map();
   // The numbers from `from` to `to`, which aren't on the shelf.
   const missing = (from, to) => {
     if (to < from) return;
-    if (to - from < 3) for (let k = from; k <= to; k++) cells.push(h('span', { class: 'strip-hole', title: t('Number {n} is not on the shelf', { n: k }) }));
-    else cells.push(h('span', { class: 'strip-gap', text: `+${to - from + 1}`, title: t('Numbers {from}–{to} are not on the shelf', { from, to }) }));
+    const named = [];
+    for (let k = from; k <= to; k++) if (volumes.has(k)) named.push(volumes.get(k));
+    if (to - from < 3) {
+      for (let k = from; k <= to; k++) {
+        const v = volumes.get(k);
+        cells.push(v
+          ? h('button', { class: 'strip-hole named', type: 'button', title: `#${k} · ${v.title}`, 'aria-label': `#${k} · ${v.title}`, onclick: () => openVolumes(name, [v]) })
+          : h('span', { class: 'strip-hole', title: t('Number {n} is not on the shelf', { n: k }) }));
+      }
+    } else if (named.length) {
+      cells.push(h('button', { class: 'strip-gap named', type: 'button', text: `+${to - from + 1}`, title: t('Numbers {from}–{to} are not on the shelf', { from, to }), onclick: () => openVolumes(name, named) }));
+    } else cells.push(h('span', { class: 'strip-gap', text: `+${to - from + 1}`, title: t('Numbers {from}–{to} are not on the shelf', { from, to }) }));
   };
   // After the last numbered book: what the series still has.
   const end = () => { if (!ended && last != null && total) missing(last + 1, total); ended = true; };
@@ -2328,6 +2346,144 @@ function seriesStrip(members, mine, total = seriesTotal(members[0]?.series)) {
   return h('div', { class: 'strip' }, cells);
 }
 
+/* Series from Hardcover (server/shelf/hardcover.py): what a series has, volume by volume, kept on the
+   series' record (`hardcover`: {id, name, count, completed, checked, volumes: [{n, id, title, year,
+   authors, cover}], running, news}). It names the numbers the shelf doesn't have; a volume you want
+   goes on To read, in no place, with its series and number. Your numbers win: where Hardcover
+   numbers a book you have differently, that is said, never changed. Asked only through the server
+   (the token is the owner's), so only with an account and when the server says it has Hardcover. */
+
+/** What Hardcover said of a series, or null. */
+const seriesHardcover = (name) => seriesFacts().get(name)?.hardcover || null;
+/** Hardcover's volumes of a series by their whole number (a novella at 4.5 has no dot of its own). */
+const volumesByNumber = (name) => new Map((seriesHardcover(name)?.volumes || []).filter((v) => Number.isInteger(v.n)).map((v) => [v.n, v]));
+async function saveSeriesHardcover(name, hardcover) {
+  const id = seriesId(name), prior = terms.find((x) => x.id === id);
+  const record = { ...(prior || { id, kind: 'series', value: name }) };
+  if (hardcover) record.hardcover = hardcover; else delete record.hardcover;
+  await saveTerm(record);
+}
+/** A book of yours that is this volume (the same title, by the same writer or none said), and the number you gave it. */
+function onShelfAs(name, v) {
+  const title = W.fold(v.title);
+  return books.find((b) => b.series === name && W.fold(b.title) === title) || books.find((b) => W.fold(b.title) === title && (!v.authors?.length || v.authors.some((a) => fold(b.author).includes(fold(a)))));
+}
+
+/** Asks the server about a series by name, or by Hardcover's id (`id`), and keeps what it says. → the record, or null. */
+async function lookUpSeries(name, id) {
+  if (!id) {
+    const { found } = await api('hardcover', { name });
+    const same = found.find((s) => W.fold(s.name) === W.fold(name));
+    if (!same) return { found };   // not by its name: choose among what Hardcover proposes
+    id = same.id;
+  }
+  const { series } = await api('hardcover', { id });
+  if (!series) return { found: [] };
+  const before = seriesHardcover(name);
+  const record = {
+    id: series.id, name: series.name, count: series.books_count, completed: series.completed,
+    checked: new Date().toISOString().slice(0, 10), volumes: series.volumes,
+    running: before?.id === series.id ? !!before.running : !series.completed, news: [],
+  };
+  await saveSeriesHardcover(name, record);
+  return { record };
+}
+
+/** The series page's part for Hardcover: look it up, or what it said, with what can be done with it. */
+function seriesHardcoverPart(name, inScope) {
+  if (VISITING || !sync.user || !sync.hardcover) return null;
+  const hc = seriesHardcover(name);
+  const busy = (btn, text) => { btn.disabled = true; btn.textContent = text; };
+  const lookUp = async (e, id) => {
+    busy(e.currentTarget, t('Asking Hardcover…'));
+    try {
+      const got = await lookUpSeries(name, id);
+      if (got.found) { openSeriesChoice(name, got.found); return; }
+      toast(t('{n} volumes on Hardcover', { n: got.record.volumes.length }));
+    } catch (err) { toast(err.status ? err.message : t('Couldn’t reach the server. Are you online?')); }
+    renderLibrary();
+  };
+  if (!hc) return h('div', { class: 'series-hardcover' }, h('button', { class: 'link-btn', type: 'button', onclick: (e) => lookUp(e) }, icon('search'), t('Look up on Hardcover')));
+  // What you lack: the whole numbers Hardcover has that no book of yours has (and no book you want either).
+  const have = new Set(inScope.map((b) => Math.floor(seriesOrder(b))).filter(Number.isFinite));
+  const lack = (hc.volumes || []).filter((v) => Number.isInteger(v.n) && !have.has(v.n) && !onShelfAs(name, v));
+  const highest = Math.max(0, ...(hc.volumes || []).map((v) => Math.floor(v.n)).filter(Number.isFinite));
+  const news = (hc.volumes || []).filter((v) => (hc.news || []).includes(v.id));
+  return h('div', { class: 'series-hardcover' },
+    h('p', { class: 'sheet-note' },
+      t('Hardcover: {n} volumes, checked {date}', { n: (hc.volumes || []).length, date: longDate(hc.checked) }),
+      hc.name && W.fold(hc.name) !== W.fold(name) && ` (${t('as “{name}”', { name: hc.name })})`,
+      news.length > 0 && h('strong', { class: 'series-news', text: ` · ${t('{n} new', { n: news.length })}`, title: news.map((v) => `#${v.n} ${v.title}`).join('\n') })),
+    h('div', { class: 'series-hardcover-actions' },
+      lack.length > 0 && h('button', { class: 'link-btn', type: 'button', onclick: () => openVolumes(name, lack, true) }, icon('plus'), t('All I lack ({n})', { n: lack.length })),
+      highest > 0 && highest !== seriesTotal(name) && h('button', { class: 'link-btn', type: 'button', onclick: async () => { await saveSeriesTotal(name, highest); renderLibrary(); } }, t('Its length: {n}', { n: highest })),
+      h('label', { class: 'check-line series-running', title: t('Asked again once a month for new volumes') },
+        h('input', { type: 'checkbox', checked: !!hc.running, onchange: async (e) => { await saveSeriesHardcover(name, { ...hc, running: e.target.checked }); } }),
+        h('span', { text: t('Still running') })),
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: (e) => lookUp(e, hc.id) }, t('Ask again')),
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => { await saveSeriesHardcover(name, null); renderLibrary(); } }, t('Not this series'))));
+}
+
+/** The series Hardcover proposes when the name doesn't find one: choose the right one, or search another name. */
+function openSeriesChoice(name, found) {
+  const query = h('input', { name: 'q', value: name, autocomplete: 'off', autocapitalize: 'words' });
+  const list = h('div', { class: 'list-rows' });
+  const draw = (rows) => fill(list, rows.length ? rows.map((s) => h('div', { class: 'list-row nav-row' },
+    h('button', { class: 'list-name', type: 'button', onclick: async () => {
+      try { await lookUpSeries(name, s.id); closeLayersThen(renderLibrary); } catch (err) { toast(err.message); }
+    } }, h('span', { text: s.name }), h('small', { text: [s.author, plural(s.books_count, 'book')].filter(Boolean).join(' · ') })),
+    h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')))) : h('p', { class: 'sheet-note', text: t('Hardcover doesn’t know a series by that name.') }));
+  sheet.open(h('form', {
+    novalidate: true,
+    onsubmit: async (e) => {
+      e.preventDefault();
+      try { draw((await api('hardcover', { name: query.value.trim() })).found); } catch (err) { toast(err.message); }
+    },
+  },
+    sheetHead(t('Which series on Hardcover?'), name),
+    h('div', { class: 'field-row' }, h('label', { class: 'field' }, query), h('button', { class: 'btn btn-outline', type: 'submit' }, icon('search'), t('Search'))),
+    list,
+    h('p', { class: 'sheet-note', text: t('Its name there may differ from yours (De Kiekeboes, Kiekeboe). Your name stays.') })));
+  draw(found);
+}
+
+/** One or more volumes the shelf doesn't have: what each is, with Want it; `all`: offered as all you lack, with Want them all. */
+function openVolumes(name, volumes, all = false) {
+  const wantable = volumes.filter((v) => !onShelfAs(name, v));
+  const row = (v) => {
+    const yours = onShelfAs(name, v);
+    return h('div', { class: 'volume' },
+      v.cover ? h('img', { class: 'volume-cover', src: v.cover, alt: '', loading: 'lazy' }) : coverEl({ title: v.title }),
+      h('div', { class: 'volume-text' },
+        h('strong', { text: `#${v.n} · ${v.title}` }),
+        h('small', { text: [v.authors?.join(', '), v.year].filter(Boolean).join(' · ') }),
+        // Your numbers win: said, never changed.
+        yours && h('small', { class: 'volume-remark', text: seriesNo(yours) && seriesNo(yours) !== String(v.n) ? t('You have it as #{n}', { n: seriesNo(yours) }) : t('On your shelf') }),
+        !yours && h('button', { class: 'btn btn-outline volume-want', type: 'button', onclick: async (e) => { const btn = e.currentTarget; btn.disabled = true; await wantVolumes(name, [v]); btn.textContent = t('On To read'); } }, icon('bookmark'), t('Want it'))));
+  };
+  sheet.open(h('div', { class: 'volumes-sheet' },
+    sheetHead(all ? t('What you lack of {name}', { name }) : name, all ? t('{n} volumes, from Hardcover', { n: wantable.length }) : t('From Hardcover')),
+    all && wantable.length > 1 && h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: async () => { sheet.close(); await wantVolumes(name, wantable); } }, icon('bookmark'), t('Want them all ({n})', { n: wantable.length })),
+    h('div', { class: 'volumes' }, volumes.map(row))));
+}
+
+/** Volumes you want: each a book on To read, in no place, with the series and its number, and Hardcover's cover (kept on the server). One Undo. */
+async function wantVolumes(name, volumes) {
+  const added = [];
+  for (const v of volumes) {
+    const book = await addBook({
+      title: v.title, author: (v.authors || []).join(', '), series: name, seriesNumber: v.n, date: v.year ? String(v.year) : '',
+      ...(v.cover && { cover: v.cover, coverSource: v.cover }), lists: { 'to-read': { at: new Date().toISOString() } },
+    });
+    if (v.cover) keepCover(W.mainEdition(book), { url: v.cover }, book);   // the server keeps the picture; no book points at another site
+    added.push(book);
+  }
+  renderLibrary();
+  toast(added.length === 1 ? t('On To read: {title}', { title: added[0].title }) : t('{n} on To read', { n: plural(added.length, 'book') }), {
+    action: t('Undo'), ms: 8000, onAction: async () => { for (const b of added) await removeBook(b); },
+  });
+}
+
 /** How many books does this series have in all? Said once, the strip shows what is missing up to its end. */
 function openSeriesTotal(name) {
   const input = h('input', { name: 'total', type: 'number', min: 1, step: 1, inputmode: 'numeric', autocomplete: 'off', value: seriesTotal(name) ?? '' });
@@ -2354,7 +2510,11 @@ function renderSeriesIndex(query) {
   $('searchWrap').hidden = all.length < 8 && !query;
   shown = { rows: [], next: 0, lastDay: '', key: 'series', current: null, query, series: null, heading: () => '' };
   $('library').className = 'library mode-series';
-  $('library').replaceChildren(...found.map(([name, members]) => {
+  // Quietly, at the head: the series the monthly check found new volumes of (no notifications).
+  const fresh = VISITING ? [] : all.map(([name]) => [name, seriesHardcover(name)?.news?.length || 0]).filter(([, n]) => n);
+  $('library').replaceChildren(fresh.length ? h('p', { class: 'series-news-head' }, t('New on Hardcover:'), ' ',
+    fresh.flatMap(([name, n], i) => [i > 0 && ', ', h('a', { href: `#/series/${encodeURIComponent(name)}`, onclick: (e) => { e.preventDefault(); setView({ series: name }); }, text: `${name} (${n})` })])) : '');
+  $('library').append(...found.map(([name, members]) => {
     const read = members.filter((b) => shelves(b).read).length;
     const authors = [...new Set(members.map((b) => b.author).filter(Boolean))];
     return h('a', {
@@ -2544,7 +2704,11 @@ function renderLibrary() {
         inScope.length > 0 && (VISITING ? seriesTotal(view.series) && t('{n} in the series', { n: seriesTotal(view.series) })
           : h('button', { class: 'link-btn series-total', type: 'button', onclick: () => openSeriesTotal(view.series),
             text: seriesTotal(view.series) ? t('{n} in the series', { n: seriesTotal(view.series) }) : t('How many in the series?') }))),
-      inScope.length > 0 && seriesStrip([...inScope].sort(bySeriesOrder))));
+      inScope.length > 0 && seriesStrip([...inScope].sort(bySeriesOrder)),
+      seriesHardcoverPart(view.series, inScope)));
+    // New volumes from the monthly check are said here (and at the head of Series) until the page has been seen.
+    const hc = !VISITING && seriesHardcover(view.series);
+    if (hc?.news?.length) saveSeriesHardcover(view.series, { ...hc, news: [] });
   }
   if (view.author) {
     const read = inScope.filter((b) => shelves(b).read).length;
