@@ -73,6 +73,7 @@
   --mint: #85e5b5;
   --danger: #ff8196;
   --ok: #85e5b5;
+  --can-go: #e6bf7e;   /* a copy that can go: its bookmark (app.js: haveOf) */
   /* Chart series: three hues apart in lightness and hue, checked for colour blindness against
      this ground (the dataviz palette's first three, its dark steps); grey for "not said". */
   --series-1: #3987e5;
@@ -107,6 +108,7 @@
   --mint: #2fae84;
   --danger: #c22d4b;
   --ok: #1f8a63;
+  --can-go: #dcaa52;
   --series-1: #2a78d6;
   --series-2: #1baf7a;
   --series-3: #eb6834;
@@ -376,6 +378,30 @@ img { display: block; max-width: 100%; }
 [data-theme="light"] .cover span { color: hsl(var(--h, 30) 35% 32%); }
 .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface-2); }
 .cover small { display: none; }
+/* Whether a paper copy is still here (app.js: haveOf). Can go: a soft amber bookmark hanging over
+   the top left edge, of the cover in a list, of the card in the cards view, of the page when
+   the book is open. Gone: a small ghost on the cover, the cover faded to three quarters. */
+.cover.have-go { overflow: visible; }
+.cover.have-go > img { border-radius: inherit; }
+.mark-go, .bcard.have-go::after, .sheet.have-go::after {
+  position: absolute; z-index: 2; pointer-events: none;
+  background: var(--can-go);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
+}
+.mark-go { top: -3px; left: 12%; width: max(7px, 13%); aspect-ratio: 1 / 1.9; }
+.bcard .mark-go, .page-head .mark-go, .cover-pick .mark-go { display: none; }
+.bcard.have-go { position: relative; }
+.bcard.have-go::after { content: ''; top: -4px; left: 22px; width: 11px; height: 21px; }
+.sheet.have-go::after { content: ''; top: -5px; left: 28px; width: 13px; height: 25px; }
+.cover.have-gone { background-color: hsl(var(--h, 30) 22% 26% / .75); }
+[data-theme="light"] .cover.have-gone { background-color: hsl(var(--h, 30) 30% 80% / .75); }
+.cover.have-gone > img, .cover.have-gone > span, .cover.have-gone > small, .cover.have-gone::before { opacity: .75; }
+.mark-gone {
+  position: absolute; z-index: 2; right: 7%; bottom: 5%;
+  width: max(11px, 24%); height: auto; aspect-ratio: 1;
+  color: var(--text); filter: drop-shadow(0 1px 1.5px rgba(0, 0, 0, .55));
+}
+[data-theme="light"] .mark-gone { color: #ffffff; filter: drop-shadow(0 1px 1.5px rgba(30, 20, 70, .6)); }
 .cover.lg { width: 72px; }
 .cover.lg span { font-size: 2rem; }
 

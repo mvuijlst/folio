@@ -182,6 +182,15 @@ hear of what went back. On each one, make a backup file first if it may hold cha
 lacks, then *Sign out & clear*, sign in again, and restore that file (Settings → *As a file* →
 *Restore*). What it adds or replaces goes up to the server like any other change.
 
+## A list that became a mark
+
+`manage.py list_to_have --user NAME --list ID --have go|gone [--write]` gives the paper copies on
+a list *can go* or *gone* (gone also takes them off their places, as the app does), takes every
+copy off the list, and deletes the list. Copies that aren't paper only come off it, and are
+named. Without `--write` it only says what it would do. Changed books keep their `modified` and
+get a new `changed`, so every device fetches them. Made for *Mag weg* (`--list library --have
+go`, 2026-11-20); make a database copy first, as for any bulk change.
+
 ## Filling in what a shelf lacks
 
 `manage.py fill_original --user NAME` gives books the language they were first written in and

@@ -805,6 +805,13 @@ export default {
   'It goes to the server like any other change.': 'Het gaat naar de server zoals elke andere wijziging.',
   'It is on this device only; signed in, it would go to your other devices too.':
     'Het staat alleen op dit toestel; aangemeld zou het ook naar je andere toestellen gaan.',
+  // Whether a paper copy is still here
+  'This copy': 'Dit exemplaar',
+  'Keep': 'Houden',
+  'Can go': 'Mag weg',
+  'Gone': 'Weg',
+  'Gone: given away, sold or lost. It stays on your shelf with its reads, and comes off where it stood.':
+    'Weg: weggegeven, verkocht of kwijt. Het blijft in je boekenkast met zijn lezingen, en gaat weg van waar het stond.',
   'The server made its last nightly copy {when}.': 'De server maakte zijn laatste nachtelijke kopie {when}.',
   'Nothing has changed since; it last looked {when}.': 'Sindsdien is er niets veranderd; hij keek het laatst {when}.',
   'That is over a day and a half ago: the nightly copy may have stopped.': 'Dat is meer dan anderhalve dag geleden: de nachtelijke kopie is misschien gestopt.',
