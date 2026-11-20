@@ -285,6 +285,13 @@ Nothing takes a book off by scanning.
   the shelf: the card says so; nothing is looked up or added.
 - Nothing here publishes.
 
+**Status, 2026-11-20: dropped.** Built, then Michel changed his mind before it shipped: "it's
+always going to be a change in location", and a mode for taking books off adds complexity.
+Scanning onto a place already moves a copy (the places are one either-or set). The gap was *Lent
+out*, a list on its own: made a member of the places' set (*Plaats*), lending and returning are
+changes of place too, and scanning a returned book onto its shelf takes it off *Lent out*. Do
+not build scanning off.
+
 **Done when:** a pile of returned books can be scanned off *Lent out* in one go, in Dutch, on
 a phone.
 

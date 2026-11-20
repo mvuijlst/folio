@@ -88,6 +88,10 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   pile of books mostly goes to the same place. Scanning a book you already have puts it on
   those lists too, so scanning onto *Lent out* or *Read* is the quick way to move a pile of
   books.
+- **Moving books is scanning them onto where they go.** Lists in one set exclude each other, so
+  scanning a book onto *Bibliotheek* takes that copy off *Bureau* or *Te klasseren*. Put *Lent
+  out* in the same set as the places and lending is a move too: a book scanned back onto its
+  shelf comes off *Lent out*. (There is no scanning *off* a list, on purpose.)
 - Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
   Every list or series you open is a step in the browser's history: Back returns to the one
   before.
