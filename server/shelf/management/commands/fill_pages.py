@@ -88,9 +88,9 @@ class Command(BaseCommand):
                 self.say(f'Asking Open Library for the median of {len(rest)}, one at a time (about {round(len(rest) * (pause + 0.5) / 60) or 1} min)…')
             for n, isbn in enumerate(rest, 1):
                 try:
-                    n = pages.median(isbn)
-                    if n:
-                        found[isbn] = n
+                    median = pages.median(isbn)
+                    if median:
+                        found[isbn] = median
                         by['Open Library median'] += 1
                 except Exception as err:
                     self.stderr.write(f'Open Library did not answer for {isbn}: {err}')

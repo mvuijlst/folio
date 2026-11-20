@@ -102,6 +102,7 @@ class FillPages(TestCase):
         self.audio = book('audio', {'id': 'e1', 'format': 'audiobook', 'isbn': '9780000000019', 'duration': '10u'})
         self.linked = book('linked', {'id': 'e1', 'format': 'paper', 'isbn': '9780000000026'}, boeken='linked')
         self.median = book('median', {'id': 'e1', 'format': 'ebook', 'isbn': '9780000000033'})
+        self.unknown = book('unknown', {'id': 'e1', 'format': 'paper', 'isbn': '9780000000040'})   # no median either
 
     def run_command(self, *args):
         out = StringIO()
@@ -114,11 +115,12 @@ class FillPages(TestCase):
 
     def test_dry_run(self):
         said = self.run_command()
-        self.assertIn('Asked about 3 ISBNs: 2 from Hardcover, 1 from the Open Library median, 0 without.', said)
+        self.assertIn('Asked about 4 ISBNs: 2 from Hardcover, 1 from the Open Library median, 1 without.', said)
         self.assertIn('Would fill the pages of 3 editions, in 3 books.', said)
-        self.assertIn('3 ISBNs without pages to look up (1 editions on the booklog left out).', said)
-        self.assertIn('  Hardcover: 3 of 3 asked, 2 found', said)
+        self.assertIn('4 ISBNs without pages to look up (1 editions on the booklog left out).', said)
+        self.assertIn('  Hardcover: 4 of 4 asked, 2 found', said)
         self.assertIn('1 editions of books on the booklog were left out', said)
+        self.assertIn('  Open Library: 2 of 2 asked, 1 found', said)
         self.assertNotIn('9780000000002', self.asked)      # has pages
         self.assertNotIn('9780000000019', self.asked)      # an audiobook
         self.empty.refresh_from_db()
