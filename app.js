@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.31.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.31.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 

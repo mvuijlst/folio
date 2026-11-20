@@ -3,9 +3,10 @@
    then a cover turns over and is another book.
 
    Kept light on purpose. It is only loaded when asked for. The wall is laid out once, as plain
-   images in one element, and every movement is a CSS transform the browser animates on its own:
-   the camera is a transition from one view to the next, the light a looping animation, a turning
-   cover one small animation at a time. No drawing loop runs in script. */
+   images in columns, and every movement is a transform the browser animates on its own: the
+   camera is a transition from one view to the next, the slow slide of the wall to the left and the
+   light are long animations, a turning cover a short one. No drawing loop runs in script; now and
+   then a column that has slid out of sight on the far side is moved to the near one. */
 
 const STYLE = `
 .ss { position: fixed; inset: 0; z-index: 9999; overflow: hidden; cursor: none; background: #07061a;
@@ -13,7 +14,9 @@ const STYLE = `
 .ss.on { opacity: 1; }
 .ss-wall { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; will-change: transform;
   transition-property: transform; transition-timing-function: cubic-bezier(.42, 0, .58, 1); }
-.ss-wall img, .ss-flip { position: absolute; display: block; object-fit: cover; border-radius: 2px;
+.ss-slide { position: absolute; left: 0; top: 0; will-change: transform; }
+.ss-col { position: absolute; top: 0; }
+.ss-wall img, .ss-flip { position: absolute; left: 0; display: block; object-fit: cover; border-radius: 2px;
   background: #1b1744; box-shadow: 0 8px 18px rgba(0, 0, 0, .55); }
 .ss-flip { transform-style: preserve-3d; box-shadow: none; background: none; }
 .ss-flip img { position: absolute; inset: 0; width: 100%; height: 100%; backface-visibility: hidden; }
@@ -75,8 +78,18 @@ export function start(covers, { onExit }) {
   const top = 1.7 * vh + 0.05 * side, bottom = 0.7 * vh + 0.1 * side;
   const roamX = 0.3 * side, roamY = 0.15 * side;
   const W = Math.round(left + roamX + right), H = Math.round(top + roamY + bottom);
+  // The columns sit on a slide that moves slowly to the left; one column more than the wall is
+  // wide, so the near side stays covered while a column goes round.
+  const slide = document.createElement('div');
+  slide.className = 'ss-slide';
+  wall.append(slide);
+  const step = col + gap;
   const tiles = [];
-  for (let x = 0; x < W; x += col + gap) {
+  const columns = [];
+  for (let x = 0; x < W + step; x += step) {
+    const column = document.createElement('div');
+    column.className = 'ss-col';
+    column.style.left = `${x}px`;
     let y = -rand(0, col);   // columns start out of step
     while (y < H) {
       const cover = deal();
@@ -85,18 +98,24 @@ export function start(covers, { onExit }) {
       const img = new Image();
       img.alt = '';
       img.decoding = 'async';
-      Object.assign(img.style, { left: `${x}px`, top: `${Math.round(y)}px`, width: `${col}px`, height: `${height}px` });
+      Object.assign(img.style, { top: `${Math.round(y)}px`, width: `${col}px`, height: `${height}px` });
       let tries = 0;
       img.onerror = () => { if (++tries < 4) img.src = deal().src; else img.style.visibility = 'hidden'; };
       // Open Library answers a missing cover with a 1×1 pixel image.
       img.onload = () => { if (img.naturalWidth < 8) img.onerror(); };
       img.src = cover.src;
-      wall.append(img);
-      tiles.push({ img, ratio, x, y, height });
+      column.append(img);
+      tiles.push({ img, ratio, height, busy: false });
       y += height + gap;
     }
+    slide.append(column);
+    columns.push({ el: column, x });
   }
+  const span = columns.length * step;
   Object.assign(wall.style, { width: `${W}px`, height: `${H}px` });
+  // A layer of its own needs a size of its own, or the browser may not draw it at all.
+  Object.assign(slide.style, { width: `${span}px`, height: `${H}px` });
+  for (const c of columns) Object.assign(c.el.style, { width: `${col}px`, height: `${H}px` });
 
   // The camera: a view is the point of the wall in the middle of the screen, how far it leans
   // back and away, and how near it is. It drifts from one view to the next, half a minute each.
@@ -116,55 +135,74 @@ export function start(covers, { onExit }) {
     wall.style.transform = view();
     later(drift, ms);
   };
+  // Meanwhile the wall slides to the left, a cover's width in some twenty seconds. A column that
+  // has gone past the far edge is moved round to the near one.
+  const speed = side / 170;   // px a second
+  const far = 1e6;
+  const sliding = reduced ? null : slide.animate([{ transform: 'translateX(0)' }, { transform: `translateX(${-far}px)` }],
+    { duration: (far / speed) * 1000, easing: 'linear', fill: 'forwards' });
+  const goRound = () => {
+    const offset = (sliding.currentTime / 1000) * speed;
+    for (const c of columns) {
+      if (c.x - offset < -step) { c.x += span; c.el.style.left = `${c.x}px`; }
+    }
+    later(goRound, 1000);
+  };
+  if (sliding) later(goRound, 1000);
   // Shown once the first covers have had a moment to arrive; the first drift starts with it.
   later(() => { root.classList.add('on'); if (!reduced) drift(); }, 350);
 
-  // Now and then a cover in sight turns over and is another one, of much the same shape.
+  // Every second or so a cover in sight turns over, some slowly, some quickly, and is another one
+  // of much the same shape, which was on its back all along.
   const inSight = (el) => {
     const r = el.getBoundingClientRect();
-    return r.width > 24 && r.left > vw * 0.08 && r.right < vw * 0.92 && r.top > vh * 0.12 && r.bottom < vh * 0.9;
+    return r.width > 24 && r.left > vw * 0.06 && r.right < vw * 0.94 && r.top > vh * 0.08 && r.bottom < vh * 0.94;
   };
+  const picture = (src) => { const img = new Image(); img.alt = ''; img.src = src; return img.decode().then(() => img); };
   const flip = async () => {
     let tile = null;
     for (let i = 0; i < 16 && !tile; i++) {
       const t = tiles[Math.floor(Math.random() * tiles.length)];
-      if (t.img.style.visibility !== 'hidden' && inSight(t.img)) tile = t;
+      if (!t.busy && t.img.style.visibility !== 'hidden' && inSight(t.img)) tile = t;
     }
-    if (tile) {
-      let next = deal();
-      for (let i = 0; i < 24 && Math.abs(clampRatio(next.ratio) - tile.ratio) > 0.08; i++) next = deal();
-      const back = new Image();
-      back.alt = '';
-      back.src = next.src;
-      try {
-        await back.decode();
-        if (back.naturalWidth >= 8 && root.isConnected) await turn(tile, back);
-      } catch {}
-    }
-    if (root.isConnected) later(flip, rand(1800, 4200));
+    if (!tile) return;
+    tile.busy = true;
+    let next = deal();
+    for (let i = 0; i < 24 && Math.abs(clampRatio(next.ratio) - tile.ratio) > 0.08; i++) next = deal();
+    try {
+      const [front, back] = await Promise.all([picture(tile.img.src), picture(next.src)]);
+      if (back.naturalWidth >= 8 && root.isConnected) await turn(tile, front, back);
+    } catch {}
+    tile.busy = false;
   };
-  const turn = (tile, back) => {
+  const flips = () => { flip(); if (root.isConnected) later(flips, rand(500, 1900)); };
+  const turn = async (tile, front, back) => {
+    // The card turns in 3D of its own. Nothing on the card itself may flatten it (a filter would,
+    // and show the front from behind), so the light that catches it is put on each face.
     const card = document.createElement('div');
     card.className = 'ss-flip';
-    const front = tile.img.cloneNode();
-    Object.assign(card.style, { left: tile.img.style.left, top: tile.img.style.top, width: tile.img.style.width, height: tile.img.style.height });
-    front.removeAttribute('style');
+    Object.assign(card.style, { top: tile.img.style.top, width: tile.img.style.width, height: tile.img.style.height });
     card.append(front, back);
-    wall.append(card);
+    tile.img.parentNode.append(card);
     tile.img.style.visibility = 'hidden';
-    const lift = Math.round(tile.height * 0.35);
+    const duration = rand(700, 2600);
+    const easing = 'cubic-bezier(.45, 0, .3, 1)';
+    const lift = Math.round(tile.height * rand(0.2, 0.45));
     const turning = card.animate([
-      { transform: 'perspective(600px) translateZ(0) rotateY(0deg)', filter: 'brightness(1)' },
-      { transform: `perspective(600px) translateZ(${lift}px) rotateY(90deg)`, filter: 'brightness(1.5)', offset: 0.5 },
-      { transform: 'perspective(600px) translateZ(0) rotateY(180deg)', filter: 'brightness(1)' },
-    ], { duration: 1500, easing: 'cubic-bezier(.45, 0, .3, 1)' });
-    return turning.finished.then(() => {
-      tile.img.src = back.src;
-      tile.img.style.visibility = '';
-      card.remove();
-    });
+      { transform: 'perspective(600px) translateZ(0) rotateY(0deg)' },
+      { transform: `perspective(600px) translateZ(${lift}px) rotateY(90deg)`, offset: 0.5 },
+      { transform: 'perspective(600px) translateZ(0) rotateY(180deg)' },
+    ], { duration, easing, fill: 'forwards' });
+    front.animate([{ filter: 'brightness(1)' }, { filter: 'brightness(1.6)' }], { duration: duration / 2, easing: 'ease-in', fill: 'forwards' });
+    back.animate([{ filter: 'brightness(1.6)' }, { filter: 'brightness(1)' }], { duration: duration / 2, delay: duration / 2, easing: 'ease-out', fill: 'backwards' });
+    await turning.finished;
+    // The cover on the wall becomes the new one before the card goes, so nothing flashes.
+    tile.img.src = back.src;
+    await tile.img.decode().catch(() => {});
+    tile.img.style.visibility = '';
+    card.remove();
   };
-  later(flip, 2600);
+  later(flips, 1600);
 
   // Any key, click or touch ends it, and so does moving the mouse more than a nudge (but not in
   // the first moment, while the hand that clicked three times is still on it).
