@@ -83,6 +83,32 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   Every list or series you open is a step in the browser's history: Back returns to the one
   before.
 
+## Keep, can go, gone
+
+A paper copy is one of three things (e-books and audiobooks are none of them):
+
+- **Keep**, as every copy is until you say otherwise. Nothing is shown.
+- **Can go**: you mean to give it away or sell it. A small amber bookmark hangs over the top
+  left of its cover; in the cards view over the card's, and when the book is open over its
+  page's.
+- **Gone**: given away, sold or lost. Its cover is faded, with a small ghost on it. Marking a
+  copy gone takes it off where it stood (the lists of any set but reading status: Bibliotheek,
+  Bureau…); *Lent out* and lists on their own stay.
+
+A copy that is gone stays on your shelf, with its reads and its page on the booklog: a book you
+read is a book you once had. Deleting a book is for a mistake, or for a book on *To read* you no
+longer want.
+
+It is set under *This copy*: on a book's *Edit details* when it has one copy, on a copy's own
+sheet (under *Editions*) when it has more, and for many at once in [bulk
+edit](#changing-many-books-at-once). The filter *This copy* finds them; *Format: paper* with a
+place set to *None* finds the paper copies that stand nowhere, to sort out. In the JSON export a
+copy says `"have": "go"` or `"gone"`.
+
+A list that meant the same, such as *Mag weg* (the standard list *Library*, renamed), becomes the
+mark with `manage.py list_to_have --user NAME --list library --have go --write`: its paper copies
+get *Can go* and the list is deleted ([server.md](server.md)).
+
 ## Finding your way: places, filters, order
 
 What you see is decided in three steps.

@@ -619,5 +619,6 @@ export function flatView(work, edition = mainEdition(work)) {
   const out = { ...work, ...factsOf(edition || {}) };
   delete out.editions;
   if (edition?.title) out.title = edition.title;
+  if (edition?.have) out.have = edition.have;   // whether that copy is still here (app.js: haveOf)
   return out;
 }

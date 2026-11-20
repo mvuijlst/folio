@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.31.8'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.32.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1438,7 +1438,7 @@ const sheet = {
   onClose: null,
   /** Opens the sheet, or swaps its content if it is already open. */
   open(content, onClose) {
-    $('sheet').classList.remove('tinted');   // a book's page puts its colour back on (tintSheet)
+    $('sheet').classList.remove('tinted', 'have-go');   // a book's page puts its colour (tintSheet) and its bookmark back on (openBook)
     $('sheetBody').replaceChildren(content);
     $('sheetBody').scrollTop = 0;
     this.onClose = onClose || null;
@@ -1536,9 +1536,14 @@ function hue(text) {
  */
 function coverEl(book, large, titled) {
   const label = book.title || book.isbn || '?';
-  const el = h('div', { class: 'cover' + (large ? ' lg' : ''), style: `--h:${hue(label)}` },
+  const have = haveOf(book);
+  const el = h('div', { class: 'cover' + (large ? ' lg' : '') + (have !== 'keep' ? ` have-${have}` : ''), style: `--h:${hue(label)}`, title: have !== 'keep' ? HAVE_NAME[have]() : null },
     h('span', { text: (book.title || '?').trim().charAt(0).toUpperCase() }),
-    titled && h('small', { text: displayTitle(book) }));
+    titled && h('small', { text: displayTitle(book) }),
+    // Can go: a bookmark hanging over its top left (on a card or a book's page, over those
+    // instead: styles.css). Gone: a ghost, the cover faded.
+    have === 'go' && h('i', { class: 'mark-go', 'aria-hidden': 'true' }),
+    have === 'gone' && markIcon('ghost', 'mark-gone'));
   const shape = (ratio) => {
     if (ratio > 0) el.style.setProperty('--r', Math.min(1.6, Math.max(0.45, ratio)).toFixed(3));
     else el.style.removeProperty('--r');
@@ -1557,6 +1562,24 @@ function coverEl(book, large, titled) {
   }
   return el;
 }
+
+/* Whether a paper copy is still here: kept (nothing said, nothing shown), can go (`have: 'go'`)
+   or gone (`have: 'gone'`): given away, sold, lost. It is the copy's, beside the lists of where
+   it is; marked gone, a copy is nowhere any more (setHave). E-books and audiobooks have none.
+   A copy that is gone stays, with its reads: a book you read is a book you once had. */
+const HAVE = ['keep', 'go', 'gone'];
+const HAVE_NAME = { keep: () => t('Keep'), go: () => t('Can go'), gone: () => t('Gone') };
+/** 'keep', 'go' or 'gone', of a copy (an edition with its book's `boeken`) or of a book as shown (look). */
+const haveOf = (x) => (formatOf(x) === 'paper' && (x.have === 'go' || x.have === 'gone') ? x.have : 'keep');
+/** Sets whether copy `e` is here; gone, it is taken off the lists of where it stands (any set but reading status). */
+function setHave(e, have) {
+  if (have === 'go' || have === 'gone') e.have = have; else delete e.have;
+  if (have !== 'gone' || !e.lists) return;
+  e.lists = Object.fromEntries(Object.entries(e.lists).filter(([id]) => { const l = listById(id); return !l?.group || l.group === READING; }));
+  if (!Object.keys(e.lists).length) delete e.lists;
+}
+/** An icon with a class of its own (a mark on a cover). */
+const markIcon = (name, cls) => { const s = icon(name); s.classList.add(cls); return s; };
 
 function displayTitle(b) {
   if (b.title) return b.title;
@@ -1659,7 +1682,7 @@ function excerpt(b) {
 function bookCard(book, onPick, tags, face) {
   const b = look(book, face);
   const text = excerpt(b);
-  return h('button', { class: 'bcard', type: 'button', onclick: (e) => onPick(book, e) },
+  return h('button', { class: 'bcard' + (haveOf(b) === 'go' ? ' have-go' : ''), type: 'button', onclick: (e) => onPick(book, e) },
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title', text: displayTitle(b) }),
@@ -1876,6 +1899,9 @@ function facetsOf() {
   facets.push({ key: 'format', name: t('Format'),
     values: [...FORMATS.map((format) => ({ value: format, name: formatName(format), ...ofCopy((b, e) => formatIn(b, e) === format) })),
       { value: 'none', name: t('Not said'), ...ofCopy((b, e) => !formatIn(b, e)) }] });
+  // Whether a paper copy is still here; e-books and audiobooks are none of these.
+  facets.push({ key: 'have', name: t('This copy'),
+    values: HAVE.map((value) => ({ value, name: HAVE_NAME[value](), ...ofCopy((b, e) => formatIn(b, e) === 'paper' && haveOf({ ...e, boeken: b.boeken }) === value) })) });
   const having = (key, pick, name = (v) => v, order = (a, b) => a.localeCompare(b)) => {
     const all = [...new Set(books.flatMap(pick))].filter(Boolean).sort(order);
     return { key, values: all.map((value) => ({ value: String(value), name: name(value), test: (b) => pick(b).includes(value) })) };
@@ -3180,6 +3206,11 @@ function openBulkEdit(chosen) {
       },
     }),
     ...sets.map((s) => setOfLists(show(s.label), s.members, true)),
+    // Whether the paper copy is still here (where the row shows the e-book, its paper copy's); others have none.
+    chosen.some((b) => isPaper(b, placeIn(b))) && oneOf(t('This copy'), HAVE, {
+      name: (v) => HAVE_NAME[v](), has: (b, v) => isPaper(b, placeIn(b)) && haveOf({ ...placeIn(b), boeken: b.boeken }) === v,
+      set: (book, v) => { const e = placeIn(book); if (isPaper(book, e)) setHave(e, v); },
+    }),
     oneText(t('Series'), 'series', {
       suggest: h('datalist', { id: 'bulkSeries' }, [...seriesMap().keys()].sort().map((value) => h('option', { value }))),
       // Books of one series, selected in the order they are shown, can be numbered in that order.
@@ -4281,6 +4312,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
   // What it was first written in, and its title then: the book's, whichever edition this is.
   const original = originalPicker(book.originalLanguage);
   const originalTitle = h('input', { name: 'originalTitle', value: book.originalTitle || '', placeholder: t('Only if it differs'), autocomplete: 'off', autocapitalize: 'sentences' });
+  // Whether the paper copy is still here (one copy: here; several: on each copy's sheet).
+  const ownership = !isNew && whole && formatOf(src) === 'paper' ? oneChip(HAVE, haveOf(src), (v) => HAVE_NAME[v]()) : null;
   const error = h('p', { class: 'field-error', hidden: true });
   // The lists the book is on, edited as a copy until the form is saved. With several editions,
   // only its reading status: where each copy is, is on its own sheet.
@@ -4321,6 +4354,8 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     h('datalist', { id: 'tagNames' }, tagNames().map((value) => h('option', { value }))),
     lists.length > 0 && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: whole ? t('Lists') : show(READING) }),
       listPicker(on, { only: whole ? null : (l) => isStatus(l.id) })),
+    ownership && h('div', { class: 'sheet-section form-have' }, h('h3', { text: t('This copy') }), ownership.el,
+      h('p', { class: 'sheet-note', text: t('Gone: given away, sold or lost. It stays on your shelf with its reads, and comes off where it stood.') })),
     !isNew && h('div', { class: 'form-combine' },
       // Another edition of this book (a translation, say), and another book that is this one.
       whole && h('button', { class: 'link-btn', type: 'button', onclick: () => openAdd(false, { into: book, back: back || (() => openBook(book)) }) }, icon('plus'), t('Add another edition')),
@@ -4379,6 +4414,7 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
         setFacts(ed, copy);
         if (!copy.people) delete ed.people;
         putLists(book, ed, listed);
+        if (ownership) setHave(ed, ownership.value || 'keep');
       } else {
         // The writers, and those on every edition, change on every edition; who is on only one stays.
         for (const e of editionsOf(book)) {
@@ -4415,6 +4451,8 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
   const facts = editionFields(view);
   const title = h('input', { name: 'edtitle', value: ed?.title || '', placeholder: book.title, autocomplete: 'off', autocapitalize: 'sentences' });
   const language = oneChip(languageCodes(), src.language, languageName);
+  // Whether a paper copy is still here; nothing chosen is Keep.
+  const ownership = !isNew && formatOf(view) === 'paper' ? oneChip(HAVE, haveOf(view), (v) => HAVE_NAME[v]()) : null;
   const who = peopleEditor(peopleOf({ author: book.author, people: src.people }));
   const error = h('p', { class: 'field-error', hidden: true });
   const on = {};
@@ -4441,6 +4479,8 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
     h('div', { class: 'field' }, h('span', { text: t('Authors and others') }), who.el),
     h('p', { class: 'sheet-note people-hint', text: t('Who made this edition: an audiobook has a voice (stem), a translation a translator (vertaling).') }),
     lists.some((l) => !isStatus(l.id)) && h('div', { class: 'sheet-section form-lists' }, h('h3', { text: t('Lists') }), listPicker(on, { only: (l) => !isStatus(l.id) })),
+    ownership && h('div', { class: 'sheet-section form-have' }, h('h3', { text: t('This copy') }), ownership.el,
+      h('p', { class: 'sheet-note', text: t('Gone: given away, sold or lost. It stays on your shelf with its reads, and comes off where it stood.') })),
     !isNew && h('div', { class: 'edition-actions' },
       open && W.mainEdition(book) !== ed && quiet('book-open', t('I’m reading this one'), async () => {
         book.main = ed.id;
@@ -4472,6 +4512,7 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
     setFacts(target, data);
     const rest = Object.fromEntries(Object.entries(on).map(([id, entry]) => [id, { at: entry.at || new Date().toISOString(), ...(String(entry.note || '').trim() && { note: String(entry.note).replace(/\s+/g, ' ').trim() }) }]));
     if (Object.keys(rest).length) target.lists = rest; else delete target.lists;
+    if (ownership) setHave(target, ownership.value || 'keep');
     await saveBook(book);
     if (cover.choice) keepCover(target, cover.choice, book);
     if (onSaved) onSaved(target);
@@ -5755,6 +5796,7 @@ function openBook(book, rows) {
       reviews.length ? reviews.map(reviewEl) : h('p', { class: 'sheet-note', text: t('No reviews yet.') })),
     VISITING ? keepForMyself(book)
       : h('button', { class: 'btn btn-outline btn-block page-edit', type: 'button', onclick: () => openBookForm({ book, back: again }) }, icon('pencil'), t('Edit details'))));
+  $('sheet').classList.toggle('have-go', haveOf(b) === 'go');   // its bookmark hangs over the page
   tintSheet(book);
   // The open book is in the address, so it can be sent to someone and comes back on a reload.
   // Its page is a step of its own in history: Back closes it, and turning to another book
@@ -6109,6 +6151,7 @@ function exportJson() {
     editions: editionsOf(b).map((e) => Object.fromEntries(Object.entries({
       id: e.id, title: e.title, format: e.format, publisher: e.publisher, date: e.date, pages: e.pages, duration: e.duration,
       isbn: e.isbn, language: e.language, cover: e.cover ? abs(e.cover) : '', people: e.people, lists: named(e.lists),
+      have: haveOf({ ...e, boeken: b.boeken }) !== 'keep' ? e.have : '',
     }).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)))),
     ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '', edition: r.ed, ...(r.dnf && { dnf: true }) })) }),
   }));
@@ -6171,7 +6214,7 @@ function exportGoodreads() {
         on.map(({ list }) => slug(listName(list))).filter(Boolean).join(', '), '',
         read ? (read.dnf ? 'did-not-finish' : 'read') : shelf, text?.trim() || '', '',
         on.filter(({ note }) => note).map(({ list, note }) => `${listName(list)}: ${note}`).join('; '),
-        read ? 1 : 0, ed.lists?.library ? 1 : 0,
+        read ? 1 : 0, haveOf({ ...ed, boeken: book.boeken }) !== 'gone' && (isPaper(book, ed) ? Object.keys(ed.lists || {}).length > 0 || ed.have === 'go' : !!formatOf({ ...ed, boeken: book.boeken })) ? 1 : 0,
       ];
     };
     const reads = (book.reviews || []).filter((r) => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
