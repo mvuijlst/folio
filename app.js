@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.35.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.35.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1134,11 +1134,14 @@ const yearOf = (date) => (String(date || '').match(/\b(1[4-9]\d\d|20\d\d)\b/) ||
 const FORMATS = ['paper', 'ebook', 'audiobook'];
 const formatName = (format) => ({ paper: t('Paper'), ebook: t('E-book'), audiobook: t('Audiobook') })[format] || '';
 const formatOf = (x) => (FORMATS.includes(x.format) ? x.format : (!x.boeken && x.duration && !x.pages ? 'audiobook' : ''));
-/** How long it is, said the way its format is measured: "Audiobook · 11u 36m", "E-book · 320 pp", "320 pp". */
+/** How many issues a run of comics holds (the booklog's `issues`): its pages are those of one issue. */
+const issuesOf = (x) => (Number(x.issues) > 1 ? Number(x.issues) : 1);
+/** How long it is, said the way its format is measured: "Audiobook · 11u 36m", "E-book · 320 pp", "320 pp", "84 × 28 pp". */
 function extentOf(x) {
   const format = formatOf(x);
   if (format === 'audiobook') return [t('Audiobook'), x.duration].filter(Boolean).join(' · ');
-  return [format === 'ebook' && t('E-book'), x.pages && t('{n} pp', { n: x.pages })].filter(Boolean).join(' · ');
+  const pages = x.pages && (issuesOf(x) > 1 ? t('{issues} × {n} pp', { issues: issuesOf(x), n: x.pages }) : t('{n} pp', { n: x.pages }));
+  return [format === 'ebook' && t('E-book'), pages].filter(Boolean).join(' · ');
 }
 
 /** The three formats as chips; tapping the chosen one again leaves it unsaid. → { el, value, onChange } */
@@ -1891,8 +1894,8 @@ const spanValue = ([from, to]) => (from === to ? String(from) : `${from}-${to}`)
 const spanName = ([from, to]) => (from === to ? String(from) : `${from}–${to}`);
 /** Whether `b` was read within the span [from, to]. */
 const readWithin = (b, [from, to]) => readYears(b).some((y) => Number(y) >= from && Number(y) <= to);
-/** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons. */
-const lengthOf = (b) => (formatOf(b) === 'audiobook' && minutesOf(b.duration) != null ? Math.round((minutesOf(b.duration) * 2) / 3) : b.pages || null);
+/** How long a book is, in pages; an audiobook's hours count for forty pages each, as the booklog reckons, and a run of comics is its issues times the pages of one. */
+const lengthOf = (b) => (formatOf(b) === 'audiobook' && minutesOf(b.duration) != null ? Math.round((minutesOf(b.duration) * 2) / 3) : b.pages ? b.pages * issuesOf(b) : null);
 
 const seriesPlace = (b) => String(Math.round((b.seriesNumber ?? 9999) * 100)).padStart(8, '0');
 /** On a writer's page: the series by when their first book came out (on the whole shelf), each in
@@ -2615,7 +2618,7 @@ function statFigures(rows, reads) {
   let pages = 0, minutes = 0;
   for (const { flat } of finished) {
     if (formatOf(flat) === 'audiobook') minutes += minutesOf(flat.duration) || 0;
-    else pages += Number(flat.pages) || 0;
+    else pages += Number(flat.pages) * issuesOf(flat) || 0;
   }
   const writers = new Set(rows.flatMap(authorsOf).map(fold)).size;
   const rated = rows.filter((b) => b.rating != null && Number.isFinite(Number(b.rating)));

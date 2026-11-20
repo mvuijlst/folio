@@ -33,6 +33,7 @@ export default {
   'Will be looked up when you’re online': 'Wordt opgezocht zodra je online bent',
   'No match found — tap to fill in': 'Niets gevonden — tik om in te vullen',
   '{n} pp': '{n} blz.',
+  '{issues} × {n} pp': '{issues} × {n} blz.',
   '{n}% read': '{n}% gelezen',
   'Show more': 'Meer tonen',
   'Note': 'Notitie',
