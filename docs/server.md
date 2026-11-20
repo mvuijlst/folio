@@ -204,10 +204,13 @@ date chosen when it was made, then answers 401), `/api/hardcover` answers a staf
 finds a series, `{"id"}` gives its volumes (`shelf/hardcover.py`, answers kept a day). The sync tells
 the app whether it may ask (`hardcover`). The free plan allows 5,000 requests a day and 60 a minute.
 
-What a series' list holds is sorted as measured on 2026-11-20: of series with one name, the one with
-the most books; per number the book most people shelved (translations and parts lose to it); no box
-sets, nothing without a number; in a widely read series nothing under 1% of the most-read book's
-readers unless it isn't out yet; a small series (comics) keeps all.
+What a series' list holds is sorted as measured on 2026-11-20 and 21: of series with one name, the
+one with the most books; its books asked from their side, most-read first (the series' own list
+leaves out books flagged as box sets, and the API cuts long lists short); per number the book most
+people shelved (translations and parts lose to it); a book the series marks as a box set never, one
+that only marks itself so only with 100 readers and ten times the others' (*Every Heart a Doorway*
+carries the flag wrongly); nothing without a number; in a widely read series nothing under 1% of the
+most-read book's readers unless it isn't out yet; a small series (comics) keeps all.
 
 `manage.py check_series --user NAME [--write]` asks again about the series marked *Still running*
 and keeps their new volumes on the series' record (`news`), which the app shows until seen. Installed

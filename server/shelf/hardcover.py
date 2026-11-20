@@ -10,7 +10,12 @@ What a series' raw list holds needs sorting (measured 2026-11-20 on ten of Miche
 - a number can have several books (the original, translations, a two-part edition): the one most
   people have shelved is that number's, whichever is marked a copy of which (dropping every book
   marked a copy dropped real volumes: The Shadow Rising, Midnight Tides);
-- box sets (`compilation`) are left out, and books without a number (a collection) too;
+- box sets are left out: a book the series marks so (`compilation` on its row there) always; one
+  that marks itself so only loses to the book most read of the others at its number, unless it has
+  100 readers and ten times theirs (Every Heart a Doorway, 1,558 readers, wrongly carries the flag;
+  a Serbian Thorgal omnibus, 14, rightly). A series' own list leaves such books out, so its books
+  are asked from the books' side, most-read first (the API cuts a long list short);
+- books without a number (a collection) are left out;
 - in a widely read series, a book under 1% of the most-read one's readers is noise and left out,
   unless it isn't out yet; a small series (comics: 0 to 5 readers each) keeps everything.
 """
@@ -55,13 +60,11 @@ FIND = """query($name: String!) {
 }"""
 SEARCH = """query($q: String!) { search(query: $q, query_type: "Series", per_page: 8, page: 1) { results } }"""
 VOLUMES = """query($id: Int!) {
-  series(where: {id: {_eq: $id}}) {
-    id name books_count is_completed author { name }
-    book_series(order_by: {position: asc_nulls_last}) {
-      position compilation
-      book { id title release_year release_date users_count compilation image { url }
-             contributions(limit: 3) { author { name } } }
-    }
+  series(where: {id: {_eq: $id}}) { id name books_count is_completed author { name } }
+  books(where: {book_series: {series_id: {_eq: $id}}}, order_by: {users_count: desc}, limit: 1000) {
+    id title release_year release_date users_count compilation image { url }
+    contributions(limit: 3) { author { name } }
+    book_series(where: {series_id: {_eq: $id}}) { position compilation }
   }
 }"""
 
@@ -88,15 +91,24 @@ def find(name):
 def volumes_of(rows, today=None):
     """The book_series rows of a series → its volumes, one per number (see the top of this file)."""
     today = today or time.strftime('%Y-%m-%d')
-    best = {}
+    readers = lambda r: r['book'].get('users_count') or 0
+    by_number = {}
     for r in rows:
         b = r.get('book')
-        if not b or r.get('compilation') or b.get('compilation') or r.get('position') is None:
+        if not b or r.get('compilation') or r.get('position') is None:
             continue
         pos = float(r['position'])
-        key = int(pos) if pos.is_integer() else pos
-        if key not in best or (b.get('users_count') or 0) > (best[key]['book'].get('users_count') or 0):
-            best[key] = r
+        by_number.setdefault(int(pos) if pos.is_integer() else pos, []).append(r)
+    best = {}
+    for key, found in by_number.items():
+        plain = [r for r in found if not r['book'].get('compilation')]
+        boxed = [r for r in found if r['book'].get('compilation')]
+        pick = max(plain, key=readers) if plain else None
+        big = max(boxed, key=readers) if boxed else None
+        if big and readers(big) >= 100 and (not pick or readers(big) >= 10 * max(1, readers(pick))):
+            pick = big
+        if pick:
+            best[key] = pick
     top = max([(r['book'].get('users_count') or 0) for r in best.values()] or [0])
     out = []
     for key, r in sorted(best.items()):
@@ -116,14 +128,17 @@ def volumes_of(rows, today=None):
 
 def series(series_id):
     """A series and its volumes: {id, name, books_count, completed, author, volumes}, or None."""
-    key = f'hardcover:series:{series_id}'
+    key = f'hardcover:series:v2:{series_id}'   # v2: books asked from their side (2.39.1)
     if (hit := cache.get(key)) is not None:
         return hit
-    found = ask(VOLUMES, {'id': int(series_id)})['series']
-    if not found:
+    data = ask(VOLUMES, {'id': int(series_id)})
+    if not data['series']:
         return None
-    s = found[0]
+    s = data['series'][0]
+    # Each book with its row(s) in this series: the rows volumes_of sorts.
+    rows = [{'position': link.get('position'), 'compilation': link.get('compilation'), 'book': b}
+            for b in data.get('books') or [] for link in b.get('book_series') or []]
     out = {'id': s['id'], 'name': s['name'], 'books_count': s['books_count'] or 0, 'completed': bool(s.get('is_completed')),
-           'author': (s.get('author') or {}).get('name') or '', 'volumes': volumes_of(s.get('book_series') or [])}
+           'author': (s.get('author') or {}).get('name') or '', 'volumes': volumes_of(rows)}
     cache.set(key, out, DAY)
     return out

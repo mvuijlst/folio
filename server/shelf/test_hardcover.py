@@ -33,6 +33,12 @@ class Volumes(SimpleTestCase):
                                     row(15, 'Announced', 0, date='2099-01-01'), row(16, 'No date yet', 0, date='')], today='2026-11-20')
         self.assertEqual([v['n'] for v in got], [1, 15, 16])
 
+    def test_a_book_marked_a_box_set_wins_its_number_only_when_far_more_read(self):
+        wayward = hardcover.volumes_of([row(1, 'Cada corazón, un umbral', 13), row(1, 'Every Heart a Doorway', 1558, compilation=True)])
+        self.assertEqual([v['title'] for v in wayward], ['Every Heart a Doorway'])     # wrongly flagged, far more read
+        thorgal = hardcover.volumes_of([row(1, 'La magicienne trahie', 5), row(1, 'Torgal 1: three albums', 14, compilation=True)])
+        self.assertEqual([v['title'] for v in thorgal], ['La magicienne trahie'])     # a real omnibus
+
     def test_a_small_series_keeps_everything(self):   # Flemish comics: 0 to 5 readers each
         got = hardcover.volumes_of([row(1, 'De zaak Krimson #1', 4), row(5, 'De killerbacterie', 0)], today='2026-11-20')
         self.assertEqual([v['n'] for v in got], [1, 5])
@@ -81,8 +87,9 @@ class TheApi(TestCase):
             self.assertEqual(self.post(name='Discworld').status_code, 503)
 
     def test_a_series_and_its_volumes(self):
+        book = {**row(1, 'Unsouled', 2125)['book'], 'book_series': [{'position': 1, 'compilation': False}]}
         with mock.patch.object(hardcover, 'ask', return_value={'series': [{'id': 4968, 'name': 'Cradle', 'books_count': 13, 'is_completed': True,
-                                                                           'author': {'name': 'Will Wight'}, 'book_series': [row(1, 'Unsouled', 2125)]}]}):
+                                                                           'author': {'name': 'Will Wight'}}], 'books': [book]}):
             got = self.post(id=4968).json()['series']
         self.assertEqual((got['name'], got['completed'], [v['title'] for v in got['volumes']]), ('Cradle', True, ['Unsouled']))
 
