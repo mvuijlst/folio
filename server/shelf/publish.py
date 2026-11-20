@@ -329,8 +329,13 @@ def plan_book(repo, data, group, taken, now):
     def file_picture(picture, slug, day):
         """A picture ((bytes, '.jpg')) filed in the booklog's media folder. → its address there"""
         folder = f'wp-content/uploads/{str(day)[:4]}/{str(day)[5:7]}'
+        # Unique whatever the case: the old covers are named Bone.jpg, and a bone.jpg beside it
+        # can't be checked out on Windows or a Mac (the same file there).
+        there = Path(repo, 'media', folder)
+        taken_names = {p.name.lower() for p in there.iterdir()} if there.is_dir() else set()
+        taken_names |= {p.name.lower() for p in plan.pictures if p.parent == there}
         name, n = f'{slug}{picture[1]}', 1
-        while Path(repo, 'media', folder, name).exists() or Path(repo, 'media', folder, name) in plan.pictures:
+        while name.lower() in taken_names:
             n += 1
             name = f'{slug}-{n}{picture[1]}'
         plan.pictures[Path(repo, 'media', folder, name)] = picture[0]

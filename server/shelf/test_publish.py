@@ -424,6 +424,18 @@ class PublishTests(BooklogCase):
         self.assertIn('cover: "/wp-content/uploads/2026/11/gilgamesh.jpg"\n', self.post('gilgamesh'))
         self.assertEqual((self.repo / 'media/wp-content/uploads/2026/11/gilgamesh.jpg').read_bytes(), png(300, 450))
 
+    def test_a_new_cover_is_not_named_as_an_old_one_in_other_capitals(self):
+        own = Path(self.tmp.name, 'covers', 'own')
+        own.mkdir(parents=True)
+        (own / 'abc.jpg').write_bytes(png(300, 450))
+        folder = self.repo / 'media/wp-content/uploads/2026/11'
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / 'Gilgamesh.jpg').write_bytes(b'old')
+        self.change('gilgamesh', lambda data: data.update(cover='covers/own/abc-320.webp', coverFull='covers/own/abc.jpg'))
+        self.publish()
+        self.assertIn('cover: "/wp-content/uploads/2026/11/gilgamesh-2.jpg"' + chr(10), self.post('gilgamesh'))
+        self.assertEqual((folder / 'Gilgamesh.jpg').read_bytes(), b'old')
+
     def test_a_catalogue_cover_goes_into_the_media_folder_at_full_size(self):
         from unittest import mock
         from shelf import covers
