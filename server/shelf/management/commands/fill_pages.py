@@ -42,6 +42,10 @@ class Command(BaseCommand):
         parser.add_argument('--no-median', action='store_true', help="don't fall back on Open Library's median page count")
         parser.add_argument('--pause', type=float, default=1.0, help='seconds between requests (default 1)')
 
+    def say(self, line):
+        self.stdout.write(line)
+        self.stdout.flush()
+
     def handle(self, user, write, booklog, no_median, pause, **options):
         try:
             account = get_user_model().objects.get(username=user)
@@ -61,7 +65,9 @@ class Command(BaseCommand):
 
         found, by, failed = {}, {'Hardcover': 0, 'Open Library median': 0}, 0
         isbns = list(asks)
+        self.say(f'{len(isbns)} ISBNs without pages to look up' + (f' ({skipped} editions on the booklog left out).' if skipped else '.'))
         if pages.token():
+            self.say(f'Asking Hardcover, {pages.BATCH} at a time…')
             for start in range(0, len(isbns), pages.BATCH):
                 part = isbns[start:start + pages.BATCH]
                 try:
@@ -71,11 +77,16 @@ class Command(BaseCommand):
                 except Exception as err:
                     failed += len(part)
                     self.stderr.write(f'Hardcover did not answer: {err}')
+                self.say(f'  Hardcover: {min(start + pages.BATCH, len(isbns))} of {len(isbns)} asked, {by["Hardcover"]} found')
                 time.sleep(pause)
         else:
-            self.stderr.write('No HARDCOVER_API_TOKEN: Hardcover is not asked.')
+            self.stderr.write('No HARDCOVER_API_TOKEN: Hardcover is not asked (is server/.env loaded? set -a; . ./.env; set +a).')
+            self.stderr.flush()
         if not no_median:
-            for isbn in (i for i in isbns if i not in found):
+            rest = [i for i in isbns if i not in found]
+            if rest:
+                self.say(f'Asking Open Library for the median of {len(rest)}, one at a time (about {round(len(rest) * (pause + 0.5) / 60) or 1} min)…')
+            for n, isbn in enumerate(rest, 1):
                 try:
                     n = pages.median(isbn)
                     if n:
@@ -83,6 +94,8 @@ class Command(BaseCommand):
                         by['Open Library median'] += 1
                 except Exception as err:
                     self.stderr.write(f'Open Library did not answer for {isbn}: {err}')
+                if n % 20 == 0 or n == len(rest):
+                    self.say(f'  Open Library: {n} of {len(rest)} asked, {by["Open Library median"]} found')
                 time.sleep(pause)
 
         changed, filled = set(), 0

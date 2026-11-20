@@ -116,6 +116,8 @@ class FillPages(TestCase):
         said = self.run_command()
         self.assertIn('Asked about 3 ISBNs: 2 from Hardcover, 1 from the Open Library median, 0 without.', said)
         self.assertIn('Would fill the pages of 3 editions, in 3 books.', said)
+        self.assertIn('3 ISBNs without pages to look up (1 editions on the booklog left out).', said)
+        self.assertIn('  Hardcover: 3 of 3 asked, 2 found', said)
         self.assertIn('1 editions of books on the booklog were left out', said)
         self.assertNotIn('9780000000002', self.asked)      # has pages
         self.assertNotIn('9780000000019', self.asked)      # an audiobook
