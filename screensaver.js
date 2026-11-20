@@ -20,12 +20,12 @@ const STYLE = `
 .ss-flip img + img { transform: rotateY(180deg); }
 .ss-light, .ss-haze { position: absolute; pointer-events: none; }
 .ss-light { inset: -40%; animation: ss-light 70s ease-in-out infinite alternate;
-  background: radial-gradient(ellipse 34% 30% at 46% 54%, rgba(255, 214, 160, .07), rgba(7, 6, 26, 0) 55%),
-    radial-gradient(ellipse 48% 44% at 46% 54%, rgba(7, 6, 26, 0) 30%, rgba(7, 6, 26, .55) 70%, rgba(7, 6, 26, .92) 100%); }
+  background: radial-gradient(ellipse 34% 30% at 54% 54%, rgba(255, 214, 160, .07), rgba(7, 6, 26, 0) 55%),
+    radial-gradient(ellipse 48% 44% at 54% 54%, rgba(7, 6, 26, 0) 30%, rgba(7, 6, 26, .55) 70%, rgba(7, 6, 26, .92) 100%); }
 .ss-haze { inset: 0;
-  background: linear-gradient(to bottom left, #07061a 4%, rgba(16, 13, 42, .82) 26%, rgba(16, 13, 42, 0) 58%),
+  background: linear-gradient(to bottom right, #07061a 4%, rgba(16, 13, 42, .82) 26%, rgba(16, 13, 42, 0) 58%),
     linear-gradient(to top, rgba(7, 6, 26, .7), rgba(7, 6, 26, 0) 22%); }
-@keyframes ss-light { from { transform: translate(-7%, 5%); } to { transform: translate(8%, -6%); } }
+@keyframes ss-light { from { transform: translate(7%, 5%); } to { transform: translate(-8%, -6%); } }
 `;
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -63,7 +63,7 @@ export function start(covers, { onExit }) {
   };
 
   // The wall: columns of covers at their own height, as on a masonry wall, just large enough to
-  // fill the screen however the camera stands. It leans away to the top right, so most of it lies
+  // fill the screen however the camera stands. It leans away to the top left, so most of it lies
   // that way from where the camera looks; what is far off there is lost in the haze.
   const vw = innerWidth, vh = innerHeight;
   const side = Math.max(vw, vh);
@@ -71,8 +71,8 @@ export function start(covers, { onExit }) {
   const gap = Math.round(col / 14);
   // Where the camera may look: a stretch of the wall with room enough around it on every side
   // (measured at the steepest angles and farthest distance a view can have).
-  const left = 0.75 * vw + 0.05 * side, right = 0.8 * vw + 0.15 * side;
-  const top = 0.95 * vh + 0.05 * side, bottom = 0.7 * vh + 0.05 * side;
+  const left = 1.4 * vw + 0.15 * side, right = 0.75 * vw + 0.05 * side;
+  const top = 1.3 * vh + 0.05 * side, bottom = 0.7 * vh + 0.1 * side;
   const roamX = 0.3 * side, roamY = 0.15 * side;
   const W = Math.round(left + roamX + right), H = Math.round(top + roamY + bottom);
   const tiles = [];
@@ -105,7 +105,7 @@ export function start(covers, { onExit }) {
   root.style.perspective = `${perspective}px`;
   const view = () => {
     const x = left + rand(0, roamX), y = top + rand(0, roamY);
-    return `translateZ(${rand(-perspective * 0.3, perspective * 0.12).toFixed(0)}px) rotateX(${rand(20, 32).toFixed(1)}deg) rotateY(${rand(22, 36).toFixed(1)}deg) rotateZ(${rand(-9, -2).toFixed(1)}deg) translate(${-x.toFixed(0)}px, ${-y.toFixed(0)}px)`;
+    return `translateZ(${rand(-perspective * 0.25, perspective * 0.12).toFixed(0)}px) rotateX(${rand(20, 32).toFixed(1)}deg) rotateY(${rand(-32, -22).toFixed(1)}deg) rotateZ(${rand(2, 9).toFixed(1)}deg) translate(${-x.toFixed(0)}px, ${-y.toFixed(0)}px)`;
   };
   wall.style.transform = view();
   const timers = new Set();
