@@ -63,7 +63,7 @@ class Command(BaseCommand):
             raise CommandError(f'No user {opts["user"]}')
         if opts['apply']:
             return self.apply(opts['apply'])
-        rows = [r for r in Book.objects.filter(user=self.user, deleted=False).order_by('id') if not r.data.get('originalLanguage')]
+        rows = [r for r in Book.shelf(self.user).order_by('id') if not r.data.get('originalLanguage')]
         if opts['retry']:
             with open(opts['retry'], encoding='utf-8-sig', newline='') as f:
                 again = {r['id'] for r in csv.DictReader(f, delimiter='	') if not (r.get('language') or '').strip()}
@@ -189,7 +189,7 @@ class Command(BaseCommand):
     def store(self, wanted):
         """uid → (language, original title, new olid): stored on books that have no language yet."""
         now, stored = timezone.now(), 0
-        for row in Book.objects.filter(user=self.user, uid__in=list(wanted), deleted=False):
+        for row in Book.shelf(self.user).filter(uid__in=list(wanted)):
             if row.data.get('originalLanguage'):
                 continue   # set meanwhile, on a device or by hand: that stays
             language, title, olid = wanted[row.uid]

@@ -41,6 +41,21 @@ class Book(Record):
 
     title = models.CharField(max_length=300, blank=True)
 
+    # A book in the Trash (docs/using.md, "Trash") is still a record, so it syncs and can be put
+    # back on any device; its `data` says when it went (`trashed`). Whatever reads the shelf goes
+    # through `shelf` and never sees it. `kept` is every book not deleted for good, the Trash
+    # included: for what must know a trashed book is there (the booklog import, which posts are
+    # claimed). Nothing else asks for `deleted=False` itself (test_trash checks).
+    @classmethod
+    def shelf(cls, user):
+        """The books on `user`'s shelf: neither deleted nor in the Trash."""
+        return cls.kept(user).exclude(data__has_key='trashed')
+
+    @classmethod
+    def kept(cls, user):
+        """Every book of `user` not deleted for good, the Trash included."""
+        return cls.objects.filter(user=user, deleted=False)
+
     def __str__(self):
         return self.title or self.data.get('isbn') or self.uid
 

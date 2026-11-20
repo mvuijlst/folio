@@ -47,10 +47,11 @@ READING_LISTS = set(boeken.STATUS_LISTS.values())
 EDITION_OWNED = (*boeken.EDITION, 'coverRatio', 'coverSource')
 
 
-def merged_reviews(old, incoming, dropped=()):
+def merged_reviews(old, incoming, dropped=(), held=()):
     """The booklog's reviews next to the ones made or edited in the app. → (reviews, how many were kept as edited)
     `old` in the flat view (each with its `edition`). `dropped`: posts of reads deleted in the
-    app, still to be deleted from the booklog."""
+    app, still to be deleted from the booklog. `held`: posts the app is taking off the booklog
+    while keeping their reads (`unpublish`): those reads stay as the app has them."""
     old = [r for r in old or [] if isinstance(r, dict)]
     previous = {r['boeken']: r for r in old if r.get('boeken')}
     out, kept = [r for r in old if not r.get('boeken')], 0
@@ -58,6 +59,10 @@ def merged_reviews(old, incoming, dropped=()):
         if review['boeken'] in dropped:
             continue
         before = previous.get(review['boeken'])
+        if review['boeken'] in held:
+            if before:
+                out.append(before)
+            continue
         if before and before.get('sum') and not boeken.in_step(before):
             out.append(before)
             kept += 1
@@ -83,7 +88,7 @@ def edition_uid(slug):
 
 def has_old_books(user):
     """Books stored in the shape from before editions (`manage.py to_works` upgrades them)."""
-    return any(not b.data.get('editions') for b in Book.objects.filter(user=user, deleted=False).only('data'))
+    return any(not b.data.get('editions') for b in Book.kept(user).only('data'))
 
 
 class Command(BaseCommand):
@@ -304,7 +309,7 @@ class Command(BaseCommand):
                 review = {**post['review'], 'ed': posts[post['slug']]}
                 review['sum'] = boeken.review_sum({**review, 'edition': post['edition']})
                 incoming.append(review)
-        reviews, kept = merged_reviews((flat or {}).get('reviews'), incoming, set((old or {}).get('dropReads') or []))
+        reviews, kept = merged_reviews((flat or {}).get('reviews'), incoming, set((old or {}).get('dropReads') or []), set((old or {}).get('unpublish') or []))
         if reviews:
             data['reviews'] = reviews
         else:
@@ -323,7 +328,7 @@ class Command(BaseCommand):
     def remove(self, user):
         now = timezone.now()
         counts = {'deleted': 0, 'separated from a scanned book': 0}
-        for row in Book.objects.filter(user=user, deleted=False):
+        for row in Book.kept(user):
             if not row.data.get('boeken'):
                 continue
             if row.uid == boeken.uid_for(row.data['boeken']):

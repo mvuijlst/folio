@@ -191,6 +191,12 @@ A deleted edition or review is likewise only undone from its toast.
    booklog (this happened on 2026-11-17, four books). Ask whether an explicit, separate
    *Remove from boeken.tsuk.org* on a book's page is wanted for that.
 
+**Status, 2026-11-20:** built as 2.33.0. His answers: a copy no longer owned is not deleted
+but marked (keep / can go / gone, 2.32.0, which also replaced the Mag weg list); a read with a
+page on the booklog can be deleted only after that page is taken off (`unpublish`, quiet actions
+on the read and at the bottom of Edit details). Copies and reads go into their book's own
+`trash`.
+
 **Done when:** deleting anything can be undone a week later on another device; no trashed book
 shows anywhere, the public library included; emptying deletes for good.
 

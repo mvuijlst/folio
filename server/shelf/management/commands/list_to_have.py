@@ -51,7 +51,7 @@ class Command(BaseCommand):
 
         marked, other, books = 0, [], []
         with transaction.atomic():
-            for row in Book.objects.filter(user=account, deleted=False).order_by('pk'):
+            for row in Book.shelf(account).order_by('pk'):
                 data = row.data
                 changed = False
                 for edition in data.get('editions') or []:

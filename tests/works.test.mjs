@@ -322,3 +322,9 @@ test('placeEdition: a place goes on the paper copy where the e-book is shown', (
   const other = { id: 'e4' };
   assert.equal(placeEdition({ editions: [other, paper] }, other), other);                        // not said to be digital: as shown
 });
+
+test('nextEditionId: an edition in the book\'s own trash keeps its id', async () => {
+  const { nextEditionId } = await import('../works.js');
+  assert.equal(nextEditionId({ editions: [{ id: 'e1' }] }), 'e2');
+  assert.equal(nextEditionId({ editions: [{ id: 'e1' }], trash: [{ at: '2026', edition: { id: 'e2' } }, { at: '2026', review: { id: 'r' } }] }), 'e3');
+});

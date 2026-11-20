@@ -221,7 +221,7 @@ def adopt(user, limit=4):
 
     changed = {}
     # Narrowed in SQL to books whose text has such a cover somewhere; decided per edition here.
-    books = Book.objects.filter(user=user, deleted=False).annotate(text=Cast('data', TextField()))
+    books = Book.shelf(user).annotate(text=Cast('data', TextField()))
 
     def save(fresh):
         fresh.changed = timezone.now()   # `modified` stays: nobody edited the book

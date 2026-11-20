@@ -131,7 +131,7 @@ def library(lib):
     public = {l['id'] for l in shared}
 
     books = []
-    for row in Book.objects.filter(user=user, deleted=False).order_by('id'):
+    for row in Book.shelf(user).order_by('id'):
         shown = book({**row.data, 'id': row.uid}, public)
         if shown:
             books.append(shown)

@@ -805,6 +805,50 @@ export default {
   'It goes to the server like any other change.': 'Het gaat naar de server zoals elke andere wijziging.',
   'It is on this device only; signed in, it would go to your other devices too.':
     'Het staat alleen op dit toestel; aangemeld zou het ook naar je andere toestellen gaan.',
+  // The Trash (Settings → Trash), and taking pages off the booklog
+  'Trash': 'Vuilbak',
+  'In the Trash': 'In de vuilbak',
+  'In the Trash. Its page on {host} stays.': 'In de vuilbak. De pagina op {host} blijft.',
+  'It goes to the Trash, and its page on {host} is deleted. Put back, it is published again.':
+    'Het gaat naar de vuilbak, en de pagina op {host} wordt verwijderd. Teruggezet, wordt het opnieuw gepubliceerd.',
+  'It goes to the Trash.': 'Het gaat naar de vuilbak.',
+  'Edition in the Trash': 'Kopie in de vuilbak',
+  'It goes to the Trash with what was read of it: {n}.': 'Ze gaat naar de vuilbak met wat ervan gelezen is: {n}.',
+  'Review in the Trash': 'Bespreking in de vuilbak',
+  'It goes from {host} within a few minutes.': 'Het verdwijnt binnen enkele minuten van {host}.',
+  'Being taken off {host}…': 'Wordt van {host} gehaald…',
+  'Remove this read from {host}': 'Haal deze lezing van {host}',
+  '{n} of its reads have a page there.': '{n} van de lezingen hebben daar een pagina.',
+  'This read has a page there.': 'Deze lezing heeft daar een pagina.',
+  'The booklog holds what you read, so a read with a page there stays. If it was logged by mistake, take its page off first: open the read and choose Remove this read from {host}. Once it is off, in a few minutes, it can be deleted.':
+    'Het booklog bewaart wat je gelezen hebt, dus een lezing met een pagina daar blijft. Is ze per vergissing gelogd, haal dan eerst de pagina weg: open de lezing en kies Haal deze lezing van {host}. Zodra die weg is, binnen enkele minuten, kan ze verwijderd worden.',
+  'OK': 'OK',
+  'Remove from {host}?': 'Van {host} halen?',
+  'Remove from {host}': 'Van {host} halen',
+  'Its {n} pages there go, one for each read. The book and its reads stay here, and are not published again. The booklog’s history keeps a copy.':
+    'De {n} pagina’s daar verdwijnen, één per lezing. Het boek en de lezingen blijven hier, en worden niet opnieuw gepubliceerd. De geschiedenis van het booklog bewaart een kopie.',
+  'Its page there goes. The book stays here, and is not published again. The booklog’s history keeps a copy.':
+    'De pagina daar verdwijnt. Het boek blijft hier, en wordt niet opnieuw gepubliceerd. De geschiedenis van het booklog bewaart een kopie.',
+  '{n} kept until you empty it': '{n} bewaard tot je ze leegmaakt',
+  'Empty': 'Leeg',
+  'Dropped: its page goes from {host}': 'Laten vallen: de pagina verdwijnt van {host}',
+  'Its page on {host} stays': 'De pagina op {host} blijft',
+  'A read': 'Lezing',
+  'Put back': 'Terugzetten',
+  'Put back: {title}': 'Teruggezet: {title}',
+  'Delete for good': 'Definitief verwijderen',
+  'Delete “{title}” for good? It can’t be put back after this.': '“{title}” definitief verwijderen? Daarna kan het niet meer teruggezet worden.',
+  'Delete {n} for good? They can’t be put back after this.': '{n} definitief verwijderen? Daarna kunnen ze niet meer teruggezet worden.',
+  'The booklog keeps their pages.': 'Het booklog houdt hun pagina’s.',
+  'Deleted for good': 'Definitief verwijderd',
+  'Nothing in the Trash. What you delete comes here, and stays until you empty it.':
+    'Niets in de vuilbak. Wat je verwijdert komt hier, en blijft tot je de vuilbak leegmaakt.',
+  'Empty what is older than 90 days ({n})': 'Leegmaken wat ouder is dan 90 dagen ({n})',
+  'Empty the Trash': 'Vuilbak leegmaken',
+  'Nothing goes by itself. A book you deleted keeps its page on {host}; deleted for good, it is gone from every device.':
+    'Niets verdwijnt vanzelf. Een boek dat je verwijderd hebt, houdt zijn pagina op {host}; definitief verwijderd is het weg van elk toestel.',
+  '“{title}” was in the Trash: put back.': '“{title}” zat in de vuilbak: teruggezet.',
+
   // Whether a paper copy is still here
   'This copy': 'Dit exemplaar',
   'Keep': 'Houden',

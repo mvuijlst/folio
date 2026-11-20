@@ -206,7 +206,8 @@ export function shelves(work) {
 
 /** The next free id for an edition: e1, e2, … */
 export function nextEditionId(work) {
-  const used = new Set((work.editions || []).map((e) => e.id));
+  // An edition in the book's own trash keeps its id: it may be put back, with its reads.
+  const used = new Set([...(work.editions || []), ...(work.trash || []).map((x) => x?.edition).filter(Boolean)].map((e) => e.id));
   let n = (work.editions || []).length + 1;
   while (used.has(`e${n}`)) n += 1;
   return `e${n}`;

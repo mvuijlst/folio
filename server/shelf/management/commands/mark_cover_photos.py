@@ -45,7 +45,7 @@ class Command(BaseCommand):
         except get_user_model().DoesNotExist:
             raise CommandError(f'There is no user "{user}".')
         marked = []
-        for row in Book.objects.filter(user=account, deleted=False).order_by('pk'):
+        for row in Book.shelf(account).order_by('pk'):
             data = row.data
             editions = [e for e in data.get('editions') or [] if isinstance(e, dict)] if isinstance(data, dict) else []
             found = [e for e in editions if photographed(e)]

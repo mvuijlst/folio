@@ -31,6 +31,10 @@ What a change in the app means in the booklog:
     is asked to delete it from the     tag and series pages nothing else uses (see plan_drop)
     booklog too (`drop`)
   a read is deleted (`dropReads`)    its post is deleted (see plan_reads_gone)
+  a book or a read is taken off the  its posts are deleted; the book and the reads stay in the
+    booklog in the app (`unpublish`)   app, those reads marked `local` (never published again)
+  a book on To read is dropped and   its posts are deleted while it is in the Trash; put back,
+    goes to the Trash (`dropped`)      it is published again (see run)
 
 When a post goes that other posts are rereads of, the earliest of those that stays becomes
 the first read, and the others rereads of it (see reroot).
@@ -210,11 +214,21 @@ def changed_keys(data):
     return {key for key in (*tracked, 'list') if before.get(key) != now.get(key)}
 
 
+def for_booklog(data):
+    """A book as publishing sees it: the flat view (works.flat), without the reads that stay in
+    the app (`local`: taken off the booklog on purpose, so never published again)."""
+    flat = works.flat(data)
+    if isinstance(flat.get('reviews'), list):
+        flat['reviews'] = [r for r in flat['reviews'] if not (isinstance(r, dict) and r.get('local'))]
+    return flat
+
+
 def is_pending(data):
     reviews = [r for r in data.get('reviews') or [] if isinstance(r, dict)]
     return bool(changed_keys(data)
                 or data.get('regroup')
                 or data.get('dropReads')
+                or data.get('unpublish')
                 or any(not r.get('boeken') and r.get('date') for r in reviews)
                 or any(r.get('boeken') and r.get('sum') and not boeken.in_step(r) for r in reviews))
 
@@ -888,10 +902,11 @@ def plan_drop(repo, drop, groups):
     return plan
 
 
-def plan_reads_gone(repo, data, group, every):
-    """The Plan that deletes the posts of reads that were deleted in the app (`dropReads`). When
-    the book's first post goes, `rekey` says which post is the book's now ('' when none is left)."""
-    names = {str(x) for x in data.get('dropReads') or []}
+def plan_reads_gone(repo, data, group, every, key='dropReads'):
+    """The Plan that deletes the posts of reads that were deleted in the app (`dropReads`), or
+    taken off the booklog there (`unpublish`, as `key`). When the book's first post goes, `rekey`
+    says which post is the book's now ('' when none is left)."""
+    names = {str(x) for x in data.get(key) or []}
     gone = [p for p in group if p['slug'] in names]
     kept = [p for p in group if p['slug'] not in names]
     title = str(data.get('title') or group[-1]['title'])
@@ -1197,6 +1212,35 @@ def stamp(data, plan):
     return data
 
 
+PUBLISHED_REVIEW_KEYS = ('boeken', 'url', 'sum')   # what a read has from its post (views.py has the same)
+
+
+def unlinked(data):
+    """A book with nothing of the booklog left on it: of the shelf alone."""
+    data = {k: v for k, v in data.items() if k not in ('boeken', 'url', 'boekenState', 'boekenError', 'boekenWanted')}
+    if isinstance(data.get('reviews'), list):
+        data['reviews'] = [{k: v for k, v in r.items() if k not in PUBLISHED_REVIEW_KEYS} if isinstance(r, dict) else r for r in data['reviews']]
+    return data
+
+
+def settle_unpublished(data, plan):
+    """The book once the posts it took off the booklog are gone (`unpublish`): those reads stay,
+    unlinked and marked `local`, so they are not published again."""
+    data = dict(data)
+    gone = {str(slug) for slug in data.pop('unpublish', None) or []}
+    if isinstance(data.get('reviews'), list):
+        data['reviews'] = [{**{k: v for k, v in r.items() if k not in PUBLISHED_REVIEW_KEYS}, 'local': True}
+                           if isinstance(r, dict) and (r.get('id') in plan.forget or str(r.get('boeken') or '') in gone) else r
+                           for r in data['reviews']]
+    if plan.rekey == '':
+        return unlinked(data)
+    if plan.rekey:
+        data['boeken'] = plan.rekey
+    if plan.url:
+        data['url'] = plan.url
+    return data
+
+
 def settle_reads_gone(data, plan):
     """The book once the posts of its deleted reads are gone (plan_reads_gone). Anything else
     that waits to be published still does."""
@@ -1279,15 +1323,41 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 row.data = {}   # said once; the book is gone from the shelf either way
                 row.save(update_fields=['data'])
 
+    # Books on To read dropped into the Trash: their posts go now, and the book is unlinked. It
+    # stays in the Trash; put back, the app asks for it to be published again.
+    for row in Book.kept(user).filter(data__has_key='trashed', data__dropped=True, data__boeken__isnull=False):
+        if row.modified > now - timedelta(seconds=delay):
+            counts['waiting'] += 1
+            continue
+        try:
+            posts = [row.data['boeken'], *(r['boeken'] for r in row.data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken'))]
+            plan = plan_drop(repo, {'boeken': row.data['boeken'], 'title': row.title, 'posts': list(dict.fromkeys(posts))}, groups)
+            if plan:
+                say(f'{plan.message}  [{", ".join(plan.notes)}]')
+                for path in plan.removals:
+                    say(f'    {path.relative_to(repo).as_posix()}')
+                counts['published'] += 1
+                if dry_run:
+                    continue
+                commit(repo, plan)
+                groups, taken = load()
+            elif dry_run:
+                continue
+            row.data = unlinked(row.data)
+            row.changed = timezone.now()
+            row.save(update_fields=['data', 'changed'])
+        except Exception as err:
+            failed(row, err)
+
     # Books combined with another, or with an edition split off, in the app: their posts become
     # their own first (plan_regroup), so whatever else changed is published to the right posts.
-    for row in Book.objects.filter(user=user, deleted=False, data__regroup=True):
+    for row in Book.shelf(user).filter(data__regroup=True):
         if row.modified > now - timedelta(seconds=delay):
             counts['waiting'] += 1
             continue
         try:
             claimed = set()
-            for other in Book.objects.filter(user=user, deleted=False).exclude(pk=row.pk).only('data'):
+            for other in Book.kept(user).exclude(pk=row.pk).only('data'):
                 if other.data.get('boeken'):
                     claimed.add(str(other.data['boeken']))
                 claimed |= {str(r['boeken']) for r in other.data.get('reviews') or [] if isinstance(r, dict) and r.get('boeken')}
@@ -1309,15 +1379,15 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
 
     # Books that are to be added to the booklog.
     every = [post for group in groups.values() for post in group]
-    for row in Book.objects.filter(user=user, deleted=False, data__boekenWanted=True):
+    for row in Book.shelf(user).filter(data__boekenWanted=True):
         if row.data.get('boeken'):
             continue
         if row.modified > now - timedelta(seconds=delay):
             counts['waiting'] += 1
             continue
         try:
-            plan, key = plan_new(repo, works.flat(row.data), every, taken, now)
-            twin = None if plan.writes else Book.objects.filter(user=user, deleted=False, data__boeken=key).exclude(pk=row.pk).first()
+            plan, key = plan_new(repo, for_booklog(row.data), every, taken, now)
+            twin = None if plan.writes else Book.kept(user).filter(data__boeken=key).exclude(pk=row.pk).first()
             if twin:
                 # The booklog has this book and so does the shelf, as another book: adding it
                 # again would make two of one book (combine them in the app). Say so once, and stop asking.
@@ -1353,19 +1423,38 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
         except Exception as err:
             failed(row, err)
 
-    for row in Book.objects.filter(user=user, deleted=False, data__boeken__isnull=False):
+    for row in Book.shelf(user).filter(data__boeken__isnull=False):
         if row.data.get('regroup'):
             continue   # not regrouped yet (it waits, or failed): its posts aren't its own yet
         group = groups.get(str(row.data.get('boeken')))
-        if not group or not is_pending(works.flat(row.data)):
+        if not group or not is_pending(for_booklog(row.data)):
             continue
         if row.modified > now - timedelta(seconds=delay):
             counts['waiting'] += 1
             continue
         try:
+            if row.data.get('unpublish'):
+                # Posts taken off the booklog in the app: they go, the reads stay (marked local).
+                plan = plan_reads_gone(repo, for_booklog(row.data), group, [p for g in groups.values() for p in g], key='unpublish')
+                if plan.writes:
+                    say(f'{plan.message}  [{", ".join(plan.notes)}]')
+                    for path in plan.removals:
+                        say(f'    {path.relative_to(repo).as_posix()}')
+                counts['published' if plan.writes else 'settled'] += 1
+                if dry_run:
+                    continue
+                if plan.writes:
+                    commit(repo, plan)
+                    groups, taken = load()
+                row.data = settle_unpublished(row.data, plan)
+                row.changed = timezone.now()
+                row.save(update_fields=['data', 'changed'])
+                group = groups.get(str(row.data.get('boeken')))
+                if not group or not is_pending(for_booklog(row.data)):
+                    continue
             if row.data.get('dropReads'):
                 # Reads deleted in the app: their posts go first, then whatever else changed.
-                plan = plan_reads_gone(repo, works.flat(row.data), group, [p for g in groups.values() for p in g])
+                plan = plan_reads_gone(repo, for_booklog(row.data), group, [p for g in groups.values() for p in g])
                 if plan.writes:
                     say(f'{plan.message}  [{", ".join(plan.notes)}]')
                     for path in plan.removals:
@@ -1380,9 +1469,9 @@ def run(user, repo, *, delay=120, dry_run=False, now=None, say=lambda line: None
                 row.changed = timezone.now()
                 row.save(update_fields=['data', 'changed'])
                 group = groups.get(str(row.data.get('boeken')))
-                if not group or not is_pending(works.flat(row.data)):
+                if not group or not is_pending(for_booklog(row.data)):
                     continue
-            plan = plan_book(repo, works.flat(row.data), group, taken, now)
+            plan = plan_book(repo, for_booklog(row.data), group, taken, now)
             if plan is None:
                 continue
             if plan.writes:

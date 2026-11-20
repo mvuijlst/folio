@@ -18,7 +18,7 @@ class TermSyncTests(TestCase):
         self.client.force_login(self.user)
 
     def sync(self, **extra):
-        res = self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': [], 'lists': [], **extra}),
+        res = self.client.post('/api/sync', json.dumps({'schema': 3, 'since': None, 'changes': [], 'lists': [], **extra}),
                                content_type='application/json')
         self.assertEqual(res.status_code, 200, res.content)
         return res.json()

@@ -739,6 +739,14 @@ button.col:hover .col-bar { opacity: .75; }
 .public-list { padding: 10px 0; }
 .public-list > span { display: flex; flex-direction: column; }
 .public-list small { color: var(--muted); font-size: .84rem; }
+/* Settings → Trash (app.js: openTrashPage), and the rarely used booklog actions, kept quiet */
+.trash-row { gap: 4px; padding: 4px 0; }
+.trash-row .list-name { cursor: default; }
+.trash-row .list-name small { white-space: normal; }
+.trash-page .confirm-box .btn-danger { color: var(--danger); }
+.trash-page .confirm-box .btn-row { flex-wrap: wrap; }
+.link-btn.quiet-action { color: var(--faint); font-size: .88rem; margin-top: 4px; }
+.link-btn.quiet-action:disabled { opacity: .7; cursor: default; }
 /* Restoring a backup (app.js: openRestorePage): what the file would change, kind by kind */
 .restore-made { margin: 0 0 10px; }
 .restore-rows { border-top: 1px solid var(--border); }

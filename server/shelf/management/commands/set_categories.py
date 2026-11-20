@@ -36,7 +36,7 @@ class Command(BaseCommand):
         done, skipped = 0, []
         now = timezone.now()
         for uid, change in wanted.items():
-            row = Book.objects.filter(user=account, uid=uid, deleted=False).first()
+            row = Book.shelf(account).filter(uid=uid).first()
             if row is None:
                 skipped.append(f'{uid}: not on the shelf')
                 continue

@@ -25,7 +25,7 @@ class Command(BaseCommand):
             users = users.filter(username=user)
         for account in users:
             done = len(covers.adopt(account, limit=None))
-            places = [place for b in Book.objects.filter(user=account, deleted=False) for place in covers.places(b.data)]
+            places = [place for b in Book.shelf(account) for place in covers.places(b.data)]
             left = sum(1 for place in places if str(place.get('cover') or '').startswith('https://') and covers.wanted(place.get('cover')))
             small = sum(1 for place in places if str(place.get('cover') or '').startswith('covers/') and not place.get('coverFull'))
             self.stdout.write(f'{account.get_username()}: {done} books given covers; {left} could not be fetched, '

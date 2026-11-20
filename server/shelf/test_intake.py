@@ -166,7 +166,7 @@ class IntakeTests(TestCase):
         self.assertEqual(self.ask().status_code, 401)
 
     def test_sync_says_whether_there_is_an_assistant(self):
-        ask = lambda: self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': []}), content_type='application/json').json()
+        ask = lambda: self.client.post('/api/sync', json.dumps({'schema': 3, 'since': None, 'changes': []}), content_type='application/json').json()
         self.assertTrue(ask()['assistant'])
         with override_settings(OPENAI_API_KEY=''):
             self.assertFalse(ask()['assistant'])

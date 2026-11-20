@@ -50,9 +50,9 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
 - **The reading lists are part of the app.** *To read*, *Reading*, *Read* and *Did not finish*
   are always there, always one either-or set, and cannot be renamed or removed (they can be
   moved). That is what lets a book offer what comes next, on its page:
-  - on *To read*: **Start reading**, or **Drop** it. Dropping removes the book for good and is
-    asked first; for a book in the booklog its page there is deleted too (any book can be
-    deleted from the booklog: see *Deleting from the booklog*). A book you have read before
+  - on *To read*: **Start reading**, or **Drop** it. Dropping puts the book in the
+    [Trash](#trash) and is asked first; for a book in the booklog its page there is deleted
+    too, the one deletion that touches the booklog (put back, it is published again). A book you have read before
     and mean to read again offers **Not after all** instead, which puts it back on *Read*;
   - on *Reading*: how far along you are, **Mark as read** (which asks for the reading date, a
     rating and a review, all optional) or **Did not finish**. Progress is the page reached (for
@@ -325,12 +325,14 @@ the booklog when you say so.
   keeps a large copy (it fetches a catalogue's cover itself) and a small one, and the large
   one is what goes to the booklog. A cover photographed in the scanner is kept at 1500 pixels,
   so it can be straightened later.
-- **Deleting from the booklog.** Deleting a book that is in the booklog asks first, with
-  *Also delete it from boeken.tsuk.org* ticked: then all its pages there go (one per read),
-  with covers and author, tag and series pages nothing else uses. Deleting a review of a read
-  that is in the booklog deletes that read's page. When the first read of a book goes, the
-  next one becomes the first (the others become rereads of it). The booklog's history keeps a
-  copy of everything.
+- **The booklog holds what you read.** Deleting a book in Folio leaves its pages on the booklog
+  (see [Trash](#trash)); only dropping a book on *To read* takes its page off. A page published
+  by mistake is taken off on purpose, quietly at the bottom of the book's *Edit details*:
+  **Remove from boeken.tsuk.org** takes all its pages (one per read), with covers and author,
+  tag and series pages nothing else uses; on a read's own form, **Remove this read from
+  boeken.tsuk.org** takes that read's page. The book and its reads stay in Folio, and those
+  reads are never published again. When the first read of a book goes, the next one becomes
+  the first (the others become rereads of it). The booklog's history keeps a copy of everything.
 - **Covers are kept on the server.** For signed-in users the server fetches a copy of each
   cover that comes from a book catalogue (Open Library, Google Books), a few per sync, as a
   320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py
@@ -458,6 +460,29 @@ Folio* a book is proposed for their own shelf. Tapping a book's cover shows it l
 Search engines are asked not to list a public library, but it is not secret: anyone with the
 address can open it. *Stop sharing* takes it offline at once. Visitors see what the server has,
 so a change shows once it has synced.
+
+## Trash
+
+Deleting a book (the bin on *Edit details*), a copy (on its sheet) or a review puts it in the
+Trash, with everything it had: lists, notes, reads, covers, its links to the booklog. Settings →
+*Trash* shows what is there and when it went, newest first, each with **Put back** and **Delete
+for good**; **Empty the Trash** deletes them all, and when some are older than 90 days, *Empty
+what is older than 90 days* only those. Nothing goes by itself. Deleting for good asks first.
+
+- **What deleting is for:** a mistake, or a book on *To read* you no longer want (*Drop*). A
+  copy you gave away, sold or lost is not deleted but marked [Gone](#keep-can-go-gone): it stays,
+  with its reads.
+- **The booklog keeps its pages.** A book you delete keeps its page on boeken.tsuk.org, in the
+  Trash and after it is deleted for good; the import leaves it deleted. Only a dropped book's
+  page goes, while it is in the Trash, and it is published again when it is put back.
+- **A read with a page on the booklog can't be deleted** until that page is taken off (*Remove
+  this read from boeken.tsuk.org*, on the read; a few minutes later it can be deleted). Folio
+  says so when you try.
+- It syncs: a book deleted on one device is in the Trash on the others, and can be put back
+  from any of them. A copy of the app from before the Trash can't sync any more until it updates.
+- Scanning a book that is in the Trash says so and offers *Put back*; adding it again some other
+  way puts it back and adds to it, rather than making a second one.
+- A backup file holds the Trash too.
 
 ## Backup and restore
 

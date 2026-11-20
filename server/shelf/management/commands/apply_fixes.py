@@ -60,7 +60,7 @@ class Command(BaseCommand):
             plan = json.load(f)
         now = timezone.now()
         changed, combined, skipped = 0, 0, []
-        books = {row.uid: row for row in Book.objects.filter(user=account, deleted=False)}
+        books = {row.uid: row for row in Book.shelf(account)}
 
         with transaction.atomic():
             for uid, spec in (plan.get('change') or {}).items():

@@ -381,7 +381,7 @@ class CoverTests(TestCase):
     def sync(self, *books):
         """Books (given in the old shape, for short) as the app sends them."""
         changes = [{'id': b['id'], 'modified': '2026-11-14T10:00:00Z', 'deleted': False, 'book': works.upgrade(b)} for b in books]
-        res = self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': changes}), content_type='application/json')
+        res = self.client.post('/api/sync', json.dumps({'schema': 3, 'since': None, 'changes': changes}), content_type='application/json')
         self.assertEqual(res.status_code, 200, res.content)
         return res.json()
 
@@ -445,7 +445,7 @@ class CoverTests(TestCase):
         book = works.upgrade({'id': 'b1', 'title': 'Dune', 'cover': url.format(1)})
         book['editions'].append({'id': 'e2', 'format': 'audiobook', 'cover': url.format(2)})
         with mock.patch.object(covers, 'download', return_value=png(320, 400)):
-            self.client.post('/api/sync', json.dumps({'schema': 2, 'since': None, 'changes': [
+            self.client.post('/api/sync', json.dumps({'schema': 3, 'since': None, 'changes': [
                 {'id': 'b1', 'modified': '2026-11-14T10:00:00Z', 'deleted': False, 'book': book}]}), content_type='application/json')
         editions = Book.objects.get(uid='b1').data['editions']
         self.assertEqual([e['coverSource'] for e in editions], [url.format(1), url.format(2)])

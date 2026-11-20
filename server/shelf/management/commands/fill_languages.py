@@ -89,7 +89,7 @@ class Command(BaseCommand):
         except get_user_model().DoesNotExist:
             raise CommandError(f'There is no user "{user}".')
         found, unknown, books, by_group = {}, [], 0, 0
-        for row in Book.objects.filter(user=account, deleted=False).order_by('pk'):
+        for row in Book.shelf(account).order_by('pk'):
             data = row.data
             if data.get('boeken') or not isinstance(data.get('editions'), list):
                 continue

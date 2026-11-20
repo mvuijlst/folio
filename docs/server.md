@@ -182,6 +182,21 @@ hear of what went back. On each one, make a backup file first if it may hold cha
 lacks, then *Sign out & clear*, sign in again, and restore that file (Settings → *As a file* →
 *Restore*). What it adds or replaces goes up to the server like any other change.
 
+## The Trash on the server
+
+A book in the Trash is a record like any other, with `trashed` in its data, so it syncs and can
+be put back on any device. Everything that reads the shelf goes through `Book.shelf(user)`, which
+leaves it out (the public library, publishing, covers, categories, every management command);
+`Book.kept(user)` has it too, for what must know it is there (the booklog import, which posts
+are claimed). `test_trash` fails when code asks for `deleted=False` itself. Since the Trash, a
+sync must say `"schema": 3`; older copies of the app are answered 409 and update.
+
+Publishing and the Trash (`shelf/publish.py`): a trashed book is not published and its pages stay.
+A book on To read that was dropped (`trashed` + `dropped`) has its posts deleted and is unlinked
+while it is in the Trash; put back, the app sets `boekenWanted` and it is published again.
+`unpublish` (slugs) takes posts off the booklog on purpose: the posts go, the book and its reads
+stay, those reads marked `local` and never published again (`for_booklog` leaves them out).
+
 ## A list that became a mark
 
 `manage.py list_to_have --user NAME --list ID --have go|gone [--write]` gives the paper copies on

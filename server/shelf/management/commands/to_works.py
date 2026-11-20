@@ -66,7 +66,7 @@ class Command(BaseCommand):
     def convert(self, user):
         now = timezone.now()
         statuses = works.status_lists(user)
-        rows = list(Book.objects.filter(user=user, deleted=False).order_by('pk'))
+        rows = list(Book.kept(user).order_by('pk'))
         old = {row.pk: row.data for row in rows}
         new = {row.pk: works.upgrade(row.data, statuses) for row in rows}
         by_uid = {row.uid: row for row in rows}

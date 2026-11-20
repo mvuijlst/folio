@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.32.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.33.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -200,6 +200,13 @@ const DB = { ...table('bookscan', 'books'), lists: table('bookscan-lists', 'list
 
 /** In-memory copy of the shelf, newest first. */
 let books = [];
+/* The Trash: books deleted on purpose, kept until you empty it (Settings → Trash). A trashed book
+   is still a record (`trashed`: when it went), stored and synced like any other, so it can be put
+   back on any device; but it is never in `books`, so nothing that shows, counts, filters or
+   exports books sees it. It is kept apart where books come in: at load and in applyRemote.
+   A copy or a read deleted from a book goes into that book's own `trash` ([{at, edition,
+   reviews} | {at, review}]), out of its editions and reviews. */
+let trash = [];
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2));
 
@@ -311,6 +318,46 @@ async function removeBook(book, { drop = false } = {}) {
   await DB.del(book.id).catch(storageFailed);
 }
 
+/**
+ * Deleting a book on purpose: it goes to the Trash with everything it has. Its page on the
+ * booklog stays (the booklog holds what you read), except for a book on To read that is dropped
+ * (`dropped`): its page goes, while it is in the Trash (shelf/publish.py), and comes back when it
+ * is put back.
+ */
+async function trashBook(book, { dropped = false } = {}) {
+  book.trashed = new Date().toISOString();
+  if (dropped && book.boeken) book.dropped = true;
+  books = books.filter((b) => b !== book);
+  trash = [book, ...trash.filter((b) => b !== book)];
+  touch(book.id, book);
+  renderLibrary();
+  await DB.put(book).catch(storageFailed);
+}
+
+/** Out of the Trash, as it was. A dropped book the booklog has let go of is published again. */
+async function putBackBook(book) {
+  delete book.trashed;
+  if (book.dropped) {
+    delete book.dropped;
+    if (!book.boeken && [...FIXED.keys()].some((id) => book.lists?.[id])) book.boekenWanted = true;
+  }
+  trash = trash.filter((b) => b !== book);
+  if (!books.includes(book)) books.push(guarded(book));
+  sortBooks();
+  touch(book.id, book);
+  renderLibrary();
+  await DB.put(book).catch(storageFailed);
+}
+
+/** Gone for good from the Trash: deleted everywhere. The booklog keeps its pages (a dropped book's are taken off still). */
+async function deleteForGood(book) {
+  trash = trash.filter((b) => b !== book);
+  if (book.dropped && book.boeken) { sync.drops[book.id] = true; store.set('syncDrops', sync.drops); }
+  touch(book.id);
+  renderTrashCount();
+  await DB.del(book.id).catch(storageFailed);
+}
+
 async function restoreBook(book) {
   if (books.some((b) => b.id === book.id)) return;
   guarded(book);
@@ -323,6 +370,8 @@ async function restoreBook(book) {
 }
 
 const sortBooks = () => books.sort((a, b) => (a.added < b.added ? 1 : -1));
+/** The Trash, what went last first. */
+const byTrashed = (a, b) => (String(a.trashed) < String(b.trashed) ? 1 : -1);
 
 function storageFailed(err) {
   console.error(err);
@@ -779,8 +828,8 @@ async function runSync({ loud = false } = {}) {
           });
         };
         const res = await api('sync', {
-          schema: 2,   // books with editions (works.js); a server that has them refuses copies of the app from before
-          since: sync.cursor, changes: pack(sent, books, 'book'),
+          schema: 3,   // 2: books with editions (works.js); 3: books in the Trash. A server that has them refuses copies of the app from before
+          since: sync.cursor, changes: pack(sent, [...books, ...trash], 'book'),   // a trashed book is a record too
           listsSince: sync.listsCursor, lists: pack(sentLists, lists, 'list'),
           termsSince: sync.termsCursor, terms: pack(sentTerms, terms.map((term) => ({ ...term, value: term.value || T.valueOf(term) })), 'term'),
         });
@@ -835,10 +884,11 @@ async function applyRemote(changes) {
   for (const c of changes) {
     // A newer change made here wins; it goes up on the next round.
     if (sync.dirty[c.id] && time(sync.dirty[c.id]) >= time(c.modified)) continue;
-    const local = books.find((b) => b.id === c.id);
+    const local = books.find((b) => b.id === c.id) || trash.find((b) => b.id === c.id);
     if (c.deleted) {
       if (!local) continue;
       books = books.filter((b) => b !== local);
+      trash = trash.filter((b) => b !== local);
       await DB.del(c.id).catch(storageFailed);
     } else {
       // A server that has not converted the shelf yet sends books in the old shape: made new here.
@@ -858,14 +908,19 @@ async function applyRemote(changes) {
         }
         for (const k of Object.keys(local)) delete local[k];
         Object.assign(local, book);
-      } else {
-        books.push(book);
       }
-      await DB.put(local || book).catch(storageFailed);
+      // In the Trash or on the shelf, as the other device left it.
+      const kept = local || book;
+      books = books.filter((b) => b !== kept);
+      trash = trash.filter((b) => b !== kept);
+      (kept.trashed ? trash : books).push(kept);
+      await DB.put(kept).catch(storageFailed);
     }
   }
   sortBooks();
+  trash.sort(byTrashed);
   renderLibrary();
+  renderTrashCount();
 }
 
 async function applyRemoteLists(changes) {
@@ -919,7 +974,7 @@ async function signIn(username, password) {
   sync.cursor = sync.listsCursor = sync.termsCursor = null;
   sync.error = '';
   // Offer everything on this device; books the server has newer copies of come back from it.
-  for (const b of books) sync.dirty[b.id] ??= b.modified || b.added;
+  for (const b of [...books, ...trash]) sync.dirty[b.id] ??= b.modified || b.added;
   for (const l of lists) sync.dirtyLists[l.id] ??= l.modified || EPOCH;
   for (const term of terms) sync.dirtyTerms[term.id] ??= term.modified || EPOCH;
   saveSyncState();
@@ -947,8 +1002,9 @@ async function signOut({ clearShelf }) {
   try { await api('logout', {}); } catch {}
   forgetAccount();
   if (clearShelf) {
-    const gone = books, goneLists = lists, goneTerms = terms;
+    const gone = [...books, ...trash], goneLists = lists, goneTerms = terms;
     books = [];
+    trash = [];
     terms = [];
     termsChanged();
     sync.dirty = {};
@@ -4370,7 +4426,10 @@ function openBookForm({ book, isNew = false, heading, subheading, onSaved, onClo
     !isNew && h('div', { class: 'form-combine' },
       // Another edition of this book (a translation, say), and another book that is this one.
       whole && h('button', { class: 'link-btn', type: 'button', onclick: () => openAdd(false, { into: book, back: back || (() => openBook(book)) }) }, icon('plus'), t('Add another edition')),
-      h('button', { class: 'link-btn', type: 'button', onclick: () => openCombine(book, again) }, icon('merge'), t('Combine with another book…'))),
+      h('button', { class: 'link-btn', type: 'button', onclick: () => openCombine(book, again) }, icon('merge'), t('Combine with another book…')),
+      // Rarely wanted (published by mistake), so quietly here at the bottom.
+      book.boeken && !book.unpublish && booklogHost() && h('button', { class: 'link-btn quiet-action', type: 'button', onclick: () => confirmUnpublish(book, again) }, t('Remove from {host}', { host: booklogHost() })),
+      book.unpublish && booklogHost() && h('span', { class: 'sheet-note', text: t('Being taken off {host}…', { host: booklogHost() }) })),
     error,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete book'), onclick: remove }, icon('trash')),
@@ -4532,28 +4591,20 @@ function openEditionForm(book, ed, { back, from, onSaved } = {}) {
   }
 
   function remove() {
+    // A read with a page on the booklog stays until that page is taken off (on the read: Remove
+    // from the booklog); the booklog holds what you read. A copy you no longer have is marked Gone.
+    if (reads.some((r) => r.boeken)) { onTheBooklog(again, reads.filter((r) => r.boeken).length); return; }
     const gone = async () => {
       const before = structuredClone(book);
-      const host = booklogHost();
-      book.editions = book.editions.filter((e) => e.id !== ed.id);
-      book.reviews = (book.reviews || []).filter((r) => r.ed !== ed.id);
-      // Its reads in the booklog are pages there, which go too (shelf/publish.py).
-      const posts = reads.map((r) => r.boeken).filter(Boolean);
-      if (posts.length) book.dropReads = [...new Set([...(book.dropReads || []), ...posts])];
-      if (!book.reviews.length) delete book.reviews;
-      if (book.main === ed.id) delete book.main;
-      settleRating(book);
+      binEdition(book, ed);
       await saveBook(book);
       back();
-      toast(posts.length && host ? t('Edition removed, also from {host}', { host }) : t('Edition removed'), { action: t('Undo'), onAction: () => putBack(book, before) });
+      toast(t('Edition in the Trash'), { action: t('Undo'), onAction: () => putBack(book, before) });
     };
     if (!reads.length) { gone(); return; }
-    const host = reads.some((r) => r.boeken) && booklogHost();
     sheet.open(h('div', null,
       sheetHead(t('Delete this edition?'), editionLine(ed, book) || displayTitle(book)),
-      h('p', { class: 'sheet-note drop-note', text: host
-        ? t('What was read of it goes too: {n}, and their pages on {host}. The booklog’s history keeps them.', { n: plural(reads.length, 'read'), host })
-        : t('What was read of it goes too: {n}.', { n: plural(reads.length, 'read') }) }),
+      h('p', { class: 'sheet-note drop-note', text: t('It goes to the Trash with what was read of it: {n}.', { n: plural(reads.length, 'read') }) }),
       h('div', { class: 'btn-row sheet-actions' },
         h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: again }),
         h('button', { class: 'btn btn-primary', type: 'button', onclick: gone }, icon('trash'), t('Delete')))));
@@ -4739,7 +4790,14 @@ async function addFound(flat, { say = true, match = false, sibling = null } = {}
   // `sibling`: a book that is surely this one (its audiobook or e-book has this ISBN), where none was chosen.
   const into = !match && adding.into && books.includes(adding.into) ? adding.into : null;
   if (!match) adding.into = null;
-  const same = into || (sibling && books.includes(sibling) ? sibling : null) || W.findWork(flat, books);
+  let same = into || (sibling && books.includes(sibling) ? sibling : null) || W.findWork(flat, books);
+  // The same book, in the Trash: it comes back, and this is added to it, rather than a second one.
+  const binned = !same && W.findWork(flat, trash);
+  if (binned) {
+    await putBackBook(binned);
+    if (say) toast(t('“{title}” was in the Trash: put back.', { title: displayTitle(binned) }), { ms: 6000 });
+    same = binned;
+  }
   if (!same) {
     const book = await addBook(flat);
     return (adding.last = { book, edition: book.editions[0], attached: false });
@@ -5472,43 +5530,93 @@ function bookActions(book, again) {
 }
 
 /**
- * Deleting a book. One that is in the booklog can go from there too, with all its reads: that
- * is asked, and ticked unless you untick it. `back()` returns to where you came from.
+ * Deleting a book: it goes to the Trash (trashBook), with Undo. Its pages on the booklog stay, as
+ * the booklog holds what you read; a copy you no longer have is marked Gone instead. `back`: unused
+ * now, kept for the callers.
  */
-function confirmDelete(book, back) {
+function confirmDelete(book) {
   const host = book.boeken ? booklogHost() : '';
-  const gone = (fromBooklog) => {
-    sheet.close();
-    removeBook(book, { drop: fromBooklog });
-    toast(fromBooklog ? t('Book removed, also from {host}', { host }) : t('Book removed'), { action: t('Undo'), onAction: () => restoreBook(book) });
-  };
-  if (!host) { gone(false); return; }
-  const reads = new Set([book.boeken, ...(book.reviews || []).map((r) => r.boeken).filter(Boolean)]).size;
-  const note = h('p', { class: 'sheet-note drop-note', text: reads > 1 ? t('All {n} of its pages there go, one for each read. The booklog’s history keeps a copy.', { n: reads }) : t('Its page there goes. The booklog’s history keeps a copy.') });
-  const also = h('input', { type: 'checkbox', checked: true, onchange: () => { note.hidden = !also.checked; } });
-  sheet.open(h('div', null,
-    sheetHead(t('Delete this book?'), displayTitle(book)),
-    h('label', { class: 'check-line' }, also, h('span', { text: t('Also delete it from {host}', { host }) })),
-    note,
-    h('div', { class: 'btn-row sheet-actions' },
-      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
-      h('button', { class: 'btn btn-primary', type: 'button', onclick: () => gone(also.checked) }, icon('trash'), t('Delete')))));
+  sheet.close();
+  trashBook(book);
+  toast(host ? t('In the Trash. Its page on {host} stays.', { host }) : t('In the Trash'), {
+    action: t('Undo'), ms: host ? 8000 : 5000, onAction: () => putBackBook(book),
+  });
 }
 
-/** Dropping a book you meant to read takes it out of the shelf for good; that is asked first. */
+/** An edition into its book's own trash, with what was read of it. The book is saved by the caller. */
+function binEdition(book, ed) {
+  const reviews = (book.reviews || []).filter((r) => r.ed === ed.id);
+  (book.trash ||= []).push({ at: new Date().toISOString(), edition: structuredClone(ed), ...(reviews.length && { reviews: structuredClone(reviews) }) });
+  book.editions = book.editions.filter((e) => e.id !== ed.id);
+  book.reviews = (book.reviews || []).filter((r) => r.ed !== ed.id);
+  if (!book.reviews.length) delete book.reviews;
+  if (book.main === ed.id) delete book.main;
+  settleRating(book);
+}
+/** A read (a review) into its book's own trash. */
+function binReview(book, review) {
+  (book.trash ||= []).push({ at: new Date().toISOString(), review: structuredClone(review) });
+  book.reviews = (book.reviews || []).filter((r) => r !== review);
+  if (!book.reviews.length) delete book.reviews;
+  settleRating(book);
+}
+/** Out of the book's trash and back in it (a read whose edition went meanwhile is of the main one: works.js settle). */
+function unbin(book, entry) {
+  book.trash = (book.trash || []).filter((x) => x !== entry);
+  if (!book.trash.length) delete book.trash;
+  if (entry.edition) {
+    book.editions.push(entry.edition);
+    if (entry.reviews) (book.reviews ||= []).push(...entry.reviews);
+  } else if (entry.review) (book.reviews ||= []).push(entry.review);
+  settleRating(book);
+}
+
+/** Said when a read to be deleted has a page on the booklog: it stays until that page is taken off. `back`: to where it was asked. */
+function onTheBooklog(back, n) {
+  const host = booklogHost() || 'the booklog';
+  sheet.open(h('div', null,
+    sheetHead(t('On {host}', { host }), n > 1 ? t('{n} of its reads have a page there.', { n }) : t('This read has a page there.')),
+    h('p', { class: 'sheet-note', text: t('The booklog holds what you read, so a read with a page there stays. If it was logged by mistake, take its page off first: open the read and choose Remove this read from {host}. Once it is off, in a few minutes, it can be deleted.', { host }) }),
+    h('div', { class: 'btn-row sheet-actions' }, h('button', { class: 'btn btn-primary', type: 'button', 'data-cancel': true, onclick: back }, t('OK')))));
+}
+
+/** Taking a whole book off the booklog (published by mistake): its pages go, the book and its reads stay, never published again. */
+function confirmUnpublish(book, back) {
+  const host = booklogHost() || 'the booklog';
+  const posts = [...new Set([book.boeken, ...(book.reviews || []).map((r) => r.boeken)].filter(Boolean))];
+  sheet.open(h('div', null,
+    sheetHead(t('Remove from {host}?', { host }), displayTitle(book)),
+    h('p', { class: 'sheet-note drop-note', text: posts.length > 1
+      ? t('Its {n} pages there go, one for each read. The book and its reads stay here, and are not published again. The booklog’s history keeps a copy.', { n: posts.length })
+      : t('Its page there goes. The book stays here, and is not published again. The booklog’s history keeps a copy.') }),
+    h('div', { class: 'btn-row sheet-actions' },
+      h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
+      h('button', { class: 'btn btn-primary', type: 'button', onclick: async () => {
+        const before = book.unpublish;
+        book.unpublish = posts;
+        await saveBook(book);
+        back();
+        toast(t('It goes from {host} within a few minutes.', { host }), { action: t('Undo'), onAction: async () => {
+          if (before) book.unpublish = before; else delete book.unpublish;
+          await saveBook(book);
+        } });
+      } }, t('Remove')))));
+}
+
+/** Dropping a book you meant to read: it goes to the Trash, and its page on the booklog goes (the one deletion that does); that is asked first. */
 function confirmDrop(book) {
   const host = book.boeken ? booklogHost() : '';
   sheet.open(h('div', null,
     sheetHead(t('Drop this book?'), displayTitle(book)),
-    h('p', { class: 'sheet-note drop-note', text: host ? t('It is removed from your shelf, and its page on {host} is deleted.', { host }) : t('It is removed from your shelf.') }),
+    h('p', { class: 'sheet-note drop-note', text: host ? t('It goes to the Trash, and its page on {host} is deleted. Put back, it is published again.', { host }) : t('It goes to the Trash.') }),
     h('div', { class: 'btn-row sheet-actions' },
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: () => openBook(book) }),
       h('button', {
         class: 'btn btn-primary', type: 'button',
         onclick: () => {
           sheet.close();
-          removeBook(book, { drop: true });
-          toast(t('Book dropped'), { action: t('Undo'), onAction: () => restoreBook(book) });
+          trashBook(book, { dropped: true });
+          toast(t('Book dropped'), { action: t('Undo'), onAction: () => putBackBook(book) });
         },
       }, icon('trash'), t('Drop')))));
 }
@@ -5894,24 +6002,32 @@ function openReviewForm(book, review, back, { finish = false, draft = null } = {
   }
 
   function remove() {
-    // A read that is in the booklog is a post there, which goes too (shelf/publish.py).
-    const host = review.boeken && booklogHost();
-    book.reviews = book.reviews.filter((r) => r !== review);
-    if (host) book.dropReads = [...new Set([...(book.dropReads || []), review.boeken])];
-    settleRating(book);
+    // A read with a page on the booklog stays until that page is taken off (below); the booklog holds what you read.
+    if (review.boeken) { onTheBooklog(again, 1); return; }
+    const before = structuredClone(book);
+    binReview(book, review);
     saveBook(book);
     back();
-    toast(host ? t('Review removed, also from {host}', { host }) : t('Review removed'), {
-      action: t('Undo'),
-      onAction: () => {
-        (book.reviews ||= []).push(review);
-        if (host) { book.dropReads = book.dropReads.filter((slug) => slug !== review.boeken); if (!book.dropReads.length) delete book.dropReads; }
-        settleRating(book);
-        saveBook(book);
-        if (sheet.isOpen) back();
-      },
-    });
+    toast(t('Review in the Trash'), { action: t('Undo'), onAction: async () => { await putBack(book, before); if (sheet.isOpen) back(); } });
   }
+  // Taking this read's page off the booklog (logged by mistake, say): the read stays here, and is
+  // never published again (shelf/publish.py: unpublish). Then it can be deleted.
+  const host = !isNew && review.boeken && book.boeken && booklogHost();
+  const leaving = host && (book.unpublish || []).includes(review.boeken);
+  const unpublish = host && h('button', {
+    class: 'link-btn quiet-action', type: 'button', disabled: leaving,
+    onclick: async () => {
+      book.unpublish = [...new Set([...(book.unpublish || []), review.boeken])];
+      await saveBook(book);
+      again();
+      toast(t('It goes from {host} within a few minutes.', { host }), { action: t('Undo'), onAction: async () => {
+        book.unpublish = (book.unpublish || []).filter((slug) => slug !== review.boeken);
+        if (!book.unpublish.length) delete book.unpublish;
+        await saveBook(book);
+        if (sheet.isOpen) again();
+      } });
+    },
+  }, leaving ? t('Being taken off {host}…', { host }) : t('Remove this read from {host}', { host }));
 
   const form = h('form', { novalidate: true, onsubmit: submit },
     sheetHead(finish ? t('Finished it') : isNew ? t('New review') : t('Edit review'), displayTitle(book)),
@@ -5922,6 +6038,7 @@ function openReviewForm(book, review, back, { finish = false, draft = null } = {
       h('label', { class: 'field' }, h('span', { text: t('Rating (0–10)') }), rating)),
     box,
     error,
+    unpublish,
     h('div', { class: 'btn-row sheet-actions' },
       !isNew && h('button', { class: 'btn btn-quiet btn-danger', type: 'button', 'aria-label': t('Delete review'), onclick: remove }, icon('trash')),
       h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: back }),
@@ -6300,7 +6417,8 @@ const RECORD_KIND = { books: () => t('Books'), lists: () => t('Lists'), terms: (
 const RECORD_WORD = { books: 'book', lists: 'list', terms: 'word' };
 /** Where each kind of record is kept, and how its changes are remembered for sync. */
 const KEEP = {
-  books: { rows: () => books, set: (rows) => { books = rows; }, db: DB, dirty: 'dirty', key: 'syncDirty' },
+  // Books in the Trash are records too: in the file, compared, restored (each where its `trashed` says).
+  books: { rows: () => [...books, ...trash], set: (rows) => { books = rows.filter((b) => !b.trashed); trash = rows.filter((b) => b.trashed); }, db: DB, dirty: 'dirty', key: 'syncDirty' },
   lists: { rows: () => lists, set: (rows) => { lists = rows; }, db: DB.lists, dirty: 'dirtyLists', key: 'syncDirtyLists' },
   terms: { rows: () => terms, set: (rows) => { terms = rows; }, db: DB.terms, dirty: 'dirtyTerms', key: 'syncDirtyTerms' },
 };
@@ -6311,7 +6429,7 @@ function openBackup() {
   offerFile({
     title: t('Back up'),
     about: t('{books}, {lists} and {words}: everything on this device, as it is kept. Restore reads it back.', { books: plural(books.length, 'book'), lists: plural(lists.length, 'list'), words: plural(terms.length, 'word') }),
-    text: JSON.stringify(B.makeBackup({ books, lists, terms, app: APP_VERSION, made })),
+    text: JSON.stringify(B.makeBackup({ books: [...books, ...trash], lists, terms, app: APP_VERSION, made })),
     type: 'application/json', name: `folio-backup-${made.slice(0, 10)}.json`,
   });
 }
@@ -6349,9 +6467,11 @@ function putRecord(kind, record) {
     guarded(row);
     if (sync.drops[row.id]) { delete sync.drops[row.id]; store.set('syncDrops', sync.drops); }
   }
-  const local = keep.rows().find((r) => r.id === row.id);
+  const all = keep.rows();
+  const local = all.find((r) => r.id === row.id);
   if (local) { for (const k of Object.keys(local)) delete local[k]; Object.assign(local, row); row = local; }
-  else keep.rows().push(row);
+  else all.push(row);
+  keep.set(all);   // (books: on the shelf or in the Trash, as the record says)
   sync[keep.dirty][row.id] = row.modified;
   return keep.db.put(row);
 }
@@ -6366,6 +6486,7 @@ function dropRecord(kind, id, now) {
 async function settleRecords(writing) {
   for (const kind of B.KINDS) store.set(KEEP[kind].key, sync[KEEP[kind].dirty]);
   sortBooks();
+  trash.sort(byTrashed);
   sortLists();
   termsChanged();
   await Promise.all(writing.filter(Boolean)).catch(storageFailed);
@@ -6414,7 +6535,7 @@ function openRestorePage() {
     if (got.error === 'newer') { start(t('This backup was made by a newer Folio ({version}). Update Folio (close and reopen it), then restore it.', { version: got.app || '?' })); return; }
     if (got.error) { start(t('This file is not a Folio backup. An export can’t be read back; a backup, made with Back up, can.')); return; }
     const { gone, unsure } = await goneSince(got.backup);
-    preview(file, got.backup, B.compare(got.backup, { books, lists, terms }, gone), unsure);
+    preview(file, got.backup, B.compare(got.backup, { books: [...books, ...trash], lists, terms }, gone), unsure);
   }
 
   function preview(file, backup, plan, unsure) {
@@ -6852,6 +6973,7 @@ function openSettings() {
       navRow(t('Paper copies'), paperAbout(), () => openPage(openPaperPage)),
       navRow(t('Lookups'), settings.googleKey ? t('Open Library, and Google Books with your key') : t('Open Library and Google Books'), () => openPage(openLookupsPage)),
       navRow(t('As a file'), t('Backup, restore, export'), () => openPage(openFilePage)),
+      navRow(t('Trash'), trashAbout(), () => openPage(openTrashPage)),
       navRow(t('About'), t('Version {version}', { version: APP_VERSION }), () => openPage(openAboutPage)))));
   fetchBooklogNames();
   // Whether this account may share its library is the server's to say: allowed since the list
@@ -7003,6 +7125,78 @@ function openLookupsPage() {
       h('label', { class: 'field' }, h('span', { text: t('Google Books API key') }), key),
       h('p', { class: 'sheet-note' },
         t('Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.')))));
+}
+
+/* Settings → Trash: what was deleted, kept until you empty it. Books, and copies and reads deleted
+   from a book on the shelf (a trashed book keeps its own inside it). Each can be put back or
+   deleted for good; Empty deletes them all, or those older than 90 days. Deleted for good, a book
+   is gone from every device; the booklog keeps its pages. */
+
+const OLD = 90 * 86400000;
+/** What is in the Trash: [{at, book, entry?}] (entry: a copy or read from that book), newest first. */
+const trashItems = () => [
+  ...trash.map((book) => ({ at: book.trashed, book })),
+  ...books.flatMap((book) => (book.trash || []).map((entry) => ({ at: entry.at, book, entry }))),
+].sort((a, b) => (String(a.at) < String(b.at) ? 1 : -1));
+let redrawTrash = null;
+function renderTrashCount() { if (redrawTrash && sheet.isOpen && $('sheetBody').querySelector('.trash-page')) redrawTrash(); }
+const trashAbout = () => (trashItems().length ? t('{n} kept until you empty it', { n: trashItems().length }) : t('Empty'));
+
+/** Deletes Trash items for good: books everywhere, copies and reads out of their book. */
+async function emptyTrash(items) {
+  const changed = new Set();
+  for (const { book, entry } of items) {
+    if (!entry) { await deleteForGood(book); continue; }
+    book.trash = (book.trash || []).filter((x) => x !== entry);
+    if (!book.trash.length) delete book.trash;
+    changed.add(book);
+  }
+  if (changed.size) await saveBooks([...changed]);
+}
+
+function openTrashPage() {
+  let confirming = null;   // the items Empty would delete, while it asks
+  function draw() {
+    const items = trashItems(), old = items.filter((it) => Date.now() - time(it.at) > OLD);
+    const what = ({ book, entry }) => {
+      if (!entry) return { title: displayTitle(book), about: [book.dropped && book.boeken && t('Dropped: its page goes from {host}', { host: booklogHost() }), book.boeken && !book.dropped && t('Its page on {host} stays', { host: booklogHost() })].filter(Boolean).join(' · ') };
+      if (entry.edition) return { title: displayTitle(book), about: [t('Edition'), editionLine(entry.edition, book), entry.reviews && plural(entry.reviews.length, 'read')].filter(Boolean).join(' · ') };
+      return { title: displayTitle(book), about: [t('A read'), entry.review.date && longDate(entry.review.date), entry.review.rating != null && `★ ${entry.review.rating}`].filter(Boolean).join(' · ') || t('Review') };
+    };
+    const row = (it) => {
+      const { title, about } = what(it);
+      return h('div', { class: 'list-row trash-row' },
+        h('div', { class: 'list-name' }, h('span', { text: title }), h('small', { text: [about, agoText(it.at)].filter(Boolean).join(' · ') })),
+        h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Put back'), title: t('Put back'), onclick: async () => {
+          if (it.entry) { unbin(it.book, it.entry); await saveBook(it.book); } else await putBackBook(it.book);
+          toast(t('Put back: {title}', { title }));
+          draw();
+        } }, icon('undo')),
+        h('button', { class: 'icon-btn btn-danger', type: 'button', 'aria-label': t('Delete for good'), title: t('Delete for good'), onclick: () => { confirming = [it]; draw(); } }, icon('trash')));
+    };
+    const top = $('sheetBody').querySelector('.trash-page') ? $('sheetBody').scrollTop : 0;
+    sheet.open(h('div', { class: 'trash-page' },
+      pageHead(t('Trash'), items.length ? t('{n} kept until you empty it', { n: items.length }) : t('Empty')),
+      confirming && h('div', { class: 'sheet-section' }, h('div', { class: 'confirm-box' },
+        h('p', { text: confirming.length === 1 ? t('Delete “{title}” for good? It can’t be put back after this.', { title: what(confirming[0]).title })
+          : t('Delete {n} for good? They can’t be put back after this.', { n: confirming.length }) }),
+        confirming.some((it) => !it.entry && it.book.boeken && !it.book.dropped) && h('p', { class: 'sheet-note', text: t('The booklog keeps their pages.') }),
+        h('div', { class: 'btn-row' },
+          h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), onclick: () => { confirming = null; draw(); } }),
+          h('button', { class: 'btn btn-outline btn-danger', type: 'button', onclick: async () => { const gone = confirming; confirming = null; await emptyTrash(gone); toast(t('Deleted for good')); draw(); } }, icon('trash'), t('Delete'))))),
+      h('div', { class: 'sheet-section' },
+        items.length
+          ? h('div', { class: 'list-rows' }, items.map(row))
+          : h('p', { class: 'sheet-note', text: t('Nothing in the Trash. What you delete comes here, and stays until you empty it.') })),
+      items.length > 0 && h('div', { class: 'sheet-section' },
+        h('div', { class: 'stack' },
+          old.length > 0 && old.length < items.length && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => { confirming = old; draw(); $('sheetBody').scrollTop = 0; } }, t('Empty what is older than 90 days ({n})', { n: old.length })),
+          h('button', { class: 'btn btn-outline btn-block btn-danger', type: 'button', onclick: () => { confirming = items; draw(); $('sheetBody').scrollTop = 0; } }, icon('trash'), t('Empty the Trash'))),
+        h('p', { class: 'sheet-note', text: t('Nothing goes by itself. A book you deleted keeps its page on {host}; deleted for good, it is gone from every device.', { host: booklogHost() || 'the booklog' }) }))));
+    if (!confirming) $('sheetBody').scrollTop = top;
+  }
+  redrawTrash = draw;
+  draw();
 }
 
 function openFilePage() {
@@ -7876,6 +8070,21 @@ async function onIsbn(isbn) {
   buzz();
   pulse();
 
+  // A book in the Trash: said, with Put back, rather than added a second time.
+  const binned = !byIsbn(isbn) && trash.find((b) => editionsOf(b).some((e) => e.isbn === isbn));
+  if (binned) {
+    scanner.busy = false;
+    adding.into = null;
+    showCard(card({
+      status: t('In the Trash'), tone: 'warn', book: binned, edition: editionsOf(binned).find((e) => e.isbn === isbn),
+      actions: [h('button', { class: 'btn btn-outline btn-whole', type: 'button', onclick: async () => {
+        await putBackBook(binned);
+        showCard(card({ status: t('Put back'), tone: 'ok', statusIcon: 'check', book: binned, edition: editionsOf(binned).find((e) => e.isbn === isbn) }));
+      } }, icon('undo'), t('Put back'))],
+    }));
+    return;
+  }
+
   // The same ISBN is the same edition. With more than one copy, the one that is already where you are scanning to answers.
   const known = byIsbn(isbn, scanner.target, { paper: true });
   // Only an audiobook or e-book has it: the paper copy is another edition of that book, whatever
@@ -8332,12 +8541,15 @@ async function init() {
     termsChanged();
     // Books kept here in the shape from before editions are made new (works.js), and written back
     // as they are now without counting as a change: the server makes them new the same way.
-    books = (await DB.all()).map((b) => {
+    const all = (await DB.all()).map((b) => {
       if (b.v === 2 && Array.isArray(b.editions) && b.editions.length) return guarded(b);
       const up = W.upgrade(b, statusIds());
       DB.put(up).catch(storageFailed);
       return guarded(up);
     });
+    // The Trash apart from the shelf (see `trash`).
+    books = all.filter((b) => !b.trashed);
+    trash = all.filter((b) => b.trashed).sort(byTrashed);
     sortBooks();
   } catch (err) {
     storageFailed(err);

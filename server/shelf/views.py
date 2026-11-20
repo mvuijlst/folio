@@ -6,7 +6,7 @@
   POST /api/cover    an image as the request body, or {"url"} of a catalogue cover → {"cover", "coverFull", "coverRatio"}
   POST /api/suggest  {"text", "url"} → {"books": [proposal…]}: the book(s) a description or a
                      shared page is about (by ISBN where there is one, else the assistant)
-  POST /api/sync     {"schema": 2, "since": cursor | null, "changes": [change…],
+  POST /api/sync     {"schema": 3, "since": cursor | null, "changes": [change…],
                       "listsSince": cursor | null, "lists": [change…]}
                       "termsSince": cursor | null, "terms": [change…]}
                      → {"cursor", "changes": [change…], "lists": [change…], "terms": [change…]}
@@ -64,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 MAX_BOOK_BYTES = 300_000      # a book with a cover thumbnail is ~30 kB
 MAX_CHANGES = 5000
-SCHEMA = 2                    # the shape of a book the app must speak (works.py)
+SCHEMA = 3                    # the shape of a book the app must speak (works.py); 3: books in the Trash (`trashed`)
 OUT_OF_DATE = 'This version of Folio is out of date. Close and reopen it to update.'
 LOGIN_LIMIT = 10              # failed attempts …
 LOGIN_WINDOW = 15 * 60        # … per this many seconds, per address and per username
@@ -207,7 +207,7 @@ def suggest(request):
         if settings.BOEKEN_REPO:
             books = intake.propose(text, booklog=intake.Booklog(settings.BOEKEN_REPO), url=url, image=image)
         else:
-            used = {c for b in Book.objects.filter(user=request.user, deleted=False) for c in b.data.get('categories') or []}
+            used = {c for b in Book.shelf(request.user) for c in b.data.get('categories') or []}
             books = intake.propose(text, categories=used, url=url, image=image)
     except intake.NotSetUp as err:
         return error(str(err), 503)
@@ -288,7 +288,7 @@ def categories_of(request):
     if settings.BOEKEN_REPO:
         allowed = intake.known_terms(settings.BOEKEN_REPO, 'categories')
     else:
-        allowed = {c for b in Book.objects.filter(user=request.user, deleted=False) for c in b.data.get('categories') or []}
+        allowed = {c for b in Book.shelf(request.user) for c in b.data.get('categories') or []}
     try:
         return JsonResponse({'books': categorise.ask(asked, allowed)})
     except intake.NotSetUp as err:
