@@ -443,6 +443,7 @@ export default {
   'No connection right now. The details will be filled in when you’re back online.': 'Nu geen verbinding. De gegevens worden ingevuld zodra je weer online bent.',
   'Added to your shelf': 'Toegevoegd aan je boekenkast',
   'Type the ISBN': 'Typ het ISBN',
+  'Add X (check digit)': 'X toevoegen (controlecijfer)',
   'The 10 or 13 digits printed above the barcode or on the copyright page.': 'De 10 of 13 cijfers boven de streepjescode of op de copyrightpagina.',
   'That isn’t a valid ISBN — check the digits.': 'Dat is geen geldig ISBN — kijk de cijfers na.',
   'Look up': 'Opzoeken',
