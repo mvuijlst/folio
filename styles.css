@@ -1156,13 +1156,12 @@ div.list-name { cursor: default; }
   /* Adding a book heads the sidebar and the selection bar sits in the toolbar (app.js:
      initPicking), so nothing floats over the books. */
   .dock { display: none; }
-  /* In the toolbar's second row, in place of the views while selecting (there is seldom room
-     for both, in Dutch even less), and as tall, so the books don't move. No panel of its own,
-     and no X: Select above it ends it. */
+  /* A row of its own in the toolbar, always: beside the views it fitted only while its words were
+     short ("3 selected" did, "Select books" didn't), so it jumped between rows as books were picked.
+     The first row stays as it was. No panel of its own, and no X: Select above it ends it. */
   .tools { container: tools / inline-size; }
-  .tools:has(> .pick-bar:not([hidden])) .view-seg { display: none; }
   .tools .pick-bar {
-    flex: 1 1 auto; width: auto; min-width: 0; max-width: none; height: 34px; padding: 0; gap: 2px;
+    flex: 1 1 100%; width: auto; min-width: 0; max-width: none; height: 34px; padding: 0; gap: 2px;
     background: none; border: none; box-shadow: none; animation: none;
   }
   .tools .pick-bar > .icon-btn:first-child { display: none; }

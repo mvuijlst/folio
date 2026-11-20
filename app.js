@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.37.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.37.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3168,11 +3168,11 @@ function initPicking() {
   // A long press on a cover would otherwise offer to save the picture.
   library.addEventListener('contextmenu', (e) => { if (timer || swallow || (picking.on && e.pointerType !== 'mouse')) e.preventDefault(); });
   $('pickBtn').addEventListener('click', () => (picking.on ? closeLayer() : startPicking()));
-  // On a wide screen the bar is in the toolbar, in place of the views (styles.css), under Select;
+  // On a wide screen the bar is a row of the toolbar, under Select and above the filters (styles.css);
   // on a phone and a tablet it floats at the bottom, under the thumb.
   const wide = matchMedia('(min-width: 900px)');
   const place = () => {
-    if (wide.matches) $('tools').insertBefore($('pickBar'), $('viewSeg'));
+    if (wide.matches) $('tools').insertBefore($('pickBar'), $('activeFilters'));
     else document.querySelector('.dock').append($('pickBar'));
   };
   wide.addEventListener('change', place);
