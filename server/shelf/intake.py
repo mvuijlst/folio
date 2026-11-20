@@ -593,7 +593,11 @@ def lookup_isbn(isbn):
     }
     if edition.get('covers'):
         proposal['cover'] = f'https://covers.openlibrary.org/b/id/{edition["covers"][0]}-L.jpg'
-    return with_national(proposal, isbn)
+    proposal = with_national(proposal, isbn)
+    if proposal and not proposal['pages']:
+        from . import pages
+        proposal['pages'] = pages.one(isbn)
+    return proposal
 
 
 def with_national(proposal, isbn):

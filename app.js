@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.36.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.37.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1377,8 +1377,25 @@ async function lookupIsbn(isbn) {
   const sources = Object.fromEntries(tasks.map(([name]) => [name, !results[name] ? 'waiting' : !results[name].ok ? 'failed' : results[name].book?.title ? 'found' : 'none']));
   const book = merged();
   if (book && !book.language) { const language = isbnLanguage(isbn); if (language) book.language = language; }
+  if (book && !book.pages) { const pages = await morePages(isbn); if (pages) book.pages = pages; }
   if (book) return { status: 'found', book, sources };
   return Object.values(results).some((r) => r?.ok) ? { status: 'notfound', sources } : { status: 'unreachable', sources };
+}
+
+/* Pages where Google Books and Open Library's edition say none (server/shelf/pages.py): Hardcover,
+   which the server asks (its token stays there), with an account; then the median length of the
+   Open Library work's editions, which is not this edition's own but near it for most books. A
+   short wait each: a scan is not held up long for a number that can be typed in later. */
+let hardcoverOff = false;   // the server said it has no Hardcover token: not asked again this session
+async function morePages(isbn) {
+  const within = (promise, ms) => Promise.race([promise, new Promise((resolve) => setTimeout(() => resolve(null), ms))]);
+  if (sync.user && !VISITING && !hardcoverOff) {
+    const res = await within(api('pages', { isbn }).catch((err) => { if (err.status === 503) hardcoverOff = true; return null; }), 5000);
+    if (res?.pages > 0) return res.pages;
+  }
+  const d = await getJSON(`https://openlibrary.org/search.json?isbn=${isbn}&fields=number_of_pages_median&limit=1`, 5000).catch(() => null);
+  const median = d?.docs?.[0]?.number_of_pages_median;
+  return median > 0 ? median : null;
 }
 
 /** "Open Library and KB": the catalogues of a lookup that answered so (`state`: 'none', 'failed'). */

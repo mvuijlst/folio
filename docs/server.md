@@ -217,6 +217,15 @@ again). Without `--write` it only says what it would fill. The year is that of t
 catalogue has, which may be later than the copy's. Make a database copy first. The server's own
 lookup of an ISBN (for the assistant's proposals) asks the national catalogue the same way.
 
+`manage.py fill_pages --user NAME` fills the page count of paper and e-book editions that have an
+ISBN and none (`shelf/pages.py`): Hardcover's count for the ISBN, 25 ISBNs a request, which needs
+`HARDCOVER_API_TOKEN` (a personal token from Hardcover's account settings, in `server/.env`); for
+the rest the median page count of the Open Library work, which is the work's and not the
+edition's own (`--no-median` leaves those empty). A page count already said is never changed;
+`--pause`, `--booklog` and `--write` as above. With the token set, the app asks Hardcover through
+the server (`POST /api/pages`) after a scan the catalogues gave no pages for, then the Open Library
+median itself; the server's own lookup of an ISBN does the same.
+
 `manage.py fill_original --user NAME` gives books the language they were first written in and
 their original title (`originalLanguage`, `originalTitle`), from Wikidata (through each book's
 Open Library work) and Open Library's record of an ISBN; `--assistant` also asks the assistant,

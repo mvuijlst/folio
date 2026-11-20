@@ -7,6 +7,7 @@ Configuration comes from environment variables (see .env.example):
   BOEKEN_REPO_PATH    a clone of the booklog to publish to (optional)
   BOEKEN_GIT_AUTHOR   "Name <address>" for the commits made there
   BOEKEN_PUSH         "1" to push those commits (which publishes them)
+  HARDCOVER_API_TOKEN for page counts the catalogues lack (optional)
   OPENAI_API_KEY      for the assistant that proposes books from a description (optional)
   OPENAI_MODEL        the model it asks
   OPENAI_COVER_EFFORT how long it may think about a photographed cover ("low" by default; "" for the model's own)
@@ -100,6 +101,10 @@ BOEKEN_PUSH = os.environ.get('BOEKEN_PUSH') == '1'
 OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
 OPENAI_MODEL = os.environ.get('OPENAI_MODEL', 'gpt-5.5')
 OPENAI_COVER_EFFORT = os.environ.get('OPENAI_COVER_EFFORT', 'low')
+
+# Hardcover (hardcover.app) is asked for the page count of an edition the other catalogues
+# leave without one (shelf/pages.py); a personal API token from its account settings.
+HARDCOVER_API_TOKEN = os.environ.get('HARDCOVER_API_TOKEN', '')
 
 # Cover thumbnails are written next to the app and served from there as plain files.
 COVERS_DIR = BASE_DIR.parent / 'covers'

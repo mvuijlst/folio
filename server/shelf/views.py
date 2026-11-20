@@ -13,6 +13,8 @@
   POST /api/original {"title", "author", "language"} → {"language", "title"}: the language the
                      book was first written in and its title then, as far as the assistant knows
                      ({} when it doesn't); the app asks Wikidata and Open Library itself first
+  POST /api/pages    {"isbn"} → {"pages": n | null}: the edition's page count as Hardcover has it
+                     (shelf/pages.py), for a scan the other catalogues gave none; 503 without a token
   GET  /api/booklog-names → {"categories": {slug: title}, "tags": {slug: title}, "series": [name]}: how the
                      booklog names its pages, for the app to show (nulls when there is no booklog here)
   POST /api/tag-merges {"tags": [{"slug", "name", "books"}…]} → {"groups": [{"keep", "merge", "why"}…]}:
@@ -56,7 +58,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from django.conf import settings
 
-from . import categorise, covers, intake, original, works
+from . import categorise, covers, intake, original, pages, works
 from . import public
 from .models import Book, Library, List, Term
 
@@ -264,6 +266,28 @@ def original_of(request):
         return error(str(err), 503)
     except intake.IntakeError as err:
         return error(str(err), 502)
+
+
+@require_POST
+def pages_of(request):
+    """An ISBN-13 → its page count as Hardcover has it (null when it has none)."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    isbn = str((body(request) or {}).get('isbn') or '')
+    if not re.fullmatch(r'\d{13}', isbn):
+        return error('Bad request')
+    key = 'pages:' + isbn
+    if (cached := cache.get(key)) is not None:
+        return JsonResponse({'pages': cached or None})
+    try:
+        found = pages.hardcover([isbn]).get(isbn)
+    except pages.NotSetUp as err:
+        return error(str(err), 503)
+    except Exception as err:
+        logger.warning('Hardcover did not answer for %s: %s', isbn, err)
+        return error('Hardcover did not answer', 502)
+    cache.set(key, found or 0, 60 * 60 * 24)
+    return JsonResponse({'pages': found})
 
 
 @require_POST
