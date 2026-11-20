@@ -55,14 +55,19 @@ export function start(covers, { onExit }) {
   document.head.append(style);
   document.body.append(root);
 
-  // Covers in a shuffled order, dealt again from the top once all have been used.
+  // Covers in a shuffled order, dealt again from the top once all have been used: with only a few
+  // they come round again and again, in another order each time. `not`: a cover not to deal now
+  // (the one just above, or the one turning), when there is any other.
   let deck = [];
-  const deal = () => {
-    if (!deck.length) {
-      deck = covers.slice();
-      for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; }
+  const deal = (not) => {
+    for (let i = 0; ; i++) {
+      if (!deck.length) {
+        deck = covers.slice();
+        for (let k = deck.length - 1; k > 0; k--) { const j = Math.floor(Math.random() * (k + 1)); [deck[k], deck[j]] = [deck[j], deck[k]]; }
+      }
+      const cover = deck.pop();
+      if (cover.src !== not || covers.length < 2 || i > 4) return cover;
     }
-    return deck.pop();
   };
 
   // The wall: columns of covers at their own height, as on a masonry wall, just large enough to
@@ -91,8 +96,10 @@ export function start(covers, { onExit }) {
     column.className = 'ss-col';
     column.style.left = `${x}px`;
     let y = -rand(0, col);   // columns start out of step
+    let above = null;
     while (y < H) {
-      const cover = deal();
+      const cover = deal(above);
+      above = cover.src;
       const ratio = clampRatio(cover.ratio);
       const height = Math.round(col / ratio);
       const img = new Image();
@@ -167,8 +174,10 @@ export function start(covers, { onExit }) {
     }
     if (!tile) return;
     tile.busy = true;
-    let next = deal();
-    for (let i = 0; i < 24 && Math.abs(clampRatio(next.ratio) - tile.ratio) > 0.08; i++) next = deal();
+    const now = tile.img.src;
+    let next = deal(now);
+    for (let i = 0; i < 24 && Math.abs(clampRatio(next.ratio) - tile.ratio) > 0.08; i++) next = deal(now);
+    if (next.src === now) { tile.busy = false; return; }   // only one cover: nothing to turn into
     try {
       const [front, back] = await Promise.all([picture(tile.img.src), picture(next.src)]);
       if (back.naturalWidth >= 8 && root.isConnected) await turn(tile, front, back);

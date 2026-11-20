@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.31.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.31.4'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -126,9 +126,11 @@ function initTheme() {
   });
 }
 
-/** Three clicks on the mark: a screensaver of the covers on the shelf (screensaver.js, which is
-    only loaded then). Full screen where the browser allows it; Back, a key, a click or moving the
-    mouse ends it. */
+/** Three clicks on the mark: a screensaver of the covers of the books in view (screensaver.js,
+    which is only loaded then): the place, filters and search as they are, each book as the edition
+    it shows; covers repeat if there are too few to fill the wall. The whole shelf from the list of
+    series, or where nothing in view has a cover. Full screen where the browser allows it; Back, a
+    key, a click or moving the mouse ends it. */
 function initScreensaver() {
   let clicks = 0, last = 0, stop = null;
   document.querySelector('.mark').addEventListener('click', () => {
@@ -137,14 +139,19 @@ function initScreensaver() {
     last = now;
     if (clicks < 3 || stop) return;
     clicks = 0;
-    const seen = new Set();
-    const covers = [];
-    for (const book of books) {
-      const ed = [W.mainEdition(book), ...editionsOf(book)].find((e) => e && (e.cover || e.thumb));
-      const src = ed && (ed.cover ? abs(ed.cover) : ed.thumb);
-      if (src && !seen.has(src)) { seen.add(src); covers.push({ src, ratio: ed.coverRatio }); }
-    }
-    if (covers.length < 6) return;
+    const coversOf = (list, faceOf) => {
+      const seen = new Set();
+      const covers = [];
+      for (const book of list) {
+        const ed = [faceOf(book), W.mainEdition(book), ...editionsOf(book)].find((e) => e && (e.cover || e.thumb));
+        const src = ed && (ed.cover ? abs(ed.cover) : ed.thumb);
+        if (src && !seen.has(src)) { seen.add(src); covers.push({ src, ratio: ed.coverRatio }); }
+      }
+      return covers;
+    };
+    let covers = view.seriesIndex ? [] : coversOf(shown.rows, (b) => shown.faces?.get(b));
+    if (!covers.length) covers = coversOf(books, () => null);
+    if (!covers.length) return;
     // Asked for while the click still counts as one, or the browser refuses.
     document.documentElement.requestFullscreen?.({ navigationUI: 'hide' }).catch(() => {});
     stop = () => {};
