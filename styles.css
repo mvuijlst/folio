@@ -1144,9 +1144,22 @@ div.list-name { cursor: default; }
   .empty { grid-column: 2; grid-row: 4; }
   .bar { display: none; }
   .dock { bottom: 0; padding-bottom: calc(var(--safe-b) + 18px); }
-  /* Adding a book heads the sidebar; the dock is left only for the selection bar. */
-  .dock .fab { display: none; }
-  .dock:has(> .pick-bar[hidden]) { background: none; }
+  /* Adding a book heads the sidebar and the selection bar sits in the toolbar (app.js:
+     initPicking), so nothing floats over the books. */
+  .dock { display: none; }
+  /* In the toolbar's second row, in place of the views while selecting (there is seldom room
+     for both, in Dutch even less), and as tall, so the books don't move. No panel of its own,
+     and no X: Select above it ends it. */
+  .tools { container: tools / inline-size; }
+  .tools:has(> .pick-bar:not([hidden])) .view-seg { display: none; }
+  .tools .pick-bar {
+    flex: 1 1 auto; width: auto; min-width: 0; max-width: none; height: 34px; padding: 0; gap: 2px;
+    background: none; border: none; box-shadow: none; animation: none;
+  }
+  .tools .pick-bar > .icon-btn:first-child { display: none; }
+  .tools .pick-count { flex: none; padding: 0 6px 0 2px; }
+  .tools .pick-bar .link-btn { padding: 6px 10px; }
+  .tools .pick-bar .btn { min-height: 34px; }
   /* Quiet, like the lists under it: a row, not a coloured button; only the plus has the accent. */
   .side-add {
     display: flex; align-items: center; gap: 10px;
@@ -1157,7 +1170,7 @@ div.list-name { cursor: default; }
   .side-add .icon { flex: none; width: 18px; height: 18px; color: var(--accent); }
   .side-add:hover { background: var(--surface); }
   .side-add.idle { visibility: hidden; }
-  .search { flex: 1 1 220px; }
+  .search { flex: 1 1 160px; }   /* gives way first, so filter (with its count), order and Select keep the first row, in Dutch too */
   .lists {
     display: flex;
     grid-column: 1; grid-row: 2 / span 3; align-self: start;
@@ -1331,6 +1344,8 @@ div.list-name { cursor: default; }
 .pick-bar .link-btn { padding: 8px 10px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .pick-bar .btn { min-height: 40px; padding: 0 16px 0 13px; font-size: .94rem; }
 .pick-bar .btn .icon { width: 16px; height: 16px; }
+.pick-short { display: none; align-items: center; gap: 5px; }
+.pick-short .icon { width: 16px; height: 16px; }
 
 .bulk .sheet-head { margin-bottom: 6px; }
 .bulk .sheet-sub { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1406,7 +1421,22 @@ div.list-name { cursor: default; }
   .pick-bar .pick-straighten ~ .pick-propose ~ .btn-primary { padding: 0 13px; }
   .pick-bar .pick-straighten ~ .pick-propose ~ .btn-primary span { display: none; }
   .pick-count { padding-left: 4px; }
+  /* Selected books out of view: an eye and their number, and Edit its pencil to make room. */
+  .pick-hidden .pick-long { display: none; }
+  .pick-hidden .pick-short { display: inline-flex; }
+  .pick-bar .pick-hidden ~ .btn-primary { padding: 0 13px; }
+  .pick-bar .pick-hidden ~ .btn-primary span { display: none; }
   .pick-word { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+/* In the toolbar of a wide screen (styles above, at 900px) the bar has the toolbar's width:
+   where that is narrow, Straighten and Categories are their icons, and with both there, sooner. */
+@container tools (max-width: 760px) {
+  .pick-bar .pick-straighten:has(~ .pick-propose), .pick-bar .pick-straighten ~ .pick-propose { padding: 0 11px; }
+  .pick-bar .pick-straighten:has(~ .pick-propose) span, .pick-bar .pick-straighten ~ .pick-propose span { display: none; }
+}
+@container tools (max-width: 640px) {
+  .pick-bar .pick-straighten, .pick-bar .pick-propose { padding: 0 11px; }
+  .pick-bar .pick-straighten span, .pick-bar .pick-propose span { display: none; }
 }
 .page-about { color: var(--muted); }
 .page-about span { color: var(--faint); }

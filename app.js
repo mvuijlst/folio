@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.33.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.34.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -702,6 +702,7 @@ function setView(target) {
 
 /** The same place, narrowed or ordered differently. It is still that place: no new step in history. */
 function refine({ filters, sort } = {}) {
+  if (filters) picking.only = false;   // a filter chosen again: the view as filtered, not only the selected books
   if (filters) view.filters = Object.fromEntries(Object.entries(filters).filter(([, values]) => values.length));
   if (sort) {
     view.sort = sort;
@@ -2181,9 +2182,9 @@ function spanSlider(facet, inScope, others, draft, choose) {
   return el;
 }
 
-/** Under the search box: what the view is narrowed by, each to be taken off again. */
-function drawActiveFilters(facets) {
-  const chips = facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
+/** Under the search box: what the view is narrowed by, each to be taken off again (or, `only`, that it shows the selected books). */
+function drawActiveFilters(facets, only = false) {
+  const chips = only ? [h('button', { class: 'chip active-filter', type: 'button', title: t('Remove'), onclick: () => showPicked(false) }, t('Selected'), icon('x'))] : facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
     const out = !facet.match && value.startsWith(NOT), plain = out ? value.slice(NOT.length) : value;
     const found = facet.values.find((v) => v.value === plain);
     const named = facet.label ? facet.label(value) : found?.name || plain;
@@ -2195,8 +2196,10 @@ function drawActiveFilters(facets) {
   }));
   $('activeFilters').replaceChildren(...chips);
   $('activeFilters').hidden = !chips.length;
-  $('filterCount').textContent = chips.length ? String(chips.length) : '';
-  $('filterCount').hidden = !chips.length;
+  // Filters only: showing the selected books isn't one.
+  const set = facets.reduce((n, facet) => n + (view.filters[facet.key] || []).length, 0);
+  $('filterCount').textContent = set ? String(set) : '';
+  $('filterCount').hidden = !set;
 }
 
 /** All series, by name: a few covers, how many books, how many of them read. */
@@ -2437,10 +2440,14 @@ function renderLibrary() {
   const facets = facetsOf();
   const faces = new Map(inScope.map((b) => [b, faceOf(b, facets)]));
   const filtered = inScope.filter((b) => faces.get(b));
-  drawActiveFilters(facets);
+  // Showing only the selected books: whatever the search and the filters say, as they are.
+  const only = picking.on && picking.only;
+  if (only) for (const b of inScope) if (picking.ids.has(b.id) && !faces.get(b)) faces.set(b, W.mainEdition(b));
+  drawActiveFilters(facets, only);
   $('filterBtn').onclick = () => openFilterSheet(inScope);
   $('searchWrap').hidden = inScope.length < 8 && !query;
-  const found = query ? filtered.filter((b) => searchText(b).includes(query)) : filtered;
+  const found = only ? inScope.filter((b) => picking.ids.has(b.id))
+    : query ? filtered.filter((b) => searchText(b).includes(query)) : filtered;
   // 3. In order. A series has its own; anything else the one chosen for the place. Books
   //    without what is sorted by come last, whichever way the order runs.
   const sort = sortOf(), by = SORTS[sort.key];
@@ -2459,7 +2466,7 @@ function renderLibrary() {
     rowsInOrder = keyed.map(([, b]) => b);
   }
   // Redrawing the same view (after a save, a sync) keeps as many rows as were showing.
-  const key = `${addressOf()}|${sort.key}${sort.dir}|${view.mode}|${query}`;
+  const key = `${addressOf()}|${sort.key}${sort.dir}|${view.mode}|${query}|${only}`;
   const rows = key === shown.key ? Math.max(PAGE, shown.next) : PAGE;
   // A person's books in the order of their series: under each series' title the whole series,
   // book by book (seriesStrip), with the books that aren't theirs as outlines.
@@ -2968,9 +2975,17 @@ function statsOf(rows, faces, facets) {
    then selects a book instead of opening it, and Shift takes in every book in between. Add
    a book makes way for a bar with what there is to do with them: Edit opens one sheet for
    all of them. Selecting is a step in history, so Back ends it, and going elsewhere does too.
-   What is selected stays selected while you search or filter, to pick books from all over. */
+   What is selected stays selected while you search or filter, to pick books from all over;
+   the bar says how many of them the view hides, and shows just the selected books on a click
+   (`only`: a lens over the view, gone again when you search or filter). */
 
-const picking = { on: false, ids: new Set(), anchor: null };
+const picking = { on: false, ids: new Set(), anchor: null, only: false };
+
+/** The selected books the view doesn't show now: searched or filtered away. */
+function hiddenPicks() {
+  const visible = new Set(shown.rows.map((b) => b.id));
+  return books.filter((b) => picking.ids.has(b.id) && !visible.has(b.id));
+}
 
 /** The books selected: in the order they are shown, then any the view hides now. */
 function pickedBooks() {
@@ -2982,7 +2997,7 @@ function pickedBooks() {
 function startPicking(first) {
   if (VISITING) return;
   if (!picking.on) {
-    Object.assign(picking, { on: true, ids: new Set(), anchor: null });
+    Object.assign(picking, { on: true, ids: new Set(), anchor: null, only: false });
     openLayer(endPicking, { scrolls: true });
   }
   if (first) { picking.ids.add(first.id); picking.anchor = first; }
@@ -2990,9 +3005,16 @@ function startPicking(first) {
 }
 
 function endPicking() {
-  Object.assign(picking, { on: false, ids: new Set(), anchor: null });
+  const lens = picking.only;
+  Object.assign(picking, { on: false, ids: new Set(), anchor: null, only: false });
   history.replaceState(history.state, '', addressOf());   // filtered or ordered meanwhile: the address says so
-  drawPicking();
+  if (lens) renderLibrary(); else drawPicking();   // the view as it was before showing only the selected
+}
+
+/** Only the selected books, or (`on` false) the view again as searched and filtered. */
+function showPicked(on) {
+  picking.only = on;
+  renderLibrary();
 }
 
 function togglePick(book, e) {
@@ -3026,6 +3048,7 @@ function drawPicking() {
   if (!picking.on) return;
   const n = picking.ids.size;
   const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
+  const hidden = n ? hiddenPicks().length : 0;
   const photos = n ? pickedBooks().filter((b) => photoEditions(b).length) : [];
   const bare = n ? pickedBooks().filter((b) => !b.pending && !b.categories?.length) : [];
   fill($('pickBar'),
@@ -3033,7 +3056,16 @@ function drawPicking() {
     // The number apart from its word: on a phone there is only room for the number (styles.css).
     n ? h('span', { class: 'pick-count' }, String(n), h('span', { class: 'pick-word', text: t('{n} selected', { n }).replace(String(n), '') }))
       : h('span', { class: 'pick-count', text: t('Select books') }),
-    shown.rows.length > 0 && h('button', { class: 'link-btn', type: 'button', text: all ? t('None') : t('All {n}', { n: shown.rows.length }), onclick: pickAll }),
+    // Selected books the search or a filter hides: said, and shown on a click.
+    // On a phone an eye and the number (styles.css).
+    hidden > 0 && h('button', { class: 'link-btn pick-hidden', type: 'button', title: t('{n} not shown', { n: hidden }), onclick: () => showPicked(true) },
+      h('span', { class: 'pick-long', text: t('{n} not shown', { n: hidden }) }),
+      h('span', { class: 'pick-short', 'aria-hidden': 'true' }, icon('eye'), String(hidden))),
+    // With books selected elsewhere, all of these are added to them, or these taken off again.
+    shown.rows.length > 0 && h('button', {
+      class: 'link-btn', type: 'button', onclick: pickAll,
+      text: all ? (hidden ? t('Deselect {n}', { n: shown.rows.length }) : t('None')) : hidden ? t('Add all {n}', { n: shown.rows.length }) : t('All {n}', { n: shown.rows.length }),
+    }),
     photos.length > 0 && h('button', {
       class: 'btn btn-outline pick-straighten', type: 'button', title: t('Straighten covers'), 'aria-label': t('Straighten covers'),
       onclick: () => openStraightenCovers(photos),
@@ -3084,6 +3116,15 @@ function initPicking() {
   // A long press on a cover would otherwise offer to save the picture.
   library.addEventListener('contextmenu', (e) => { if (timer || swallow || (picking.on && e.pointerType !== 'mouse')) e.preventDefault(); });
   $('pickBtn').addEventListener('click', () => (picking.on ? closeLayer() : startPicking()));
+  // On a wide screen the bar is in the toolbar, in place of the views (styles.css), under Select;
+  // on a phone and a tablet it floats at the bottom, under the thumb.
+  const wide = matchMedia('(min-width: 900px)');
+  const place = () => {
+    if (wide.matches) $('tools').insertBefore($('pickBar'), $('viewSeg'));
+    else document.querySelector('.dock').append($('pickBar'));
+  };
+  wide.addEventListener('change', place);
+  place();
   document.addEventListener('keydown', (e) => {
     // Only while nothing is open over the shelf.
     if (!picking.on || document.body.classList.contains('locked') || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
@@ -3368,12 +3409,17 @@ function openBulkEdit(chosen) {
   fill(apply, icon('check'), t('Change {books}', { books: plural(n, 'book') }));
 
   const titles = chosen.slice(0, 3).map(displayTitle).join(', ');
+  const visible = new Set(shown.rows.map((b) => b.id)), away = chosen.filter((b) => !visible.has(b.id));
   const form = h('form', {
     class: 'bulk', novalidate: true, onsubmit: submit,
     // Every control redraws itself first; then the parts say whether they change anything.
     onclick: () => refresh(), oninput: () => refresh(),
   },
     sheetHead(t('Edit {books}', { books: plural(n, 'book') }), n > 3 ? t('{titles} and {n} more', { titles, n: n - 3 }) : titles),
+    // Selected, but searched or filtered out of sight: the last place to notice them.
+    away.length > 0 && h('p', { class: 'sheet-note bulk-away', text: t('Not in the view now: {titles}', {
+      titles: away.length > 5 ? t('{titles} and {n} more', { titles: away.slice(0, 5).map(displayTitle).join(', '), n: away.length - 5 }) : away.map(displayTitle).join(', '),
+    }) }),
     published > 0 && h('p', { class: 'sheet-note bulk-booklog', text: published === n
       ? t('These are on {host}: what changes is published there within a few minutes.', { host })
       : t('{n} of these are on {host}: what changes is published there within a few minutes.', { n: published, host }) }),
@@ -8347,7 +8393,7 @@ function bindEvents() {
   $('addBtn').addEventListener('click', () => openAdd());
   $('settingsBtn').addEventListener('click', openSettings);
   $('sortBtn').addEventListener('click', openSortSheet);
-  $('search').addEventListener('input', renderLibrary);
+  $('search').addEventListener('input', () => { picking.only = false; renderLibrary(); });
   $('viewSeg').addEventListener('click', (e) => {
     const mode = e.target.closest('button')?.dataset.view;
     if (!VIEWS.includes(mode) || mode === view.mode) return;
