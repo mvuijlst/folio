@@ -230,3 +230,34 @@ export function findCover(image) {
     sure: mean >= 0.75 && Math.min(...best.cover) >= 0.6,
   };
 }
+
+/**
+ * How wide the book really is for its height (width ÷ height), from its corners in a photo of
+ * `width` × `height` pixels ([x, y] clockwise from top left, as findCover gives them).
+ *
+ * The sides as they are drawn mislead when the photo is taken at a slant: the edge nearest the
+ * camera comes out longer, and the sides running away from it shorter, than they are. The four
+ * corners are a rectangle seen in perspective, and how it is turned towards the camera can be
+ * worked out from them, given how far away the camera's lens is in pixels (its focal length;
+ * Zhang & He, "Whiteboard scanning and image enhancement", 2007). That can be guessed from the
+ * corners too, but a corner dragged a few pixels throws the guess off badly when the book leans
+ * only one way, so a phone's ordinary lens is taken instead (as wide as the photo's longest side
+ * is long): near enough for every photo, as the answer hardly turns on it.
+ */
+export function coverRatio(quad, width, height) {
+  const f = Math.max(width, height);
+  const at = ([x, y]) => [x - width / 2, y - height / 2, 1];   // from the middle of the photo
+  const [m1, m2, m4, m3] = quad.map(at);                         // top left, top right, bottom right, bottom left
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const k2 = dot(cross(m1, m4), m3) / dot(cross(m2, m4), m3);
+  const k3 = dot(cross(m1, m4), m2) / dot(cross(m3, m4), m2);
+  const across = m2.map((v, i) => k2 * v - m1[i]);   // the top edge's direction in space, give or take a scale
+  const down = m3.map((v, i) => k3 * v - m1[i]);     // the left edge's
+  const length = ([x, y, z]) => Math.hypot(x, y, z * f);
+  const ratio = length(across) / length(down);
+  if (Number.isFinite(ratio) && ratio > 0) return ratio;
+  // Corners that are no rectangle seen from anywhere: the sides as drawn.
+  const side = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+  return (side(quad[0], quad[1]) + side(quad[3], quad[2])) / (side(quad[0], quad[3]) + side(quad[1], quad[2]));
+}

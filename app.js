@@ -11,10 +11,10 @@
 import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
-import { findCover } from './corners.js';
+import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.33.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.33.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3935,9 +3935,11 @@ function bookIn(bitmap) {
 
 /** The part of `bitmap` inside `quad` (in its pixels), as an upright rectangle on a canvas of at most `largest` pixels on its longest side. */
 function straighten(bitmap, quad, largest = 1600) {
+  // The book's own shape, undoing the slant it was photographed at; as many pixels as its longest side had.
   const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
-  let w = Math.max(dist(quad[0], quad[1]), dist(quad[3], quad[2]));
-  let hgt = Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]));
+  const ratio = coverRatio(quad, bitmap.width, bitmap.height);
+  let hgt = Math.max(dist(quad[0], quad[3]), dist(quad[1], quad[2]), dist(quad[0], quad[1]) / ratio, dist(quad[3], quad[2]) / ratio);
+  let w = hgt * ratio;
   const k = Math.min(1, largest / Math.max(w, hgt));
   w = Math.max(1, Math.round(w * k)); hgt = Math.max(1, Math.round(hgt * k));
   const src = h('canvas', { width: bitmap.width, height: bitmap.height });

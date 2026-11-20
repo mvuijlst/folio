@@ -3,7 +3,7 @@
 // the ones covers are photographed on.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { findCover } from '../corners.js';
+import { findCover, coverRatio } from '../corners.js';
 
 /** A seeded random number generator, so a failure can be seen again. */
 function random(seed) {
@@ -104,4 +104,32 @@ test('no book: plain stone, or only shelves, is never a sure frame', () => {
   assert.ok(!stone || !stone.sure, JSON.stringify(stone));
   const stripes = findCover(picture(600, 800, (x) => (Math.floor(x / 40) % 2 ? [200, 60, 60] : [40, 40, 120])));
   assert.ok(!stripes || !stripes.sure, JSON.stringify(stripes));
+});
+
+/** The corners of a w × h rectangle in a photo of W × H pixels, turned `tilt` degrees away at the top and `turn` degrees sideways, `distance` off. */
+function photographed(w, h, { W = 1200, H = 1500, tilt = 0, turn = 0, distance = 3 } = {}) {
+  const f = Math.max(W, H), a = tilt * Math.PI / 180, b = turn * Math.PI / 180;
+  return [[-w / 2, -h / 2], [w / 2, -h / 2], [w / 2, h / 2], [-w / 2, h / 2]].map(([x, y]) => {
+    const y1 = y * Math.cos(a), z1 = y * Math.sin(a) * -1;                 // the top leans away
+    const x2 = x * Math.cos(b) + z1 * Math.sin(b), z2 = -x * Math.sin(b) + z1 * Math.cos(b);
+    const z = z2 + distance;
+    return [W / 2 + f * x2 / z, H / 2 + f * y1 / z];
+  });
+}
+
+test('coverRatio: a book photographed straight on keeps its shape', () => {
+  assert.ok(Math.abs(coverRatio(photographed(0.11, 0.178, { distance: 0.3 }), 1200, 1500) - 0.11 / 0.178) < 0.005);
+});
+
+test('coverRatio: a slanted photo gives the book its real shape, not the shape it was drawn', () => {
+  for (const [tilt, turn] of [[35, 0], [25, 12], [-30, 0], [0, 30], [40, -15]]) {
+    const quad = photographed(0.11, 0.178, { tilt, turn, distance: 0.3 });
+    assert.ok(Math.abs(coverRatio(quad, 1200, 1500) - 0.11 / 0.178) < 0.005, `tilt ${tilt}, turn ${turn}`);
+  }
+});
+
+test('coverRatio: a paperback photographed from below its bottom edge (They came and ate us) is not made too wide', () => {
+  // The frame as it was dragged onto a photo where the drawn sides make it 0.78 wide for its height; the book is 0.62.
+  const r = coverRatio([[222, 58], [668, 52], [815, 856], [175, 877]], 930, 944);
+  assert.ok(r > 0.57 && r < 0.66, String(r));
 });
