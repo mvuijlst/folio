@@ -71,16 +71,18 @@ export function start(covers, { onExit }) {
   };
 
   // The wall: columns of covers at their own height, as on a masonry wall, just large enough to
-  // fill the screen however the camera stands. It leans away to the top left, so most of it lies
-  // that way from where the camera looks; what is far off there is lost in the haze.
+  // fill the screen however the camera stands. It is seen like a floor from above, turned a little,
+  // its far side at the top; most of it lies that way from where the camera looks.
   const vw = innerWidth, vh = innerHeight;
   const side = Math.max(vw, vh);
   const col = Math.round(Math.max(96, Math.min(170, side / 11)));
   const gap = Math.round(col / 14);
-  // Where the camera may look: a stretch of the wall with room enough around it on every side
-  // (measured at the steepest angles and farthest distance a view can have).
-  const left = 1.8 * vw + 0.15 * side, right = 0.75 * vw + 0.15 * side;
-  const top = 1.7 * vh + 0.05 * side, bottom = 0.7 * vh + 0.1 * side;
+  // Where the camera may look: a stretch of the wall with room enough around it on every side.
+  // Worked out by projecting the screen back onto the wall at the steepest angles and farthest
+  // distance a view can have, on a phone, a laptop and a wide screen, with a little to spare.
+  const spare = 0.03 * side;
+  const left = 0.4 * vw + 0.55 * vh + spare, right = 0.55 * vw + 0.2 * vh + spare;
+  const top = Math.max(0.5 * vw + 1.1 * vh, 1.9 * vh) + spare, bottom = 0.25 * vw + 0.6 * vh + spare;
   const roamX = 0.3 * side, roamY = 0.15 * side;
   const W = Math.round(left + roamX + right), H = Math.round(top + roamY + bottom);
   // The columns sit on a slide that moves slowly to the left; one column more than the wall is
@@ -124,14 +126,15 @@ export function start(covers, { onExit }) {
   Object.assign(slide.style, { width: `${span}px`, height: `${H}px` });
   for (const c of columns) Object.assign(c.el.style, { width: `${col}px`, height: `${H}px` });
 
-  // The camera: a view is the point of the wall in the middle of the screen, how far it leans
-  // back and away, and how near it is. It drifts from one view to the next, half a minute each.
+  // The camera: a view is the point of the wall in the middle of the screen, how far it lies back
+  // (about 45°), how far it is turned (about 15°, clockwise) and how near it is. The lens is a long
+  // one, so the far side narrows only gently. It drifts from one view to the next, half a minute each.
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const perspective = Math.round(Math.max(700, side * 0.75));
+  const perspective = Math.round(Math.max(700, side * 1.3));
   root.style.perspective = `${perspective}px`;
   const view = () => {
     const x = left + rand(0, roamX), y = top + rand(0, roamY);
-    return `translateZ(${rand(-perspective * 0.25, perspective * 0.12).toFixed(0)}px) rotateX(${rand(28, 40).toFixed(1)}deg) rotateY(${rand(-32, -22).toFixed(1)}deg) rotateZ(${rand(2, 9).toFixed(1)}deg) translate(${-x.toFixed(0)}px, ${-y.toFixed(0)}px)`;
+    return `translateZ(${rand(-perspective * 0.2, perspective * 0.12).toFixed(0)}px) rotateX(${rand(42, 50).toFixed(1)}deg) rotateZ(${rand(12, 20).toFixed(1)}deg) translate(${-x.toFixed(0)}px, ${-y.toFixed(0)}px)`;
   };
   wall.style.transform = view();
   const timers = new Set();
