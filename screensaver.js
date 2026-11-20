@@ -233,7 +233,21 @@ export function start(covers, { onExit }) {
   addEventListener('keydown', exit, true);
   document.addEventListener('fullscreenchange', fullscreen);
 
+  // The screen stays on while it runs, where the browser allows it (Screen Wake Lock). The browser
+  // lets go when the page is out of sight, so it is asked for again on coming back.
   let stopped = false;
+  let awake = null;
+  const stayAwake = () => {
+    if (stopped || document.visibilityState !== 'visible' || awake) return;
+    navigator.wakeLock?.request('screen').then((lock) => {
+      if (stopped) { lock.release().catch(() => {}); return; }
+      awake = lock;
+      lock.addEventListener('release', () => { if (awake === lock) awake = null; });
+    }).catch(() => {});
+  };
+  stayAwake();
+  document.addEventListener('visibilitychange', stayAwake);
+
   return () => {
     if (stopped) return;
     stopped = true;
@@ -241,6 +255,9 @@ export function start(covers, { onExit }) {
     removeEventListener('pointerdown', exit, true);
     removeEventListener('keydown', exit, true);
     document.removeEventListener('fullscreenchange', fullscreen);
+    document.removeEventListener('visibilitychange', stayAwake);
+    awake?.release().catch(() => {});
+    awake = null;
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     root.remove();
     style.remove();
