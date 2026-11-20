@@ -109,6 +109,23 @@ class SyncTests(TestCase):
         self.client.force_login(other)
         self.assertEqual(self.sync()['lists'], [])
 
+    def test_gone_says_which_records_were_deleted_and_when(self):
+        # Restoring a backup asks, so a book deleted on purpose elsewhere is not quietly brought back.
+        self.sync(changes=[change('b1', '2026-11-14T10:00:00Z'), change('b2', '2026-11-14T10:00:00Z')],
+                  lists=[list_change('x1', '2026-11-14T10:00:00Z')])
+        self.sync(changes=[change('b1', '2026-11-15T10:00:00Z', deleted=True)],
+                  lists=[list_change('x1', '2026-11-15T11:00:00Z', deleted=True)])
+        res = self.client.post('/api/gone', json.dumps({'books': ['b1', 'b2', 'b9'], 'lists': ['x1'], 'terms': []}),
+                               content_type='application/json')
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json(), {'books': {'b1': '2026-11-15T10:00:00Z'}, 'lists': {'x1': '2026-11-15T11:00:00Z'}, 'terms': {}})
+        other = get_user_model().objects.create_user('someone', password='x')
+        self.client.force_login(other)
+        res = self.client.post('/api/gone', json.dumps({'books': ['b1']}), content_type='application/json')
+        self.assertEqual(res.json()['books'], {})
+        self.client.logout()
+        self.assertEqual(self.client.post('/api/gone', '{}', content_type='application/json').status_code, 401)
+
 
 class PublishedWhileEditedTests(TestCase):
     """A book is published while a device, not knowing yet, changes it."""

@@ -573,3 +573,29 @@ def sync(request):
         'user': user.get_username(),
         'assistant': bool(settings.OPENAI_API_KEY),   # whether /api/suggest will answer
     })
+
+MAX_GONE = 50_000             # ids asked about at once
+
+
+@require_POST
+def gone(request):
+    """Which of these records were deleted, and when: {"books": {uid: modified}, "lists": …, "terms": …}.
+
+    Restoring a backup asks, so a book deleted on purpose on another device is not quietly
+    brought back by a file made before (docs/shelf-ideas-plan.md, stage 1). Only tombstones are
+    answered: a record the server has alive, or never had, is not in the answer."""
+    if not request.user.is_authenticated:
+        return error('Not signed in', 401)
+    data = body(request)
+    if data is None:
+        return error('Bad request')
+    out = {}
+    for key, model in (('books', Book), ('lists', List), ('terms', Term)):
+        ids = data.get(key) or []
+        if not isinstance(ids, list) or len(ids) > MAX_GONE or not all(isinstance(i, str) for i in ids):
+            return error('Bad request')
+        # Every tombstone, filtered here: an `uid__in` of thousands is more than SQLite takes.
+        asked = set(ids)
+        rows = model.objects.filter(user=request.user, deleted=True).values_list('uid', 'modified')
+        out[key] = {uid: modified.isoformat().replace('+00:00', 'Z') for uid, modified in rows if uid in asked}
+    return JsonResponse(out)

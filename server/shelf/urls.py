@@ -7,6 +7,7 @@ urlpatterns = [
     path('login', views.login_view, name='login'),
     path('logout', views.logout_view, name='logout'),
     path('sync', views.sync, name='sync'),
+    path('gone', views.gone, name='gone'),
     path('cover', views.cover, name='cover'),
     path('suggest', views.suggest, name='suggest'),
     path('translate', views.translate, name='translate'),

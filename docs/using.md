@@ -433,6 +433,37 @@ Search engines are asked not to list a public library, but it is not secret: any
 address can open it. *Stop sharing* takes it offline at once. Visitors see what the server has,
 so a change shows once it has synced.
 
+## Backup and restore
+
+Settings → *Your shelf, as a file* → **Back up** saves one file
+(`folio-backup-<date>.json`) holding everything this device has, as it keeps it: every book
+with its editions, reads, reviews, notes and the lists it is on; every list; every word you
+named in two languages (roles, categories, tags, lists) and what you said about a series (how
+many books it has). The file says which version of Folio made it and when.
+
+Covers go as the books hold them: an address (Folio's own server, or a catalogue's), or a small
+copy of a picture taken on this device. The large cover files the server keeps are not in the
+file.
+
+**Restore** reads a backup back. Nothing is written until you have seen what it would do:
+
+- for books, lists and words, how many are new, the same, different, deleted since the file
+  was made, and only on this device;
+- of those that differ, which to keep: *the newer one* (changed last, the default), *this
+  device's* or *the file's*; *Which books differ* lists them;
+- what was deleted after the file was made, here or (signed in) on another device, stays
+  deleted unless you tick *Bring them back too*. Signed in, the server says what was deleted;
+  if it can't be reached, everything not on this device counts as deleted since.
+
+Restoring adds and replaces; it never deletes what is only on this device. One *Undo* (in the
+toast, and on the page for as long as it is open) puts everything back as it was. What it writes
+syncs like any other change: a book taken from the file keeps its own date when that is the
+newer, so a later change on another device still wins; one chosen over a newer copy, or brought
+back after it was deleted, counts as changed now.
+
+A file made by a newer Folio than this one is refused, with a word to update first. The JSON
+export below can't be read back; only a backup can.
+
 ## Export
 
 Settings → *Your shelf, as a file* has two exports. Each can be saved, shared or copied.
@@ -498,7 +529,7 @@ rename them.
   sent it; a book's editions, and the lists it and its editions are on, travel inside the book.
   A copy of the app from before editions (before 2.0) can no longer sync: it says it is out of
   date under Settings, and updates itself the next time it is opened.
-  Export now and then to keep a copy of your own. Once there is a shelf, Folio asks the browser
+  Back it up now and then to keep a copy of your own ([Backup and restore](#backup-and-restore)). Once there is a shelf, Folio asks the browser
   to keep it when space runs low (Chrome and Safari decide by themselves, Firefox asks you);
   settings → *About* says whether it agreed. Without that, a browser may clear it, and Safari
   does after a few weeks unused unless Folio is installed on the home screen.

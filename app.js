@@ -12,8 +12,9 @@ import NL from './lang-nl.js';
 import * as W from './works.js';
 import * as T from './terms.js';
 import { findCover } from './corners.js';
+import * as B from './backup.js';
 
-const APP_VERSION = '2.28.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.29.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -6147,13 +6148,19 @@ const EXPORTS = {
 function openExport(kind = 'json') {
   if (!books.length) { toast(t('Nothing to export yet')); return; }
   const how = EXPORTS[kind];
-  const text = how.make();
-  const name = `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`;
-  const file = typeof File === 'function' ? new File([text], name, { type: how.type }) : null;
+  offerFile({
+    title: t('Export'), about: how.about(plural(books.length, 'book')), text: how.make(), type: how.type,
+    name: `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`, copied: how.copied(),
+  });
+}
+
+/** A sheet to save, share or (given `copied`, the toast for it) copy a file made here. */
+function offerFile({ title, about, text, type, name, copied }) {
+  const file = typeof File === 'function' ? new File([text], name, { type }) : null;
   const canShareFile = !!file && !!navigator.canShare?.({ files: [file] });
 
   const save = () => {
-    const url = URL.createObjectURL(new Blob([text], { type: how.type }));
+    const url = URL.createObjectURL(new Blob([text], { type }));
     const a = h('a', { href: url, download: name });
     document.body.append(a);
     a.click();
@@ -6171,16 +6178,235 @@ function openExport(kind = 'json') {
     }
   };
   const copy = async () => {
-    try { await navigator.clipboard.writeText(text); sheet.close(); toast(how.copied()); }
+    try { await navigator.clipboard.writeText(text); sheet.close(); toast(copied); }
     catch { toast(t('Couldn’t reach the clipboard')); }
   };
 
   sheet.open(h('div', null,
-    sheetHead(t('Export'), how.about(plural(books.length, 'book'))),
+    sheetHead(title, about),
     h('div', { class: 'stack' },
       h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: save }, icon('download'), t('Save file')),
       navigator.share && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: share }, icon('share'), t('Share…')),
-      navigator.clipboard && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: copy }, icon('copy'), t('Copy to clipboard')))));
+      copied && navigator.clipboard && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: copy }, icon('copy'), t('Copy to clipboard')))));
+}
+
+/* ───────────────────────── Backup and restore ───────────────────────── */
+
+// The whole shelf as one file (backup.js): every record this device keeps, as it keeps it.
+// Restoring it is a merge: what the file has and this device doesn't is added, what differs is
+// shown and chosen, nothing here is deleted. Records written by a restore go to the server like
+// any other change, carrying the file's `modified` where that is the newer, so a later change
+// made elsewhere still wins. With an account the server says which of the file's records were
+// deleted since (api/gone); those stay deleted unless asked for.
+
+const RECORD_KIND = { books: () => t('Books'), lists: () => t('Lists'), terms: () => t('Words and series') };
+const RECORD_WORD = { books: 'book', lists: 'list', terms: 'word' };
+/** Where each kind of record is kept, and how its changes are remembered for sync. */
+const KEEP = {
+  books: { rows: () => books, set: (rows) => { books = rows; }, db: DB, dirty: 'dirty', key: 'syncDirty' },
+  lists: { rows: () => lists, set: (rows) => { lists = rows; }, db: DB.lists, dirty: 'dirtyLists', key: 'syncDirtyLists' },
+  terms: { rows: () => terms, set: (rows) => { terms = rows; }, db: DB.terms, dirty: 'dirtyTerms', key: 'syncDirtyTerms' },
+};
+
+function openBackup() {
+  if (!books.length) { toast(t('Nothing to back up yet')); return; }
+  const made = new Date().toISOString();
+  offerFile({
+    title: t('Back up'),
+    about: t('{books}, {lists} and {words}: everything on this device, as it is kept. Restore reads it back.', { books: plural(books.length, 'book'), lists: plural(lists.length, 'list'), words: plural(terms.length, 'word') }),
+    text: JSON.stringify(B.makeBackup({ books, lists, terms, app: APP_VERSION, made })),
+    type: 'application/json', name: `folio-backup-${made.slice(0, 10)}.json`,
+  });
+}
+
+/** Which of the file's records were deleted, and when: this device's deletions not yet synced, and the server's. */
+async function goneSince(backup) {
+  const gone = {}, absent = {};
+  for (const kind of B.KINDS) {
+    const have = new Set(KEEP[kind].rows().map((r) => r.id));
+    const dirty = sync[KEEP[kind].dirty];
+    absent[kind] = [...new Set(backup[kind].map((r) => r.id))].filter((id) => !have.has(id));
+    gone[kind] = Object.fromEntries(absent[kind].filter((id) => dirty[id]).map((id) => [id, dirty[id]]));
+  }
+  let unsure = false;
+  if (sync.user && B.KINDS.some((kind) => absent[kind].length)) {
+    try {
+      const res = await api('gone', absent);
+      for (const kind of B.KINDS) for (const [id, at] of Object.entries(res[kind] || {})) if (!(time(gone[kind][id]) > time(at))) gone[kind][id] = at;
+    } catch {
+      // Not knowing, what isn't here counts as deleted: bringing it back is one tick away.
+      unsure = true;
+      const now = new Date().toISOString();
+      for (const kind of B.KINDS) for (const id of absent[kind]) gone[kind][id] ??= now;
+    }
+  }
+  return { gone, unsure };
+}
+
+/** Puts a record in its place, in memory, stamped as it comes and waiting to sync. → the write to the device. */
+function putRecord(kind, record) {
+  const keep = KEEP[kind];
+  let row = record;
+  if (kind === 'books') {
+    if (!(row.v === 2 && Array.isArray(row.editions) && row.editions.length)) row = { ...W.upgrade(row, statusIds()), modified: record.modified };
+    guarded(row);
+    if (sync.drops[row.id]) { delete sync.drops[row.id]; store.set('syncDrops', sync.drops); }
+  }
+  const local = keep.rows().find((r) => r.id === row.id);
+  if (local) { for (const k of Object.keys(local)) delete local[k]; Object.assign(local, row); row = local; }
+  else keep.rows().push(row);
+  sync[keep.dirty][row.id] = row.modified;
+  return keep.db.put(row);
+}
+/** Takes a record away (undoing a restore that added it), as a deletion to be synced. */
+function dropRecord(kind, id, now) {
+  if (kind === 'lists' && FIXED.has(id)) return null;
+  const keep = KEEP[kind];
+  keep.set(keep.rows().filter((r) => r.id !== id));
+  sync[keep.dirty][id] = now;
+  return keep.db.del(id);
+}
+async function settleRecords(writing) {
+  for (const kind of B.KINDS) store.set(KEEP[kind].key, sync[KEEP[kind].dirty]);
+  sortBooks();
+  sortLists();
+  termsChanged();
+  await Promise.all(writing.filter(Boolean)).catch(storageFailed);
+  await ensureFixedLists();
+  renderLibrary();
+  scheduleSync();
+}
+
+/** Writes a restore: lists and words first (a book's lists are found by their ids). */
+async function applyRestore(list) {
+  const order = ['lists', 'terms', 'books'];
+  const sorted = [...list].sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
+  await settleRecords(sorted.map((w) => putRecord(w.kind, structuredClone(w.record))));
+}
+/** Puts back what a restore replaced and takes away what it added, stamped now so it travels as the latest. */
+async function undoRestore(list) {
+  const now = new Date().toISOString();
+  await settleRecords([...list].reverse().map((w) => (w.before ? putRecord(w.kind, { ...structuredClone(w.before), modified: now }) : dropRecord(w.kind, w.record.id, now))));
+}
+
+/** "12 books, 2 lists": what a tally of writes adds or replaces. */
+const tallyText = (n, which) => B.KINDS.filter((kind) => n[kind][which]).map((kind) => plural(n[kind][which], RECORD_WORD[kind])).join(', ');
+
+function openRestorePage() {
+  const input = h('input', { type: 'file', accept: '.json,application/json', hidden: true });
+  input.addEventListener('change', () => { const file = input.files[0]; input.value = ''; if (file) read(file); });
+  const choose = (label, primary) => h('button', { class: `btn ${primary ? 'btn-primary' : 'btn-outline'} btn-block`, type: 'button', onclick: () => input.click() }, icon('upload'), label);
+  const page = (sub, ...body) => {
+    sheet.open(h('div', { class: 'restore-page' }, pageHead(t('Restore from a backup'), sub), input, ...body));
+    $('sheetBody').scrollTop = 0;
+  };
+
+  function start(problem) {
+    page(null,
+      h('div', { class: 'sheet-section' },
+        choose(t('Choose a backup file'), true),
+        problem && h('p', { class: 'field-error restore-problem', text: problem }),
+        h('p', { class: 'sheet-note', text: t('Nothing is written until you have seen what the file would change and said so. Restoring adds what the file has and this device doesn’t; nothing here is deleted.') })));
+  }
+
+  async function read(file) {
+    page(null, h('div', { class: 'sheet-section' }, h('p', { class: 'sheet-note', text: t('Reading {name}…', { name: file.name }) })));
+    let text;
+    try { text = await file.text(); } catch { start(t('Couldn’t read that file.')); return; }
+    const got = B.readBackup(text);
+    if (got.error === 'newer') { start(t('This backup was made by a newer Folio ({version}). Update Folio (close and reopen it), then restore it.', { version: got.app || '?' })); return; }
+    if (got.error) { start(t('This file is not a Folio backup. An export can’t be read back; a backup, made with Back up, can.')); return; }
+    const { gone, unsure } = await goneSince(got.backup);
+    preview(file, got.backup, B.compare(got.backup, { books, lists, terms }, gone), unsure);
+  }
+
+  function preview(file, backup, plan, unsure) {
+    let prefer = 'newer', bringBack = false;
+    const differ = B.KINDS.reduce((n, kind) => n + plan[kind].differ.length, 0);
+    const deleted = B.KINDS.reduce((n, kind) => n + plan[kind].deleted.length, 0);
+    const sum = h('p', { class: 'restore-sum' });
+    const go = h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: () => restore() }, icon('check'), t('Restore'));
+    const current = () => B.writes(plan, { prefer, bringBack });
+    const update = () => {
+      const n = B.tally(current());
+      const adds = tallyText(n, 'added'), replaces = tallyText(n, 'replaced');
+      sum.textContent = adds || replaces
+        ? [adds && t('Adds {what}.', { what: adds }), replaces && t('Replaces {what}.', { what: replaces })].filter(Boolean).join(' ')
+        : t('Nothing to restore: this device has everything in the file.');
+      go.disabled = !(adds || replaces);
+    };
+    const kindRow = (kind) => {
+      const p = plan[kind];
+      const parts = [
+        p.added.length && t('{n} new', { n: p.added.length }),
+        p.same.length && t('{n} the same', { n: p.same.length }),
+        p.differ.length && t('{n} different', { n: p.differ.length }),
+        p.deleted.length && t('{n} deleted since', { n: p.deleted.length }),
+        p.stay && t('{n} only here', { n: p.stay }),
+      ].filter(Boolean);
+      return h('div', { class: 'restore-row' }, h('span', { text: RECORD_KIND[kind]() }), h('small', { text: parts.join(' · ') || '—' }));
+    };
+    const titleOf = (b) => displayTitle(look(b)) || b.id;
+    const titles = (label, rows) => rows.length > 0 && h('details', { class: 'restore-titles' },
+      h('summary', { text: label }),
+      h('ul', null, rows.slice(0, 200).map(([text, aside]) => h('li', null, text, aside && h('small', { text: ` · ${aside}` }))),
+        rows.length > 200 && h('li', { text: t('and {n} more', { n: rows.length - 200 }) })));
+    const chip = (value, label) => h('button', {
+      class: 'chip', type: 'button', text: label, 'aria-pressed': String(prefer === value),
+      onclick: (e) => { prefer = value; for (const c of e.target.parentNode.children) c.setAttribute('aria-pressed', String(c === e.target)); update(); },
+    });
+    const made = new Date(backup.made);
+    page(file.name,
+      h('div', { class: 'sheet-section' },
+        h('p', { class: 'sheet-note restore-made', text: Number.isNaN(+made) ? t('Made by Folio {version}', { version: backup.app || '?' })
+          : t('Made {date} by Folio {version}', { date: made.toLocaleString(LOCALE, { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }), version: backup.app || '?' }) }),
+        h('div', { class: 'restore-rows' }, B.KINDS.map(kindRow))),
+      differ > 0 && h('div', { class: 'sheet-section' },
+        h('h3', { text: t('Of those that differ, keep') }),
+        h('div', { class: 'chips' }, chip('newer', t('The newer one')), chip('mine', t('This device’s')), chip('theirs', t('The file’s'))),
+        h('p', { class: 'sheet-note', text: t('The newer one is the one changed last: here, or before the file was made.') }),
+        titles(t('Which books differ'), plan.books.differ.map((d) => [titleOf(d.mine), d.newer === 'theirs' ? t('newer in the file') : t('newer here')]))),
+      deleted > 0 && h('div', { class: 'sheet-section' },
+        h('h3', { text: t('Deleted since') }),
+        h('p', { class: 'sheet-note', text: unsure
+          ? t('Couldn’t ask the server what was deleted since the file was made, so what isn’t on this device counts as deleted: {n}.', { n: deleted })
+          : t('Deleted after the file was made, here or on another device: {n}. What was deleted stays deleted unless you bring it back.', { n: deleted }) }),
+        h('label', { class: 'check-line' },
+          h('input', { type: 'checkbox', onchange: (e) => { bringBack = e.target.checked; update(); } }),
+          h('span', { text: t('Bring them back too') })),
+        titles(t('Which books'), plan.books.deleted.map((d) => [titleOf(d.theirs), agoText(d.at)]))),
+      h('div', { class: 'sheet-section' },
+        sum,
+        h('div', { class: 'stack' }, go, choose(t('Choose another file'), false)),
+        h('p', { class: 'sheet-note', text: t('What is only on this device stays as it is. One Undo puts everything back.') })));
+    update();
+
+    async function restore() {
+      const list = current();
+      if (!list.length) return;
+      go.disabled = true;
+      await applyRestore(list);
+      const n = B.tally(list);
+      const what = [tallyText(n, 'added') && t('added {what}', { what: tallyText(n, 'added') }), tallyText(n, 'replaced') && t('replaced {what}', { what: tallyText(n, 'replaced') })].filter(Boolean).join(', ');
+      let undone = false;
+      const undo = async () => {
+        if (undone) return;
+        undone = true;
+        await undoRestore(list);
+        toast(t('Undone'));
+        if ($('sheetBody').querySelector('.restore-page')) start();
+      };
+      toast(t('Restored: {what}', { what }), { action: t('Undo'), onAction: undo, ms: 20000 });
+      page(file.name, h('div', { class: 'sheet-section' },
+        h('p', { class: 'restore-sum', text: t('Restored: {what}', { what }) }),
+        h('div', { class: 'stack' },
+          h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: undo }, icon('undo'), t('Undo the restore')),
+          choose(t('Choose another file'), false)),
+        h('p', { class: 'sheet-note', text: sync.user ? t('It goes to the server like any other change.') : t('It is on this device only; signed in, it would go to your other devices too.') })));
+    }
+  }
+
+  start();
 }
 
 /* ───────────────────────── Roles (words in two languages) ───────────────────────── */
@@ -6476,10 +6702,10 @@ window.addEventListener('beforeinstallprompt', (e) => {
    and the phone's back gesture) to the list, and Close to leave. */
 
 let settingsDepth = 0;
-/** Opens a page under Settings: `render` draws it with pageHead. Back returns to the list. */
-function openPage(render) {
+/** Opens a page under Settings: `render` draws it with pageHead. Back returns to the list, or to page `from` (a page under a page). */
+function openPage(render, from = openSettings) {
   settingsDepth += 1;
-  openLayer(() => { settingsDepth = Math.max(0, settingsDepth - 1); if (sheet.isOpen) openSettings(); });
+  openLayer(() => { settingsDepth = Math.max(0, settingsDepth - 1); if (sheet.isOpen) from(); });
   render();
 }
 /** The head of a page: Back (to `back`, or to the Settings list when it is under it), and Close. */
@@ -6528,7 +6754,7 @@ function openSettings() {
       sync.user && sharing?.allowed && navRow(t('Public library'), sharingAbout(), () => openPage(openLibraryPage)),
       navRow(t('Paper copies'), paperAbout(), () => openPage(openPaperPage)),
       navRow(t('Lookups'), settings.googleKey ? t('Open Library, and Google Books with your key') : t('Open Library and Google Books'), () => openPage(openLookupsPage)),
-      navRow(t('As a file'), t('JSON, or for Goodreads, StoryGraph…'), () => openPage(openFilePage)),
+      navRow(t('As a file'), t('Backup, restore, export'), () => openPage(openFilePage)),
       navRow(t('About'), t('Version {version}', { version: APP_VERSION }), () => openPage(openAboutPage)))));
   fetchBooklogNames();
   // Whether this account may share its library is the server's to say: allowed since the list
@@ -6685,6 +6911,13 @@ function openLookupsPage() {
 function openFilePage() {
   sheet.open(h('div', null, pageHead(t('Your shelf, as a file')),
     h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Backup') }),
+      h('div', { class: 'stack' },
+        h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: openBackup }, icon('download'), t('Back up')),
+        h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openPage(openRestorePage, openFilePage) }, icon('upload'), t('Restore'))),
+      h('p', { class: 'sheet-note', text: t('A backup holds everything on this device: every book with its copies, reads and lists, every list, and the words and series you named. Covers go as the books hold them: an address, or a small copy of a picture taken here. The large pictures the server keeps are not in it.') })),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: t('Export') }),
       h('div', { class: 'stack' },
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('json') }, icon('download'), t('Export as JSON')),
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('goodreads') }, icon('download'), t('Export for Goodreads, StoryGraph…'))),
@@ -6695,7 +6928,7 @@ function openAboutPage() {
   const kept = h('p', { class: 'sheet-note' });
   sheet.open(h('div', null, pageHead(t('About'), t('Version {version}', { version: APP_VERSION })),
     h('div', { class: 'sheet-section' },
-      h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.') }),
+      h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Back it up now and then to keep a copy of your own (Settings → As a file). Book data comes from Open Library and Google Books.') }),
       kept,
       h('p', { class: 'sheet-note', text: t('Nothing about you is collected: no analytics, no advertising, no cookies but those that keep you signed in. Lookups go from this device to Open Library and Google Books, which see what is looked up. With an account, what you describe or photograph for the assistant goes through the server to OpenAI, and the server keeps the usual log of visits.') }),
       h('p', { class: 'sheet-note', text: t('Folio is free and comes as is, without guarantees (MIT licence).') }))));

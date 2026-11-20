@@ -341,8 +341,8 @@ export default {
   'Lookups ask Open Library and Google Books. Google’s shared, keyless quota often runs dry; a free key of your own (Google Cloud console → Books API) makes it dependable. It is stored only on this device.':
     'Opzoekingen gaan naar Open Library en Google Books. Het gedeelde quotum van Google zonder sleutel is vaak op; met een eigen, gratis sleutel (Google Cloud console → Books API) werkt het betrouwbaar. De sleutel wordt alleen op dit toestel bewaard.',
   'About · version {version}': 'Over · versie {version}',
-  'Your shelf is stored on this device, and on the server too while you’re signed in. Export it now and then to keep a copy of your own. Book data comes from Open Library and Google Books.':
-    'Je boekenkast staat op dit toestel, en ook op de server zolang je aangemeld bent. Exporteer ze af en toe om zelf een kopie te hebben. De boekgegevens komen van Open Library en Google Books.',
+  'Your shelf is stored on this device, and on the server too while you’re signed in. Back it up now and then to keep a copy of your own (Settings → As a file). Book data comes from Open Library and Google Books.':
+    'Je boekenkast staat op dit toestel, en ook op de server zolang je aangemeld bent. Maak af en toe een back-up om zelf een kopie te hebben (Instellingen → Als bestand). De boekgegevens komen van Open Library en Google Books.',
   'This browser keeps your shelf even when space runs low.': 'Deze browser bewaart je boekenkast, ook als de ruimte opraakt.',
   'This browser may clear your shelf when space runs low, or after weeks unused (Safari, unless Folio is installed).': 'Deze browser kan je boekenkast wissen als de ruimte opraakt, of na weken zonder gebruik (Safari, tenzij Folio geïnstalleerd is).',
   'Nothing about you is collected: no analytics, no advertising, no cookies but those that keep you signed in. Lookups go from this device to Open Library and Google Books, which see what is looked up. With an account, what you describe or photograph for the assistant goes through the server to OpenAI, and the server keeps the usual log of visits.': 'Er wordt niets over jou verzameld: geen statistieken, geen reclame, geen cookies behalve die waarmee je aangemeld blijft. Opzoekingen gaan van dit toestel naar Open Library en Google Books, die zien wat er opgezocht wordt. Met een account gaat wat je de assistent beschrijft of fotografeert via de server naar OpenAI, en houdt de server het gewone logboek van bezoeken bij.',
@@ -647,7 +647,7 @@ export default {
   'Open Library, and Google Books with your key': 'Open Library, en Google Books met je sleutel',
   'Open Library and Google Books': 'Open Library en Google Books',
   'As a file': 'Als bestand',
-  'JSON, or for Goodreads, StoryGraph…': 'JSON, of voor Goodreads, StoryGraph…',
+  'Backup, restore, export': 'Back-up, terugzetten, exporteren',
   'About': 'Over Folio',
   'Version {version}': 'Versie {version}',
   'The app’s own words. Roles, categories and tags are shown in this language too, where they have a name in it (Settings → Words).':
@@ -749,4 +749,60 @@ export default {
   'On your shelf': 'Op je plank',
   'Every language': 'Alle talen',
   'Any': 'Om het even',
+
+  // Backup and restore (Settings → As a file)
+  'Backup': 'Back-up',
+  'Back up': 'Back-up maken',
+  'Restore': 'Terugzetten',
+  'Nothing to back up yet': 'Nog niets om te back-uppen',
+  '{books}, {lists} and {words}: everything on this device, as it is kept. Restore reads it back.':
+    '{books}, {lists} en {words}: alles op dit toestel, zoals het bewaard wordt. Terugzetten leest het weer in.',
+  'A backup holds everything on this device: every book with its copies, reads and lists, every list, and the words and series you named. Covers go as the books hold them: an address, or a small copy of a picture taken here. The large pictures the server keeps are not in it.':
+    'Een back-up bevat alles op dit toestel: elk boek met zijn exemplaren, lezingen en lijsten, elke lijst, en de woorden en reeksen die je benoemd hebt. Covers gaan mee zoals de boeken ze hebben: een adres, of een kleine kopie van een foto die hier gemaakt is. De grote afbeeldingen die de server bewaart, zitten er niet in.',
+  'Restore from a backup': 'Terugzetten uit een back-up',
+  'Choose a backup file': 'Kies een back-upbestand',
+  'Choose another file': 'Kies een ander bestand',
+  'Nothing is written until you have seen what the file would change and said so. Restoring adds what the file has and this device doesn’t; nothing here is deleted.':
+    'Er wordt niets geschreven voor je gezien hebt wat het bestand zou veranderen en dat bevestigd hebt. Terugzetten voegt toe wat in het bestand staat en niet op dit toestel; hier wordt niets verwijderd.',
+  'Reading {name}…': '{name} lezen…',
+  'Couldn’t read that file.': 'Dat bestand kon niet gelezen worden.',
+  'This backup was made by a newer Folio ({version}). Update Folio (close and reopen it), then restore it.':
+    'Deze back-up is gemaakt door een nieuwere Folio ({version}). Werk Folio bij (sluit en open het opnieuw) en zet ze dan terug.',
+  'This file is not a Folio backup. An export can’t be read back; a backup, made with Back up, can.':
+    'Dit bestand is geen back-up van Folio. Een export kan niet teruggelezen worden; een back-up, gemaakt met Back-up maken, wel.',
+  'Words and series': 'Woorden en reeksen',
+  '{n} new': '{n} nieuw',
+  '{n} the same': '{n} gelijk',
+  '{n} deleted since': '{n} sindsdien verwijderd',
+  '{n} only here': '{n} alleen hier',
+  'Made {date} by Folio {version}': 'Gemaakt op {date} door Folio {version}',
+  'Made by Folio {version}': 'Gemaakt door Folio {version}',
+  'Of those that differ, keep': 'Van wat verschilt, behoud',
+  'The newer one': 'Het nieuwste',
+  'This device’s': 'Dat van dit toestel',
+  'The file’s': 'Dat uit het bestand',
+  'The newer one is the one changed last: here, or before the file was made.':
+    'Het nieuwste is wat het laatst veranderd is: hier, of voor het bestand gemaakt werd.',
+  'Which books differ': 'Welke boeken verschillen',
+  'newer in the file': 'nieuwer in het bestand',
+  'newer here': 'nieuwer hier',
+  'Deleted since': 'Sindsdien verwijderd',
+  'Couldn’t ask the server what was deleted since the file was made, so what isn’t on this device counts as deleted: {n}.':
+    'De server kon niet gevraagd worden wat verwijderd is sinds het bestand gemaakt werd, dus wat niet op dit toestel staat, telt als verwijderd: {n}.',
+  'Deleted after the file was made, here or on another device: {n}. What was deleted stays deleted unless you bring it back.':
+    'Verwijderd nadat het bestand gemaakt werd, hier of op een ander toestel: {n}. Wat verwijderd is, blijft verwijderd, tenzij je het terughaalt.',
+  'Bring them back too': 'Haal ze ook terug',
+  'Which books': 'Welke boeken',
+  'Adds {what}.': 'Voegt {what} toe.',
+  'Replaces {what}.': 'Vervangt {what}.',
+  'Nothing to restore: this device has everything in the file.': 'Niets terug te zetten: dit toestel heeft alles wat in het bestand staat.',
+  'What is only on this device stays as it is. One Undo puts everything back.':
+    'Wat alleen op dit toestel staat, blijft zoals het is. Eén keer Ongedaan maken zet alles terug.',
+  'added {what}': '{what} toegevoegd',
+  'replaced {what}': '{what} vervangen',
+  'Restored: {what}': 'Teruggezet: {what}',
+  'Undo the restore': 'Terugzetten ongedaan maken',
+  'It goes to the server like any other change.': 'Het gaat naar de server zoals elke andere wijziging.',
+  'It is on this device only; signed in, it would go to your other devices too.':
+    'Het staat alleen op dit toestel; aangemeld zou het ook naar je andere toestellen gaan.',
 };
