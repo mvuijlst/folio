@@ -378,19 +378,18 @@ img { display: block; max-width: 100%; }
 .cover img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface-2); }
 .cover small { display: none; }
 /* Whether a paper copy is still here (app.js: haveOf). Can go: a soft amber bookmark hanging over
-   the top left edge, of the cover in a list, of the card in the cards view, of the page when
-   the book is open. Gone: a small ghost on the cover, the cover faded to three quarters. */
+   the top left edge of the cover in the covers view, of the page when the book is open; in the
+   list and cards views a tag beside the lists' instead (withHaveTag). Gone: a small ghost on the
+   cover, the cover faded to three quarters. */
 .cover.have-go { overflow: visible; }
 .cover.have-go > img { border-radius: inherit; }
-.mark-go, .bcard.have-go::after, .sheet.have-go::after {
+.mark-go, .sheet.have-go::after {
   position: absolute; z-index: 2; pointer-events: none;
   background: var(--can-go);
   clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 74%, 0 100%);
 }
 .mark-go { top: -3px; left: 12%; width: max(7px, 13%); aspect-ratio: 1 / 1.9; }
-.bcard .mark-go, .page-head .mark-go, .cover-pick .mark-go { display: none; }
-.bcard.have-go { position: relative; }
-.bcard.have-go::after { content: ''; top: -4px; left: 22px; width: 11px; height: 21px; }
+.book .mark-go, .bcard .mark-go, .page-head .mark-go, .cover-pick .mark-go { display: none; }
 .sheet.have-go::after { content: ''; top: -5px; left: 28px; width: 13px; height: 25px; }
 .cover.have-gone { background-color: hsl(var(--h, 30) 22% 26% / .75); }
 [data-theme="light"] .cover.have-gone { background-color: hsl(var(--h, 30) 30% 80% / .75); }

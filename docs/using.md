@@ -88,9 +88,9 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
 A paper copy is one of three things (e-books and audiobooks are none of them):
 
 - **Keep**, as every copy is until you say otherwise. Nothing is shown.
-- **Can go**: you mean to give it away or sell it. A small amber bookmark hangs over the top
-  left of its cover; in the cards view over the card's, and when the book is open over its
-  page's.
+- **Can go**: you mean to give it away or sell it. In the covers view a small amber bookmark
+  hangs over the top left of its cover, and when the book is open over its page's; in the list
+  and cards views it is a tag, *Can go*, beside the lists it is on.
 - **Gone**: given away, sold or lost. Its cover is faded, with a small ghost on it. Marking a
   copy gone takes it off where it stood (the lists of any set but reading status: Bibliotheek,
   Bureau…); *Lent out* and lists on their own stay.

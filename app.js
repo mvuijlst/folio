@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.32.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.32.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1540,8 +1540,8 @@ function coverEl(book, large, titled) {
   const el = h('div', { class: 'cover' + (large ? ' lg' : '') + (have !== 'keep' ? ` have-${have}` : ''), style: `--h:${hue(label)}`, title: have !== 'keep' ? HAVE_NAME[have]() : null },
     h('span', { text: (book.title || '?').trim().charAt(0).toUpperCase() }),
     titled && h('small', { text: displayTitle(book) }),
-    // Can go: a bookmark hanging over its top left (on a card or a book's page, over those
-    // instead: styles.css). Gone: a ghost, the cover faded.
+    // Can go: a bookmark hanging over its top left (on a book's page, over the page instead; in
+    // the list and cards views a tag beside the lists: styles.css, withHaveTag). Gone: a ghost, the cover faded.
     have === 'go' && h('i', { class: 'mark-go', 'aria-hidden': 'true' }),
     have === 'gone' && markIcon('ghost', 'mark-gone'));
   const shape = (ratio) => {
@@ -1595,9 +1595,19 @@ function listTags(book, current) {
   return tags.length ? h('div', { class: 'book-tags' }, tags.map((text) => h('span', { class: 'tag', text }))) : null;
 }
 
+/** The lists' tags of a row or card, with "Can go" beside them when the copy shown can go (there instead of the bookmark). */
+function withHaveTag(b, tags) {
+  if (haveOf(b) !== 'go') return tags;
+  const tag = h('span', { class: 'tag', text: HAVE_NAME.go() });
+  if (!tags) return h('div', { class: 'book-tags' }, tag);
+  tags.append(tag);
+  return tags;
+}
+
 /** A book in the list view, as its edition `face` (its main one unless said). */
 function bookRow(book, onPick, extra, tags, face) {
   const b = look(book, face);
+  tags = withHaveTag(b, tags);
   let meta;
   if (b.pending) meta = h('div', { class: 'book-meta flag' }, icon('cloud-off'), t('Will be looked up when you’re online'));
   else if (b.unresolved) meta = h('div', { class: 'book-meta flag', text: t('No match found — tap to fill in') });
@@ -1682,7 +1692,8 @@ function excerpt(b) {
 function bookCard(book, onPick, tags, face) {
   const b = look(book, face);
   const text = excerpt(b);
-  return h('button', { class: 'bcard' + (haveOf(b) === 'go' ? ' have-go' : ''), type: 'button', onclick: (e) => onPick(book, e) },
+  tags = withHaveTag(b, tags);
+  return h('button', { class: 'bcard', type: 'button', onclick: (e) => onPick(book, e) },
     coverEl(b),
     h('div', { class: 'book-text' },
       h('div', { class: 'book-title', text: displayTitle(b) }),
