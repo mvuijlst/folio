@@ -309,6 +309,15 @@ the booklog when you say so.
   picture you chose while it is only on this device. Once you choose another cover, the
   link goes. (Photographs taken before 2.2.4 are recognised by the viewfinder's shape:
   `manage.py mark_cover_photos --user NAME [--dry-run]`.)
+- **Going through the copies without a cover.** Filter on *No cover* (under *Other*) and
+  **Go through them** shows them one at a time on the cover's own page, in the order of the
+  view, so a shelf can be done at a time: *3 of 120*, the book and its copy, the covers the
+  catalogues have (Amazon's by ISBN among them), and *Take a photo*, *Paste*. Then *Use this
+  cover* (on to the next), *Skip*, or **No cover exists**, which is kept on the copy: it leaves
+  the queue and the *No cover* filter for good, so the count can reach zero, and is found again
+  under *Other: No cover exists*. Closing the page ends the queue. Settings → *Paper copies* has
+  the same for the paper copies listed there. A chosen cover is copied to the server at once
+  (signed in), whatever catalogue it came from: no book points at another site for its cover.
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
 - **In the covers view the covers stand on one base line**, whether or not a book has a rating
@@ -347,7 +356,7 @@ the booklog when you say so.
   reads are never published again. When the first read of a book goes, the next one becomes
   the first (the others become rereads of it). The booklog's history keeps a copy of everything.
 - **Covers are kept on the server.** For signed-in users the server fetches a copy of each
-  cover that comes from a book catalogue (Open Library, Google Books), a few per sync, as a
+  cover that comes from a book catalogue (Open Library, Google Books, Amazon), a few per sync, as a
   320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py
   fetch_covers` does a whole shelf at once. Covers you photographed yourself already travel
   with the book.

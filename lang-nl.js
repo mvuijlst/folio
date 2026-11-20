@@ -874,4 +874,11 @@ export default {
   'The server made its last nightly copy {when}.': 'De server maakte zijn laatste nachtelijke kopie {when}.',
   'Nothing has changed since; it last looked {when}.': 'Sindsdien is er niets veranderd; hij keek het laatst {when}.',
   'That is over a day and a half ago: the nightly copy may have stopped.': 'Dat is meer dan anderhalve dag geleden: de nachtelijke kopie is misschien gestopt.',
+  // The cover queue (No cover filter, Paper copies)
+  'Go through them': 'Een voor een doorlopen',
+  'No cover exists': 'Er bestaat geen cover',
+  'Not marked “no cover exists”': 'Niet gemarkeerd als “er bestaat geen cover”',
+  '{at} of {total}': '{at} van {total}',
+  'Done: {n} found': 'Klaar: {n} gevonden',
+  'No copy without a cover here': 'Hier is geen exemplaar zonder cover',
 };

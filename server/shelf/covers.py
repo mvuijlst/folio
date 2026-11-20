@@ -31,7 +31,8 @@ TIMEOUT = 6            # seconds, per download
 RETRY_AFTER = 7 * 24 * 3600   # a cover that couldn't be fetched is left alone for a week
 
 # Only these are ever asked for an image: the catalogues the app looks books up in, and the booklog.
-HOSTS = {'books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'boeken.tsuk.org', 'm.media-amazon.com'}
+HOSTS = {'books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'boeken.tsuk.org', 'm.media-amazon.com',
+         'images-na.ssl-images-amazon.com'}   # Amazon's picture by ISBN-10, a cover candidate in the app
 
 
 def folder(kind):

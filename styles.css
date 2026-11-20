@@ -1242,6 +1242,13 @@ div.list-name { cursor: default; }
 .room-bar, .room-change, .room-actions { width: 100%; max-width: 760px; margin-left: auto; margin-right: auto; }
 .room-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .room-bar .icon-btn { margin-right: -10px; color: var(--text); }
+/* The cover queue (app.js: openCoverQueue): how far along, and what the copy is */
+.room-heading { min-width: 0; }
+.room-count { display: block; color: var(--faint); font-size: .78rem; font-weight: 600; letter-spacing: .04em; font-variant-numeric: tabular-nums; }
+.room-about { margin: 2px 0 0; color: var(--muted); font-size: .86rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.room-none { display: block; }
+.chip.go-through { color: var(--accent); }
+.chip.go-through .icon { width: 14px; height: 14px; margin: 0 6px 0 0; opacity: 1; }
 .room-title { margin: 0; min-width: 0; font-family: var(--serif); font-size: 1.2rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .room-stage {
   display: flex; align-items: center; justify-content: center; flex: none;

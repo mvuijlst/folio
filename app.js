@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.37.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.38.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2044,7 +2044,9 @@ function facetsOf() {
   const alike = W.twins(books);
   // These are said in full, so each also says how it reads when it is left out (`notName`).
   facets.push({ key: 'other', name: t('Other'), values: [
-    { value: 'nocover', name: t('No cover'), notName: t('With a cover'), ...ofCopy((b, e) => !e.cover && !e.thumb) },
+    // A copy said to have no cover at all (`noCover`, from the cover queue) is apart, so the queue can end at zero.
+    { value: 'nocover', name: t('No cover'), notName: t('With a cover'), ...ofCopy((b, e) => !e.cover && !e.thumb && !e.noCover) },
+    { value: 'nocoverexists', name: t('No cover exists'), notName: t('Not marked “no cover exists”'), ...ofCopy((b, e) => !e.cover && !e.thumb && !!e.noCover) },
     // A photo taken in the scanner stays one once the server keeps it (`coverPhoto`), until it is straightened or replaced.
     { value: 'photo', name: t('Own photo as cover'), notName: t('No own photo as cover'), ...ofCopy((b, e) => !!e.coverPhoto || (!e.cover && !!e.thumb)) },
     host && { value: 'booklog', name: t('On {host}', { host }), notName: t('Not on {host}', { host }), test: (b) => !!b.boeken },
@@ -2246,6 +2248,11 @@ function drawActiveFilters(facets, only = false) {
       onclick: () => refine({ filters: { ...view.filters, [facet.key]: view.filters[facet.key].filter((x) => x !== value) } }),
     }, `${facet.name}: ${name}`, icon('x'));
   }));
+  // Narrowed to the copies without a cover: they can be gone through, one by one, in this order.
+  if (!only && !VISITING && (view.filters.other || []).includes('nocover')) {
+    chips.push(h('button', { class: 'chip go-through', type: 'button', onclick: () => openCoverQueue(coverQueueOf(shown.rows, (b) => shown.faces?.get(b) || W.mainEdition(b))) },
+      icon('image'), t('Go through them')));
+  }
   $('activeFilters').replaceChildren(...chips);
   $('activeFilters').hidden = !chips.length;
   // Filters only: showing the selected books isn't one.
@@ -3977,8 +3984,11 @@ async function coverCandidates({ isbn, title, author }) {
       .then((d) => (d.docs || []).filter((doc) => doc.cover_i).map((doc) => `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`))
       .catch(() => [])
     : [];
+  // Amazon's picture by ISBN-10 (a book's ASIN): an unknown one is a 1 × 1 GIF, which the cover page drops.
+  const amazon = toIsbn10(isbn) ? [`https://images-na.ssl-images-amazon.com/images/P/${toIsbn10(isbn)}.01._SCLZZZZZZZ_.jpg`] : [];
   const lists = await Promise.all([
     isbn ? [`https://covers.openlibrary.org/b/isbn/${isbn}-M.jpg`] : [],
+    amazon,
     isbn ? google('isbn:' + isbn, 2) : [],
     title ? google(`intitle:${title}${who ? ` inauthor:${who}` : ''}`, 20) : [],
     library,
@@ -4078,8 +4088,9 @@ let coverRoom = null;   // the cover, open large: while it is, pasting a picture
  *  subject   () → what has the cover now (a book, an edition, or the choice not yet saved)
  *  query     {isbn, title, author}: what to look for in the catalogues
  *  onChoose  (choice) → called with {picture} or {url, ratio} when a new cover is used
+ *  queue     going through copies without a cover (openCoverQueue): {at, total, about, onSkip, onNone}
  */
-function openCoverRoom({ subject, query, onChoose }) {
+function openCoverRoom({ subject, query, onChoose, queue = null }) {
   const current = subject();
   let choice = null;          // what is shown, when it isn't the current cover
   let shownOwn = ownCover(current);
@@ -4188,7 +4199,10 @@ function openCoverRoom({ subject, query, onChoose }) {
     straightenBtn,
     camera, chooser);
 
-  const normalFooter = () => fill(footer, h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: close }), use);
+  // In the queue: Skip to the next copy, or use the cover chosen (and on to the next); closing ends the queue.
+  const normalFooter = () => fill(footer, queue
+    ? h('button', { class: 'btn btn-outline', type: 'button', text: t('Skip'), onclick: () => { close(); queue.onSkip(); } })
+    : h('button', { class: 'btn btn-outline', type: 'button', text: t('Cancel'), 'data-cancel': true, onclick: close }), use);
 
   /* Straightening: the picture with a frame of four corners to drag onto the book's. */
   async function startStraighten() {
@@ -4277,14 +4291,19 @@ function openCoverRoom({ subject, query, onChoose }) {
     ondrop: (e) => { const file = [...(e.dataTransfer?.files || [])].find((f) => f.type.startsWith('image/')); if (file) { e.preventDefault(); pick(file); } },
   },
     h('div', { class: 'room-bar' },
-      h('h2', { class: 'room-title', text: query.title || t('Cover') }),
+      h('div', { class: 'room-heading' },
+        queue && h('span', { class: 'room-count', text: t('{at} of {total}', { at: queue.at, total: queue.total }) }),
+        h('h2', { class: 'room-title', text: query.title || t('Cover') }),
+        queue?.about && h('p', { class: 'room-about', text: queue.about })),
       h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close'), onclick: close }, icon('x'))),
     stage, caption,
     h('div', { class: 'room-change' },
-      h('h3', { text: t('Other covers') }),
+      h('h3', { text: queue ? t('Covers') : t('Other covers') }),
       strip, stripNote,
       tools,
-      h('p', { class: 'room-note', text: t('A picture can also be pasted or dropped here.') })),
+      h('p', { class: 'room-note', text: t('A picture can also be pasted or dropped here.') }),
+      // Said once, remembered on the copy: it leaves the queue and the No cover filter for good.
+      queue && h('button', { class: 'link-btn quiet-action room-none', type: 'button', onclick: () => { close(); queue.onNone(); } }, t('No cover exists'))),
     footer);
   normalFooter();
   show(fullCover(current), currentSmall);
@@ -4371,6 +4390,55 @@ function coverViewer(book, again, ed = W.mainEdition(book)) {
   const el = h('button', { class: 'cover-view', type: 'button', title: t('The cover, large'), 'aria-label': t('The cover, large'), onclick: open }, coverEl(look(book, ed), true));
   el.open = open;
   return el;
+}
+
+/* The cover queue: copies without a cover, one at a time, on the cover's own page (openCoverRoom),
+   in the order of the view it was started from, so a shelf can be done at a time. For each: use a
+   cover (a catalogue's, a photo, a pasted picture), Skip it, or say No cover exists, which is kept
+   on the copy (`noCover`): it leaves the queue and the No cover filter for good, so the count can
+   reach zero. Closing the page ends the queue. */
+
+/** Whether a copy still wants a cover: none, and not said to have none. */
+const wantsCover = (book, e) => books.includes(book) && !!e && !e.cover && !e.thumb && !e.noCover;
+/** [{book, ed}] from rows of books (with the copy each row shows, `face`): those that want a cover. */
+const coverQueueOf = (rows, face = (b) => W.mainEdition(b)) => rows.map((book) => ({ book, ed: face(book) })).filter(({ book, ed }) => wantsCover(book, ed));
+
+function openCoverQueue(items, { onDone } = {}) {
+  let i = 0, found = 0;
+  const total = items.length;
+  // The page closes by going back in history; the next one opens once it has (as closeLayersThen).
+  const then = (fn) => window.addEventListener('popstate', () => setTimeout(fn, 0), { once: true });
+  const next = () => {
+    while (i < total && !wantsCover(items[i].book, items[i].ed)) i++;
+    if (i >= total) {
+      renderLibrary();
+      onDone?.();
+      toast(found ? t('Done: {n} found', { n: plural(found, 'cover') }) : t('Done'));
+      return;
+    }
+    const { book, ed } = items[i];
+    openCoverRoom({
+      subject: () => look(book, ed),
+      query: { isbn: ed.isbn, title: ed.title || book.title, author: book.author },
+      queue: {
+        at: i + 1, total,
+        about: [book.author, editionLine(ed, book)].filter(Boolean).join(' · '),
+        onSkip: () => { i++; then(next); },
+        onNone: () => { ed.noCover = true; saveBook(book); i++; then(next); },
+      },
+      onChoose: (choice) => {
+        Object.assign(ed, coverFields(choice));
+        delete ed.noCover;
+        saveBook(book);
+        keepCover(ed, choice, book);
+        found++;
+        i++;
+        then(next);
+      },
+    });
+  };
+  if (!total) { toast(t('No copy without a cover here')); return; }
+  next();
 }
 
 /** The facts of an edition as a form has them: publisher, year, pages or length, ISBN, format. → { el(rows), read(), fail } */
@@ -7429,7 +7497,9 @@ function openPaperPage() {
         h('p', { class: 'sheet-note', text: rows.length ? t('Another copy of these books has a cover. Tap the one the paper copy should get.') : t('Every paper copy has a cover, or no other copy of its book has one.') }),
         rows.length > 0 && h('div', { class: 'btn-row paper-all' },
           h('button', { class: 'link-btn', type: 'button', onclick: () => { for (const row of rows) if (!chosen.has(key(row))) chosen.set(key(row), row.others[0].id); mark(); } }, t('The first one for each')),
-          h('button', { class: 'link-btn', type: 'button', onclick: () => { chosen.clear(); mark(); } }, t('None'))),
+          h('button', { class: 'link-btn', type: 'button', onclick: () => { chosen.clear(); mark(); } }, t('None')),
+          // Or a cover of their own, one by one (the cover queue: a photo, a catalogue's, or No cover exists).
+          h('button', { class: 'link-btn', type: 'button', onclick: () => openCoverQueue(rows.map((row) => ({ book: row.book, ed: row.paper })).filter(({ book, ed }) => wantsCover(book, ed)), { onDone: () => { if ($('sheetBody').querySelector('.paper-page')) draw(); } }) }, icon('image'), t('Go through them'))),
         h('div', { class: 'paper-rows' }, rows.map((row) => h('div', { class: 'paper-row' },
           h('button', { class: 'paper-book', type: 'button', onclick: () => openBook(row.book, null) },
             h('span', { text: displayTitle(row.book) }),

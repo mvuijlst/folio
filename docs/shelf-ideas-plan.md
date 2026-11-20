@@ -320,6 +320,11 @@ copies without a cover whose book has another copy with one.
   server keeps a copy of whatever is chosen; add the host where `covers.py` decides what it
   may fetch.
 
+**Status, 2026-11-20:** built as 2.38.0 on the cover's own page (openCoverRoom with a queue),
+from the No cover filter and Settings → Paper copies; `noCover` on the copy; Amazon's ISBN-10
+picture is a candidate and its host is on the server's list. Michel: no book may point at another
+site for its cover; every chosen cover is copied to the server.
+
 **Done when:** the count of copies without a cover can reach zero, and stays there.
 
 ## 6. Series from Hardcover
