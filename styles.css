@@ -592,6 +592,8 @@ button.col:hover .col-bar { opacity: .75; }
 .fab .icon { width: 20px; height: 20px; filter: drop-shadow(0 1px 1px rgba(6, 30, 62, .5)); }
 .fab:hover { filter: brightness(1.07); }
 .fab:active { transform: scale(.97); }
+/* On a wide screen the same button heads the sidebar instead of floating over the books (below). */
+.side-add { display: none; }
 
 /* ───────────── Buttons & form bits ───────────── */
 .btn {
@@ -1142,6 +1144,19 @@ div.list-name { cursor: default; }
   .empty { grid-column: 2; grid-row: 4; }
   .bar { display: none; }
   .dock { bottom: 0; padding-bottom: calc(var(--safe-b) + 18px); }
+  /* Adding a book heads the sidebar; the dock is left only for the selection bar. */
+  .dock .fab { display: none; }
+  .dock:has(> .pick-bar[hidden]) { background: none; }
+  /* Quiet, like the lists under it: a row, not a coloured button; only the plus has the accent. */
+  .side-add {
+    display: flex; align-items: center; gap: 10px;
+    height: 40px; margin-bottom: 18px; padding: 0 12px; border-radius: var(--radius-sm);
+    color: var(--text); font-size: .98rem; text-align: left;
+  }
+  .side-add span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .side-add .icon { flex: none; width: 18px; height: 18px; color: var(--accent); }
+  .side-add:hover { background: var(--surface); }
+  .side-add.idle { visibility: hidden; }
   .search { flex: 1 1 220px; }
   .lists {
     display: flex;

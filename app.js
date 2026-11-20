@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.33.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.33.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -1803,8 +1803,9 @@ function renderNav() {
   const series = (inSheet) => seriesCount > 0 && link({ seriesIndex: true }, '#/series', view.seriesIndex || !!view.series, t('Series'), seriesCount, inSheet);
   const edit = () => !VISITING && h('button', { class: 'nav-item nav-edit', type: 'button', onclick: () => openLists() }, icon('list'), h('span', { text: t('Edit lists') }));
 
-  // Beside the books on a wide screen.
+  // Beside the books on a wide screen, under adding a book (which floats over the books on a phone).
   fill($('lists'),
+    !VISITING && h('button', { class: picking.on ? 'side-add idle' : 'side-add', type: 'button', onclick: () => openAdd() }, icon('plus'), h('span', { text: t('Add a book') })),
     h('div', { class: 'nav-group' }, reading.map((l) => item(l.id, listName(l), counts.get(l.id)))),
     h('div', { class: 'nav-group' }, item(null, t('All books'), books.length), series()),
     kept.length > 0 && h('div', { class: 'nav-group' },
@@ -3019,6 +3020,8 @@ function drawPicking() {
   }
   $('pickBtn').setAttribute('aria-pressed', String(picking.on));
   $('addBtn').hidden = picking.on;
+  // In the sidebar it keeps its room while out of sight, so the lists under it stay where they are.
+  for (const el of document.querySelectorAll('.side-add')) el.classList.toggle('idle', picking.on);
   $('pickBar').hidden = !picking.on;
   if (!picking.on) return;
   const n = picking.ids.size;
