@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.31.5'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.31.6'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -129,8 +129,8 @@ function initTheme() {
 /** Three clicks on the mark: a screensaver of the covers of the books in view (screensaver.js,
     which is only loaded then): the place, filters and search as they are, each book as the edition
     it shows; covers repeat if there are too few to fill the wall. The whole shelf from the list of
-    series, or where nothing in view has a cover. Full screen where the browser allows it; Back, a
-    key, a click or moving the mouse ends it. */
+    series, or where nothing in view has a cover. Full screen where the browser allows it; a key, a
+    click or a touch ends it (or Back), moving the mouse doesn't. */
 function initScreensaver() {
   let clicks = 0, last = 0, stop = null;
   document.querySelector('.mark').addEventListener('click', () => {

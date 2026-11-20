@@ -36,7 +36,7 @@ const clampRatio = (r) => (r > 0 ? Math.min(1.6, Math.max(0.45, r)) : 0.66);
 
 /**
  * Start the screensaver over the page. `covers`: [{src, ratio}] (ratio = width / height, if known).
- * `onExit` is called on the first key, click, touch or real movement of the mouse; the returned
+ * `onExit` is called on the first key, click or touch (not on moving the mouse); the returned
  * function takes the screensaver away again (it may be called more than once).
  */
 export function start(covers, { onExit }) {
@@ -216,10 +216,8 @@ export function start(covers, { onExit }) {
   };
   later(flips, 1600);
 
-  // Any key, click or touch ends it, and so does moving the mouse more than a nudge (but not in
-  // the first moment, while the hand that clicked three times is still on it).
-  const began = performance.now();
-  let from = null;
+  // Only a key, a click or a touch ends it: the mouse may move, and the wheel turn, while it runs.
+  // (Escape in full screen leaves full screen first, which ends it too.)
   // What ends it does nothing else: the key or click doesn't reach the page underneath.
   const swallow = (e) => { e.preventDefault(); e.stopPropagation(); };
   const exit = (e) => {
@@ -230,16 +228,9 @@ export function start(covers, { onExit }) {
     }
     onExit();
   };
-  const move = (e) => {
-    if (e.pointerType !== 'mouse' || performance.now() - began < 900) return;
-    if (!from) { from = [e.clientX, e.clientY]; return; }
-    if (Math.hypot(e.clientX - from[0], e.clientY - from[1]) > 30) exit(null);
-  };
   const fullscreen = () => { if (!document.fullscreenElement) exit(null); };
   addEventListener('pointerdown', exit, true);
   addEventListener('keydown', exit, true);
-  addEventListener('wheel', exit, { capture: true, passive: true });
-  addEventListener('pointermove', move, true);
   document.addEventListener('fullscreenchange', fullscreen);
 
   let stopped = false;
@@ -249,8 +240,6 @@ export function start(covers, { onExit }) {
     timers.forEach(clearTimeout);
     removeEventListener('pointerdown', exit, true);
     removeEventListener('keydown', exit, true);
-    removeEventListener('wheel', exit, true);
-    removeEventListener('pointermove', move, true);
     document.removeEventListener('fullscreenchange', fullscreen);
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
     root.remove();
