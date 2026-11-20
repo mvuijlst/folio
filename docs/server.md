@@ -212,7 +212,7 @@ that only marks itself so only with 100 readers and ten times the others' (*Ever
 carries the flag wrongly); nothing without a number; in a widely read series nothing under 1% of the
 most-read book's readers unless it isn't out yet; a small series (comics) keeps all.
 
-`manage.py check_series --user NAME [--write]` asks again about the series neither marked *Complete*
+`manage.py check_series --user NAME [--write]` asks again about the series neither marked *Finished*
 nor *Done with it* and keeps their new volumes on the series' record (`news`), which the app shows until
 seen; the series' length grows with them. Installed
 once a month (the 1st, 04:30 UTC) by:

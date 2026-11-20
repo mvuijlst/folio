@@ -344,9 +344,11 @@ the booklog when you say so.
   number; *All on To read* does them all with one *Undo* (above 10 it asks once more). Beside a
   book of yours, **Take this cover** gives your copy Hardcover's cover, if you want it: book by
   book. At the top: **Length** (found as the highest number anyone knows, yours included, and
-  never shown below your own highest), **Complete** (no more volumes are coming) and **Done with
-  it** (what you lack isn't offered any more: the strip's dots stay plain). Both are said on the
-  page (*complete*, *done with it*). A series that is neither is asked again on Hardcover once a
+  never shown below your own highest; *n in the series* counts a #0, a prequel, too), **Finished**
+  (no more volumes are coming) and **Done with it** (what you lack isn't offered any more: the
+  strip's dots stay plain). The page then says *finished* or *done with it* (done with it wins:
+  whether it is finished no longer matters) in place of *Look up*; the word looks it up all the
+  same. A series that is neither is asked again on Hardcover once a
   month; what is new is said quietly, at the head of *Series* (*New on Hardcover: Discworld (1)*)
   and on the series page, until you have seen it. No notifications. **Your numbers win**: where a
   source numbers a book you have differently, that is said (*Hardcover has it as #3*); nothing is

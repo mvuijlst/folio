@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.40.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.40.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2280,6 +2280,13 @@ function seriesTotal(name) {
   const n = Math.floor(Number(seriesRecord(name)?.total));
   return Number.isFinite(n) && n > 0 ? Math.max(n, ownHighest(name)) : null;
 }
+/** How many books a series has in all: its length, and one more when it has a #0 (a prequel), on your shelf or in the sources; or null. */
+function seriesSize(name) {
+  const total = seriesTotal(name);
+  if (!total) return null;
+  const zero = books.some((b) => b.series === name && Math.floor(seriesOrder(b)) === 0) || (!VISITING && seriesVolumes(name).some((v) => v.n === 0));
+  return total + (zero ? 1 : 0);
+}
 /** A record's id for a series: its name, or for a long one the start of it and a number made of all of it (an id is at most 64 characters). */
 function seriesId(name) {
   if (name.length <= 56) return `series:${name}`;
@@ -2560,8 +2567,8 @@ function openSeries(name, said = { failed: [] }) {
     if (filter === 'lack' && !lack.length) filter = 'all';
     const list = filter === 'lack' ? lack : all;
 
-    const total = seriesTotal(name);
-    fill(head, sheetHead(name, [t('You have {n}', { n: all.filter((p) => p.yours).length }), total && t('{n} in the series', { n: total })].filter(Boolean).join(' · ')));
+    const total = seriesTotal(name), size = seriesSize(name);
+    fill(head, sheetHead(name, [t('You have {n}', { n: all.filter((p) => p.yours).length }), size && t('{n} in the series', { n: size })].filter(Boolean).join(' · ')));
 
     // Its length and your marks, saved as they change.
     const length = h('input', { type: 'number', min: 1, step: 1, inputmode: 'numeric', autocomplete: 'off', value: total ?? '', 'aria-label': t('Its length'),
@@ -2571,7 +2578,7 @@ function openSeries(name, said = { failed: [] }) {
       h('span', null, h('span', { text: label }), h('small', { text: note })));
     fill(marks,
       h('label', { class: 'series-length' }, h('span', { text: t('Its length') }), length),
-      mark('complete', t('Complete'), t('No more volumes are coming')),
+      mark('complete', t('Finished'), t('No more volumes are coming')),
       mark('doneWith', t('Done with it'), t('What I lack isn’t offered any more')));
 
     fill(filters, lack.length ? [['lack', t('What I lack ({n})', { n: lack.length })], ['all', t('All ({n})', { n: all.length })]].map(([key, label]) => h('button', {
@@ -2882,11 +2889,12 @@ function renderLibrary() {
       // What is known of the series as a whole, and Look up: the whole series, number by number (openSeries).
       h('p', null, [
         inScope.length ? `${plural(inScope.length, 'book')} · ${t('{n} read', { n: read })}` : t('No books in this series.'),
-        seriesTotal(view.series) && t('{n} in the series', { n: seriesTotal(view.series) }),
-        seriesRecord(view.series)?.complete && t('complete'),
-        !VISITING && seriesRecord(view.series)?.doneWith && t('done with it'),
+        seriesSize(view.series) && t('{n} in the series', { n: seriesSize(view.series) }),
+        VISITING && seriesRecord(view.series)?.complete && t('finished'),
         !VISITING && seriesHardcover(view.series)?.news?.length && h('strong', { class: 'series-news', text: t('{n} new', { n: seriesHardcover(view.series).news.length }) }),
-        !VISITING && h('button', { class: 'link-btn series-look-up', type: 'button', onclick: (e) => lookUp(e.currentTarget, view.series) }, t('Look up')),
+        // Look up, or once the series is finished or you are done with it, that mark (done with it wins: then finished doesn't matter), which looks it up all the same.
+        !VISITING && ((mark) => h('button', { class: `link-btn series-look-up${mark ? ' marked' : ''}`, type: 'button', title: mark ? t('Look up') : null,
+          onclick: (e) => lookUp(e.currentTarget, view.series) }, mark || t('Look up')))(seriesRecord(view.series)?.doneWith ? t('done with it') : seriesRecord(view.series)?.complete ? t('finished') : ''),
       ].filter(Boolean).flatMap((part, i) => (i ? [' · ', part] : [part]))),
       inScope.length > 0 && seriesStrip([...inScope].sort(bySeriesOrder))));
     // New volumes from the monthly check are said here (and at the head of Series) until the page has been seen.
