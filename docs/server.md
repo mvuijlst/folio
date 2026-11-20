@@ -112,6 +112,76 @@ so a copy of the app from before can never write books in the old shape over new
 shows that under Settings and updates itself the next time it is opened. The one-time
 conversion of a shelf is `manage.py to_works` (see [booklog.md](booklog.md#books-with-editions-and-what-a-version-was)).
 
+## Nightly copies
+
+Besides the backup file each device can make (Settings → *As a file*, see
+[using.md](using.md#backup-and-restore)), the server copies itself every night, and a PC fetches
+those copies.
+
+**On the server.** Installed once, as root, after a deploy that has the scripts:
+
+```bash
+sudo bash /home/django/folio-yusupov/server/setup-nightly-backup.sh
+```
+
+It installs [`folio-backup.sh`](../server/folio-backup.sh) as `/usr/local/sbin/folio-backup`
+(owned by root: the copy in the web root can be written by the deploy user) and a timer,
+`folio-backup.timer`, that runs it every night at 03:30 UTC, or at the next boot after a night
+the server was off. Run the setup again after a deploy that changed `folio-backup.sh`. Each night:
+
+- If anything worth keeping changed since the last copy (books, lists, words, public
+  libraries, accounts; sessions and login times don't count), the database is copied while the
+  server runs (`VACUUM INTO`), checked (`PRAGMA integrity_check`) and compressed into
+  `/var/backups/folio/db/folio-<UTC stamp>.sqlite3.zst`. The newest 14 are kept. A night with
+  nothing changed makes no copy. `FOLIO_BACKUP_FORCE=1 /usr/local/sbin/folio-backup` makes one
+  anyway.
+- The covers that can't be fetched again, `covers/own` (photographed covers and the photos
+  straightened covers were made from), are added to `/var/backups/folio/covers/own`. Nothing is
+  removed there. Catalogue covers (`covers/web`) and the booklog's (`covers/boeken`) come back by
+  themselves.
+- `/var/backups/folio/last-copy.json` says which copy is the newest, when it was made and
+  when the job last ran. The server reads it (`FOLIO_BACKUP_STAMP`), and Settings → *About*
+  tells a staff account when the last copy was made, and warns when the job hasn't run for a
+  day and a half.
+
+`/var/backups/folio` is outside the web root; `db/` and `covers/` can only be read by root. On
+2026-11-20 a copy was 336 MB (the database is 588 MB, much of it inline cover thumbnails), and
+`covers/own` 343 MB. See what happened with `journalctl -u folio-backup.service`.
+
+**On the PC.** [`pull-backup.ps1`](../server/pull-backup.ps1) fetches the newest copy over SSH,
+unless it is there already, keeps the newest 14, and adds the covers it doesn't have yet. Every
+run writes a line to `pull-backup.log` in its folder, and fails (exit 1) when the server can't
+be reached or the server's job hasn't run for a day and a half. Once, from PowerShell:
+
+```powershell
+M:\dev\bookscan\server\pull-backup.ps1 -Folder Z:\Backups\Folio -Install
+```
+
+`-Install` registers the scheduled task *Folio backup pull*: every day at 10:00, or as soon as
+the PC is on after that. It uses the `yusupov` host from `~/.ssh/config` on port 2708 (`-Server`,
+`-Port`), with the key that lets you in without a prompt. Michel's copies are in
+`Z:\Backups\Folio` since 2026-11-20.
+
+**Restoring the server from a copy.** Everything on the server goes back to the night of the copy:
+
+```bash
+systemctl stop folio-boeken.timer folio-boeken.service folio-yusupov
+cd /home/django/folio-yusupov/server
+cp -a db.sqlite3 "db.sqlite3.before-restore-$(date -u +%Y%m%d-%H%M%S)"   # what there was
+zstd -d /var/backups/folio/db/folio-<stamp>.sqlite3.zst -o /tmp/folio.sqlite3
+sqlite3 /tmp/folio.sqlite3 'PRAGMA integrity_check'                        # says ok
+rm -f db.sqlite3-wal db.sqlite3-shm
+install -o django -g django -m 644 /tmp/folio.sqlite3 db.sqlite3 && rm /tmp/folio.sqlite3
+rsync -a /var/backups/folio/covers/own/ ../covers/own/ && chown -R django:django ../covers/own
+systemctl start folio-yusupov folio-boeken.timer
+```
+
+From the PC, copy the file up first (`scp -P 2708 Z:\Backups\Folio\db\folio-<stamp>.sqlite3.zst
+yusupov:/tmp/`). Then the devices: each has synced past the moment of the copy, so it won't
+hear of what went back. On each one, make a backup file first if it may hold changes the copy
+lacks, then *Sign out & clear*, sign in again, and restore that file (Settings → *As a file* →
+*Restore*). What it adds or replaces goes up to the server like any other change.
+
 ## Filling in what a shelf lacks
 
 `manage.py fill_original --user NAME` gives books the language they were first written in and

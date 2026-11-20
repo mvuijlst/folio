@@ -572,7 +572,21 @@ def sync(request):
         **({'terms': [t.as_change() for t in terms.values()]} if 'terms' in data else {}),
         'user': user.get_username(),
         'assistant': bool(settings.OPENAI_API_KEY),   # whether /api/suggest will answer
+        **({'backup': last_backup()} if user.is_staff else {}),
     })
+
+
+def last_backup():
+    """When the server's nightly copy (folio-backup.sh) last made a copy, and last found nothing
+    new to copy: {"made", "checked"}, or None where it never ran (or can't be read)."""
+    try:
+        with open(settings.BACKUP_STAMP, encoding='utf-8') as f:
+            stamp = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(stamp, dict) or not isinstance(stamp.get('made'), str):
+        return None
+    return {'made': stamp['made'], 'checked': stamp.get('checked') if isinstance(stamp.get('checked'), str) else stamp['made']}
 
 MAX_GONE = 50_000             # ids asked about at once
 

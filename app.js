@@ -14,7 +14,7 @@ import * as T from './terms.js';
 import { findCover } from './corners.js';
 import * as B from './backup.js';
 
-const APP_VERSION = '2.29.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.30.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -640,6 +640,7 @@ const sync = {
   last: store.get('syncLast', null),       // when the last sync finished (this device's clock)
   error: '',
   assistant: store.get('assistant', false),   // whether the server can propose books from a description
+  backup: store.get('serverBackup', null),     // staff only: when the server's nightly copy last ran ({made, checked})
   running: null, again: false, timer: 0,
   box: null,                               // the account section, while the settings sheet shows it
 };
@@ -766,6 +767,7 @@ async function runSync({ loud = false } = {}) {
           store.set('assistant', sync.assistant);
           renderLibrary();
         }
+        if ('backup' in res) { sync.backup = res.backup; store.set('serverBackup', sync.backup); }
         sync.last = new Date().toISOString();
         sync.error = '';
         saveSyncState();
@@ -887,7 +889,8 @@ async function signIn(username, password) {
 }
 
 function forgetAccount() {
-  Object.assign(sync, { user: null, cursor: null, listsCursor: null, termsCursor: null, last: null, error: '' });
+  Object.assign(sync, { user: null, cursor: null, listsCursor: null, termsCursor: null, last: null, error: '', backup: null });
+  store.set('serverBackup', null);
   clearTimeout(sync.timer);
   saveSyncState();
   renderAccount();
@@ -6924,12 +6927,21 @@ function openFilePage() {
       h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') }))));
 }
 
+/** What Settings → About says of the server's nightly copy (docs/server.md). */
+function serverBackupText({ made, checked }) {
+  const out = [t('The server made its last nightly copy {when}.', { when: agoText(made) })];
+  if (time(checked) - time(made) > 60000) out.push(t('Nothing has changed since; it last looked {when}.', { when: agoText(checked) }));
+  if (Date.now() - time(checked) > 36 * 3600000) out.push(t('That is over a day and a half ago: the nightly copy may have stopped.'));
+  return out.join(' ');
+}
+
 function openAboutPage() {
   const kept = h('p', { class: 'sheet-note' });
   sheet.open(h('div', null, pageHead(t('About'), t('Version {version}', { version: APP_VERSION })),
     h('div', { class: 'sheet-section' },
       h('p', { class: 'sheet-note', text: t('Your shelf is stored on this device, and on the server too while you’re signed in. Back it up now and then to keep a copy of your own (Settings → As a file). Book data comes from Open Library and Google Books.') }),
       kept,
+      sync.user && sync.backup && h('p', { class: 'sheet-note', text: serverBackupText(sync.backup) }),
       h('p', { class: 'sheet-note', text: t('Nothing about you is collected: no analytics, no advertising, no cookies but those that keep you signed in. Lookups go from this device to Open Library and Google Books, which see what is looked up. With an account, what you describe or photograph for the assistant goes through the server to OpenAI, and the server keeps the usual log of visits.') }),
       h('p', { class: 'sheet-note', text: t('Folio is free and comes as is, without guarantees (MIT licence).') }))));
   keepShelf().then((yes) => {

@@ -127,8 +127,10 @@ database backups from Settings.
   *About* could show when the server's last nightly copy was made.
 - Document both in `docs/server.md`, with how to restore from a nightly copy.
 
-**Status, 2026-11-20:** part A built as 2.29.0 (`backup.js`, `tests/backup.test.mjs`, the
-server's `/api/gone`); part B not started. Trash is not in the file yet: add it in stage 2.
+**Status, 2026-11-20:** part A live as 2.29.0 (`backup.js`, `tests/backup.test.mjs`, the
+server's `/api/gone`). Part B done the same day: the timer is installed on the server, the PC
+pulls into `Z:\Backups\Folio` daily at 10:00, and no copy is made on a night when nothing
+changed (Michel's wish). Trash is not in the file yet: add it in stage 2.
 
 **Done when:** a backup made on one device, restored into an empty browser profile, gives the
 same shelf (compare record for record in a test); the timer has run on the server; a copy has

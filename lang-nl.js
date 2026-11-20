@@ -805,4 +805,7 @@ export default {
   'It goes to the server like any other change.': 'Het gaat naar de server zoals elke andere wijziging.',
   'It is on this device only; signed in, it would go to your other devices too.':
     'Het staat alleen op dit toestel; aangemeld zou het ook naar je andere toestellen gaan.',
+  'The server made its last nightly copy {when}.': 'De server maakte zijn laatste nachtelijke kopie {when}.',
+  'Nothing has changed since; it last looked {when}.': 'Sindsdien is er niets veranderd; hij keek het laatst {when}.',
+  'That is over a day and a half ago: the nightly copy may have stopped.': 'Dat is meer dan anderhalve dag geleden: de nachtelijke kopie is misschien gestopt.',
 };

@@ -126,6 +126,20 @@ class SyncTests(TestCase):
         self.client.logout()
         self.assertEqual(self.client.post('/api/gone', '{}', content_type='application/json').status_code, 401)
 
+    def test_staff_hear_when_the_nightly_copy_last_ran(self):
+        import tempfile, os
+        from django.test import override_settings
+        with tempfile.TemporaryDirectory() as d:
+            stamp = os.path.join(d, 'last-copy.json')
+            with override_settings(BACKUP_STAMP=stamp):
+                self.assertNotIn('backup', self.sync())          # not staff: not said
+                self.user.is_staff = True
+                self.user.save()
+                self.assertIsNone(self.sync()['backup'])         # never ran
+                with open(stamp, 'w') as f:
+                    json.dump({'made': '2026-11-20T03:30:00Z', 'checked': '2026-11-21T03:31:00Z', 'file': 'x', 'bytes': 1}, f)
+                self.assertEqual(self.sync()['backup'], {'made': '2026-11-20T03:30:00Z', 'checked': '2026-11-21T03:31:00Z'})
+
 
 class PublishedWhileEditedTests(TestCase):
     """A book is published while a device, not knowing yet, changes it."""

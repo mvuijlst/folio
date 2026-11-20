@@ -10,6 +10,7 @@ Configuration comes from environment variables (see .env.example):
   OPENAI_API_KEY      for the assistant that proposes books from a description (optional)
   OPENAI_MODEL        the model it asks
   OPENAI_COVER_EFFORT how long it may think about a photographed cover ("low" by default; "" for the model's own)
+  FOLIO_BACKUP_STAMP  where the nightly copy says when it last ran (default /var/backups/folio/last-copy.json)
 """
 import os
 from pathlib import Path
@@ -102,6 +103,9 @@ OPENAI_COVER_EFFORT = os.environ.get('OPENAI_COVER_EFFORT', 'low')
 
 # Cover thumbnails are written next to the app and served from there as plain files.
 COVERS_DIR = BASE_DIR.parent / 'covers'
+
+# The nightly copy (folio-backup.sh) writes when it last ran here; Settings → About shows it to staff.
+BACKUP_STAMP = os.environ.get('FOLIO_BACKUP_STAMP', '/var/backups/folio/last-copy.json')
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
