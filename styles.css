@@ -504,6 +504,7 @@ button.strip-hole.named:hover, button.strip-gap.named:hover { background: var(--
 .volume-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .volume-text small { color: var(--muted); font-size: .84rem; }
 .volume-text .volume-remark { color: var(--faint); font-style: italic; }
+.series-unnumbered { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
 .volume-want { align-self: start; margin-top: 2px; padding: 4px 0; font-size: .9rem; }
 .volumes > .btn-outline:first-child { align-self: start; }
 /* Hardcover's cover beside a book of yours: small, taken with a tap */

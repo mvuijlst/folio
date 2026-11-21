@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.41.3'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.42.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2564,14 +2564,31 @@ function openSeries(name, said = { failed: [] }) {
     return out.sort((a, b) => (Number.isFinite(a.n) ? a.n : Infinity) - (Number.isFinite(b.n) ? b.n : Infinity));
   };
 
+  // A book of yours without a number that a source has a place for (by its title): that number
+  // can be given to it, one by one or all at once; one Undo. A book in another series is left alone.
+  const unnumbered = (p) => p.v && p.yours && !seriesNo(p.yours) && (!p.yours.series || p.yours.series === name);
+  const giveNumbers = async (ps) => {
+    const before = ps.map((p) => [p.yours, { series: p.yours.series, seriesNumber: p.yours.seriesNumber ?? null, seriesLabel: p.yours.seriesLabel || '' }]);
+    for (const p of ps) Object.assign(p.yours, { series: name, seriesNumber: p.v.n, seriesLabel: '' });
+    await saveBooks(ps.map((p) => p.yours));
+    draw();
+    toast(ps.length === 1 ? t('{title} is #{n}', { title: ps[0].yours.title, n: ps[0].v.n }) : t('{n} numbered', { n: plural(ps.length, 'book') }), {
+      action: t('Undo'), ms: 8000, onAction: async () => { for (const [b, was] of before) Object.assign(b, was); await saveBooks(before.map(([b]) => b)); draw(); },
+    });
+  };
+
   const row = (p) => {
     const { v, yours } = p;
-    const no = Number.isFinite(p.n) ? `#${yours && seriesNo(yours) ? seriesNo(yours) : p.n} · ` : '';
+    const no = Number.isFinite(p.n) && !(yours && !seriesNo(yours)) ? `#${yours && seriesNo(yours) ? seriesNo(yours) : p.n} · ` : '';
     const title = yours ? yours.title : v.title;
     const status = [];
     if (yours) {
       const on = shelves(yours);
       status.push(h('small', { class: 'volume-remark', text: on['to-read'] && !on.read ? t('On To read') : t('On your shelf') }));
+      if (unnumbered(p)) {
+        status.push(h('small', { class: 'volume-remark', text: t('No number yet; {source} has it as #{n}', { source: v.source, n: v.n }) }),
+          h('button', { class: 'link-btn volume-want', type: 'button', onclick: (e) => { e.currentTarget.disabled = true; giveNumbers([p]); } }, icon('pencil'), t('Make it #{n}', { n: v.n })));
+      }
       if (v && seriesNo(yours) && Number(seriesNo(yours)) !== v.n) status.push(h('small', { class: 'volume-remark', text: t('{source} has it as #{n}', { source: v.source, n: v.n }) }));
       if (v?.cover && sync.user && W.mainEdition(yours)?.coverSource !== v.cover) {
         status.push(h('button', { class: 'volume-take', type: 'button', title: t('Use Hardcover’s cover for your copy'), onclick: async (e) => {
@@ -2635,7 +2652,16 @@ function openSeries(name, said = { failed: [] }) {
         await wantVolumes(name, lack.map((p) => p.v));
         draw();
       } }, icon('bookmark'), h('span', { text: t('All on To read ({n})', { n: lack.length }) }));
+    // Shown whichever is chosen: under What I lack your own books aren't.
+    const bare = all.filter(unnumbered);
+    const numberAll = bare.length > 0 && (filter === 'lack' || bare.length > 1) && h('div', { class: 'series-unnumbered' },
+      h('p', { class: 'sheet-note', text: bare.length === 1
+        ? t('{title} has no number in the series; {source} has it as #{n}.', { title: bare[0].yours.title, source: bare[0].v.source, n: bare[0].v.n })
+        : t('{n} of your books have no number in the series; the sources have one for each.', { n: bare.length }) }),
+      h('button', { class: 'btn btn-outline', type: 'button', onclick: (e) => { e.currentTarget.disabled = true; giveNumbers(bare); } },
+        icon('pencil'), h('span', { text: bare.length === 1 ? t('Make it #{n}', { n: bare[0].v.n }) : t('Number them ({n})', { n: bare.length }) })));
     fill(body,
+      numberAll || '',
       wantAll || '',
       list.length ? list.slice(0, shown).map(row) : h('p', { class: 'sheet-note', text: t('Nothing known of this series yet.') }),
       list.length > shown ? h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => { shown += PAGE; draw(); } }, t('Show {n} more', { n: Math.min(PAGE, list.length - shown) })) : '');
