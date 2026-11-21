@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, twinsOf, setApart, flatView, fold,
-  firstOut, writerOrder, categoriesLike, blankEdition, fillEdition, placeEdition, sameTitle,
+  firstOut, writerOrder, categoriesLike, blankEdition, fillEdition, placeEdition, sameTitle, titleLikeness,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -336,4 +336,11 @@ test('sameTitle: brackets and subtitles, but not two subtitles of one title', ()
   assert.ok(!sameTitle('Dune: Messiah', 'Dune: Children'));
   assert.ok(!sameTitle("Wit'ch Fire", "Wit'ch Storm (Banned & the Banished)"));
   assert.ok(!sameTitle('', 'Dune'));
+});
+
+test('titleLikeness: near spellings close, other volumes and other numbers not', () => {
+  assert.equal(titleLikeness("Wit'ch Fire", 'Witch Fire'), 1);
+  assert.ok(titleLikeness('The Colour of Magic', 'The Color of Magic') >= 0.7);
+  assert.ok(titleLikeness("Wit'ch Fire", "Wit'ch Storm (Banned & the Banished)") < 0.7);
+  assert.equal(titleLikeness('De Kiekeboes 12', 'De Kiekeboes 13'), 0);
 });

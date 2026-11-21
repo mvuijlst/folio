@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.43.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.44.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2425,7 +2425,8 @@ function seriesStrip(members, mine, total = seriesTotal(members[0]?.series)) {
    has Hardcover; {none: true} when it is not the series there. `wikidata`: {id, checked, volumes:
    [{n, id, title, other, year, authors}]}, asked from this device, with or without an account
    (`title` in the series' language, `other` in another). With your marks: `total` (its length),
-   `complete` (no more volumes are coming) and `doneWith` (what you lack isn't offered any more).
+   `complete` (no more volumes are coming) and `doneWith` (what you lack isn't offered any more),
+   and `notSame`: ['n|bookId'], the books you said aren't the volume they looked like.
    A series neither complete nor done with is asked again monthly (server: check_series). Your
    numbers win: where a source numbers a book of yours differently, that is said, never changed. */
 
@@ -2593,6 +2594,24 @@ function openSeries(name, said = { failed: [] }) {
       if (yours) used.add(yours);
       out.push({ n: v.n, v, yours });
     }
+    // A volume you seem to lack, with a book of yours whose title looks much like its own (a
+    // spelling, a translation's near-title): that book is offered as maybe it, to say yes or no to.
+    // Of this series and not placed, or in none and by the volume's writer; the likeliest first.
+    const not = new Set(seriesRecord(name)?.notSame || []);
+    const writers = [...new Set(seriesVolumes(name).flatMap((v) => (v.authors || []).map(fold)))].filter(Boolean);
+    const loose = books.filter((b) => (b.series === name && !used.has(b)) || (!b.series && b.author && writers.some((a) => fold(b.author).includes(a))));
+    const guesses = [];
+    for (const p of out) {
+      if (p.yours || onShelfAs(name, p.v)) continue;
+      for (const b of loose) {
+        if (not.has(`${p.v.n}|${b.id}`)) continue;
+        if (!b.series && !p.v.authors?.some((a) => fold(b.author).includes(fold(a)))) continue;
+        const like = Math.max(...[b.title, b.originalTitle, ...editionsOf(b).map((e) => e.title)].filter(Boolean).map((title) => W.titleLikeness(title, p.v.title)));
+        if (like >= 0.7) guesses.push({ p, b, like });
+      }
+    }
+    const guessed = new Set();
+    for (const { p, b } of guesses.sort((x, y) => y.like - x.like)) if (!p.maybe && !guessed.has(b)) { p.maybe = b; guessed.add(b); }
     for (const b of mine) if (!used.has(b)) out.push({ n: seriesOrder(b), yours: b });
     return out.sort((a, b) => (Number.isFinite(a.n) ? a.n : Infinity) - (Number.isFinite(b.n) ? b.n : Infinity));
   };
@@ -2634,6 +2653,17 @@ function openSeries(name, said = { failed: [] }) {
         } }, h('img', { src: v.cover, alt: '', loading: 'lazy' }), h('span', { text: t('Take this cover') })));
       }
     } else {
+      if (p.maybe) {
+        // Yes gives your book this volume's number (and the series), so it is in its place; No is remembered.
+        status.push(h('small', { class: 'volume-remark', text: t('Maybe your {title}?', { title: p.maybe.title }) }),
+          h('span', { class: 'volume-maybe' },
+            h('button', { class: 'link-btn volume-want', type: 'button', onclick: (e) => { e.currentTarget.disabled = true; giveNumbers([{ yours: p.maybe, v }]); } }, icon('pencil'), t('Yes, make it #{n}', { n: v.n })),
+            h('button', { class: 'link-btn volume-want', type: 'button', onclick: async (e) => {
+              e.currentTarget.disabled = true;
+              await saveSeries(name, { notSame: [...(seriesRecord(name)?.notSame || []), `${v.n}|${p.maybe.id}`] });
+              draw();
+            } }, t('No'))));
+      }
       status.push(h('button', { class: 'link-btn volume-want', type: 'button', onclick: async (e) => {
         const btn = e.currentTarget;
         btn.disabled = true;
@@ -2676,15 +2706,17 @@ function openSeries(name, said = { failed: [] }) {
     })) : []);
     filters.hidden = !lack.length;
 
-    const wantAll = filter === 'lack' && lack.length > 1 && !rec.doneWith && lack.every((p) => p.v)
+    // A volume that may be a book of yours is left out until you have said whether it is.
+    const wanted = lack.filter((p) => !p.maybe);
+    const wantAll = filter === 'lack' && wanted.length > 1 && !rec.doneWith && wanted.every((p) => p.v)
       && h('button', { class: 'btn btn-outline', type: 'button', onclick: async (e) => {
         // More than a few: asked once more first.
         const btn = e.currentTarget;
-        if (lack.length > 10 && !btn.dataset.sure) { btn.dataset.sure = '1'; btn.lastChild.textContent = t('Sure? {n} books on To read', { n: lack.length }); return; }
+        if (wanted.length > 10 && !btn.dataset.sure) { btn.dataset.sure = '1'; btn.lastChild.textContent = t('Sure? {n} books on To read', { n: wanted.length }); return; }
         btn.disabled = true;
-        await wantVolumes(name, lack.map((p) => p.v));
+        await wantVolumes(name, wanted.map((p) => p.v));
         draw();
-      } }, icon('bookmark'), h('span', { text: t('All on To read ({n})', { n: lack.length }) }));
+      } }, icon('bookmark'), h('span', { text: t('All on To read ({n})', { n: wanted.length }) }));
     // Shown whichever is chosen: under What I lack your own books aren't.
     const bare = all.filter(unnumbered);
     const numberAll = bare.length > 0 && (filter === 'lack' || bare.length > 1) && h('div', { class: 'series-unnumbered' },

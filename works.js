@@ -427,6 +427,28 @@ export function sameTitle(a, b) {
   if (!fa || !fb) return false;
   return fa === fb || mainTitle(a) === fb || fa === mainTitle(b);
 }
+/**
+ * How alike two titles look, 0 to 1: the letter pairs they share (Dice), without spaces and
+ * what is in brackets, with or without the subtitle, whichever is closer. "Witch Fire" and
+ * "Wit'ch Fire" are 1; "Wit'ch Fire" and "Wit'ch Storm" under 0.5.
+ */
+export function titleLikeness(a, b) {
+  const pairs = (s) => { const out = new Map(); for (let i = 0; i < s.length - 1; i++) { const p = s.slice(i, i + 2); out.set(p, (out.get(p) || 0) + 1); } return out; };
+  const dice = (x, y) => {
+    x = x.replace(/ /g, ''); y = y.replace(/ /g, '');
+    if (!x || !y) return 0;
+    if (x === y) return 1;
+    const px = pairs(x), py = pairs(y);
+    let common = 0;
+    for (const [p, n] of px) common += Math.min(n, py.get(p) || 0);
+    return (2 * common) / (Math.max(1, x.length - 1) + Math.max(1, y.length - 1));
+  };
+  const ways = (s) => [fold(bare(s)) || fold(s), mainTitle(s)];
+  // Different numbers in them ("De Kiekeboes 12", "13") are different books, however alike.
+  const digits = (s) => (fold(bare(s)).match(/\d+/g) || []).map(Number).join(' ');
+  if (digits(a) !== digits(b)) return 0;
+  return Math.max(...ways(a).flatMap((x) => ways(b).map((y) => dice(x, y))));
+}
 /** An edition's own title is dropped where it is the book's (it says nothing then). */
 function tidyTitles(work) {
   for (const e of work.editions || []) if (e.title && fold(e.title) === fold(work.title)) delete e.title;

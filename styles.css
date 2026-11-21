@@ -507,6 +507,8 @@ button.strip-hole.named:hover, button.strip-gap.named:hover { background: var(--
 .series-unnumbered { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 14px; }
 .volume-want { align-self: start; margin-top: 2px; padding: 4px 0; font-size: .9rem; }
 .volumes > .btn-outline:first-child { align-self: start; }
+/* A volume that may be a book of yours: yes and no side by side */
+.volume-maybe { display: flex; gap: 18px; align-self: start; }
 /* Hardcover's cover beside a book of yours: small, taken with a tap */
 .volume-take { display: inline-flex; align-items: center; gap: 8px; align-self: start; margin-top: 4px; padding: 3px 8px 3px 3px; border-radius: var(--radius-sm); color: var(--muted); font-size: .84rem; box-shadow: inset 0 0 0 1px var(--border); }
 .volume-take img { width: 22px; border-radius: 2px; }

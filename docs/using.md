@@ -380,7 +380,11 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   renumbered. A book of yours with no number that a source places by its title says so (*No
   number yet; Wikidata has it as #1*) with **Make it #1**. A title is recognised with or without
   what is in brackets after it or a subtitle (*Wit'ch Fire (Banned & the Banished)* is *Wit'ch
-  Fire*), and by any of its editions' titles, and **Number them (n)** above the
+  Fire*), and by any of its editions' titles. A volume you seem to lack whose title looks much like
+  one of your books' (*Witch Storm* for *Wit'ch Storm*: of the series and not yet placed, or in no
+  series and by the same writer) asks *Maybe your Witch Storm?*: **Yes, make it #2** gives your
+  book the number and the series, with *Undo*; **No** is remembered for the series. Such a volume
+  is left out of *All on To read* until you have answered, and **Number them (n)** above the
   books does all of them at once, with one *Undo*; a book in another series is left alone. Where Hardcover names the series otherwise (*Kiekeboe* for *De Kiekeboes*), *Choose
   on Hardcover* (or *Another series on Hardcover*) searches it, and your name stays; *None of
   these* stops asking Hardcover about it. Wikidata takes, of the items the series' name finds,

@@ -12,6 +12,13 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.44.0 · 2026-11-21
+
+- **A series asks about books that look like a volume.** A volume you seem to lack whose title
+  is much like one of your books' (*Witch Storm* for *Wit'ch Storm*) asks *Maybe your Witch
+  Storm?*: *Yes, make it #2* numbers your book, with *Undo*; *No* is remembered. *All on To read*
+  leaves such a volume out until you have answered.
+
 ## 2.43.0–2.43.1 · 2026-11-21
 
 - **Back returns to the screen you left, as you left it.** Each view keeps its search, how far
