@@ -22,8 +22,11 @@ change wins. *Sign out & clear* removes the shelf from that device only.
 
 The server is a small Django app in [`server/`](../server): a JSON API (`/api/session`, `/api/login`,
 `/api/logout`, `/api/sync`, `/api/gone` (which of a backup's records were deleted since, for
-restoring one), `/api/booklog-names`, and for the assistant `/api/suggest`, `/api/translate`, `/api/tag-merges` and `/api/original`) plus the Django admin at `/admin/`, where accounts are made. There
-is no public sign-up.
+restoring one), `/api/cover`, `/api/booklog-names`, `/api/library` and `/api/public/<name>` (the
+public library), `/api/hardcover` and `/api/pages` (see [Series from Hardcover](#series-from-hardcover)
+and [Filling in what a shelf lacks](#filling-in-what-a-shelf-lacks)), and for the assistant
+`/api/suggest`, `/api/translate`, `/api/categories`, `/api/tag-merges` and `/api/original`) plus
+the Django admin at `/admin/`, where accounts are made. There is no public sign-up.
 
 ```bash
 cd server
@@ -33,7 +36,7 @@ venv/bin/python manage.py migrate && venv/bin/python manage.py createcachetable
 venv/bin/python manage.py createsuperuser
 venv/bin/python manage.py runserver   # serves the app too, at http://localhost:8000
 venv/bin/python manage.py test
-node --test "../tests/*.test.mjs"     # the app's own book logic (works.js)
+node --test "../tests/*.test.mjs"     # the app's own logic (works, backup, national catalogues, corners…)
 ```
 
 Settings are environment variables. Copy [`server/.env.example`](../server/.env.example) to
@@ -106,10 +109,10 @@ the bottom of the settings sheet; bump `APP_VERSION` in `app.js` when you releas
 Do not uninstall the app to update it: Android offers to clear the site's data along with it,
 and that deletes the shelf.
 
-A sync says which shape of book the app speaks (`"schema": 2`, books with editions since
-2.0). The server refuses a sync without it (409, *This version of Folio is out of date…*),
-so a copy of the app from before can never write books in the old shape over new ones; it
-shows that under Settings and updates itself the next time it is opened. The one-time
+A sync says which shape of book the app speaks (`"schema": 3`: books with editions since 2.0,
+the Trash since 2.33.0). The server refuses a sync without the current one (409, *This version of
+Folio is out of date…*), so a copy of the app from before can never write books in an old shape
+over new ones; it shows that under Settings and updates itself the next time it is opened. The one-time
 conversion of a shelf is `manage.py to_works` (see [booklog.md](booklog.md#books-with-editions-and-what-a-version-was)).
 
 ## Nightly copies

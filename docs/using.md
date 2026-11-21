@@ -18,7 +18,9 @@ What the app does and how, screen by screen. For running it yourself see
    three other books by its writer and three in four of them have the same categories, the
    scan gets those too. The card says them; *Edit* puts them right.
    When a catalogue doesn't answer, the card says which; a book found without it is asked again
-   later, for what it still lacks.
+   later, for what it still lacks. When neither says how many pages the edition has, the app
+   asks Hardcover (signed in, where the server has its token), then takes the median of the
+   Open Library work's editions (which is the work's figure, not the edition's own).
 2. **No match?** The card says which catalogues don't know the ISBN, and which didn't answer
    (then *Try again*). Photograph the front cover. Where the server has an assistant (see [The assistant](#the-assistant)) it
    looks at the photograph and names the book, for you to confirm.
@@ -94,7 +96,9 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   shelf comes off *Lent out*. (There is no scanning *off* a list, on purpose.)
 - Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
   Every list or series you open is a step in the browser's history: Back returns to the one
-  before.
+  before, as you left it: each view keeps its search, how far down it was and the book whose
+  page was open. Back from an author or series reached from a book's page opens that book
+  again (closing it is the step after). *All series* and the other links open a view afresh.
 
 ## Keep, can go, gone
 
@@ -169,7 +173,13 @@ year read and rating test the book; a book is within a span of years read when i
 any year of it, so a book read in 2015 and again in 2020 is among the books of both. Counts
 are always books. *Filter → Other → Possibly the
 same book* shows books that share an Open Library work or a title and first author with
-another: the way to find books that should be one (*Combine with another book…*).
+another: the way to find books that should be one (*Combine with another book…*). A book's
+page lists the books it may be the same as, each with *Combine* and **Not the same book**
+(with *Undo*): the two then stay apart and are no longer proposed to each other.
+
+On a phone, and on a tablet up to the width where the lists become a sidebar, the header,
+search and filter stay at the top of the window: they slide away while you scroll down through
+the books and come back as soon as you scroll up, or reach the top, or type in the search.
 
 ## Changing many books at once
 
@@ -178,7 +188,10 @@ instead of opening it, and Shift-click takes in every book in between. A Ctrl-cl
 Mac) on a book, or a long press on a phone, starts selecting with that book. While you select,
 *Add a book* makes way for a bar: how many are selected, *All* (every book the view shows) or
 *None*, and *Edit*. What is selected stays selected while you search and filter, so books can
-be picked from all over the shelf. Back, Escape or the × end it, and so does going elsewhere.
+be picked from all over the shelf. When the search or a filter hides some of what is selected,
+the bar says so (*2 not shown*, an eye and the number on a phone), and a tap on it shows only
+the selected books under a *Selected* chip; taking the chip off, or searching or filtering again,
+returns to the view as it was. Back, Escape or the × end it, and so does going elsewhere.
 
 *Edit* opens one sheet for all of them:
 
@@ -252,7 +265,10 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   details, or on an edition's sheet. An audiobook is measured in time (a length such as
   `11u 36m`, and its progress in time left); the others in pages. A book scanned or
   photographed is a paper book. In the booklog a post says so under `format`; a post that
-  doesn't is an audiobook if it has a length, and otherwise isn't said to be anything.
+  doesn't is an audiobook if it has a length, and otherwise isn't said to be anything. A comic
+  run in the booklog that gives its `issues` (*84 × 28 blz.*) is counted as the issues times the
+  pages of one (*84 × 28 pp*): it sorts by *Length* at its whole length and adds that to the pages
+  read in the statistics.
 - **Authors and others.** A book's writers are the book's own; everyone else (who drew,
   coloured, lettered, translated or read it, each with what they did: *beeld*, *kleur*,
   *stem*, *vertaling*, the booklog's own free words) is on an edition. No role means an author.
@@ -260,14 +276,14 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   artist); a voice or a translator of one edition is named with that edition. They are edited
   as rows of name and role, in a book's details and on an edition's sheet. Any name leads to
   all of that person's books (`#/author/<name>`), whatever they did on them.
-- **Written in, and the original title.** A book (not an edition) can say which language it
-  was first written in and what it was called then: *Kafka on the Shore*, written in Japanese,
-  海辺のカフカ. Its page then says *English, translated from Japanese*, with the original title
-  under its own; the filters have *Written in*. When a book is added, the app looks it up by
+- **Original language, and the original title.** A book (not an edition) can say which
+  language it was first written in and what it was called then: *Kafka on the Shore*, written in
+  Japanese, 海辺のカフカ. Its page then says *English, translated from Japanese*, with the
+  original title under its own; the filters have *Original language*. When a book is added, the app looks it up by
   itself: Open Library's record of the edition (when it says it is a translation) and Wikidata,
   through the Open Library work, which knows it for many well-known books. With an account and
   the assistant, the server is asked for the rest, and a book the assistant proposes comes with
-  it. What nobody knows stays empty; it is set under *Edit details* (*Written in*, *Original
+  it. What nobody knows stays empty; it is set under *Edit details* (*Original language*, *Original
   title*). These stay in Folio: the booklog doesn't have them. `manage.py fill_original` (see
   [server.md](server.md)) fills them in for books already on the shelf.
 - **Settings** is a short list: *Account*, *Language*, then *Words* (*Categories*, *Tags*,
@@ -361,7 +377,9 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   month; what is new is said quietly, at the head of *Series* (*New on Hardcover: Discworld (1)*)
   and on the series page, until you have seen it. No notifications. **Your numbers win**: where a
   source numbers a book you have differently, that is said (*Hardcover has it as #3*); nothing is
-  renumbered. Where Hardcover names the series otherwise (*Kiekeboe* for *De Kiekeboes*), *Choose
+  renumbered. A book of yours with no number that a source places by its title says so (*No
+  number yet; Wikidata has it as #1*) with **Make it #1**, and **Number them (n)** above the
+  books does all of them at once, with one *Undo*; a book in another series is left alone. Where Hardcover names the series otherwise (*Kiekeboe* for *De Kiekeboes*), *Choose
   on Hardcover* (or *Another series on Hardcover*) searches it, and your name stays; *None of
   these* stops asking Hardcover about it. Wikidata takes, of the items the series' name finds,
   the one with most works numbered in it; where that is the wrong one (a franchise, a
@@ -384,7 +402,13 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   a book's page at once, with Undo; in a form when you save). Whatever is chosen, the server
   keeps a large copy (it fetches a catalogue's cover itself) and a small one, and the large
   one is what goes to the booklog. A cover photographed in the scanner is kept at 1500 pixels,
-  so it can be straightened later.
+  so it can be straightened later. The straightened cover keeps the photo it was made from and the
+  frame it was made with, so *Straighten* opens again on the whole photo, to put a frame that
+  was too tight right. The frame starts on the book's edges, found by itself (`corners.js`), and
+  the cover comes out in the book's own proportions, also when it was photographed at a slant.
+  With books selected, **Straighten covers** (in the selection bar) does a pile at once: each
+  photographed cover is shown first, ticked where the edges were clearly found, and *Undo*
+  puts them back.
 - **The booklog holds what you read.** Deleting a book in Folio leaves its pages on the booklog
   (see [Trash](#trash)); only dropping a book on *To read* takes its page off. A page published
   by mistake is taken off on purpose, quietly at the bottom of the book's *Edit details*:

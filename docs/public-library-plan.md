@@ -1,6 +1,10 @@
 # A public library, and a three-pane layout on desktop
 
-A working document: analysis and a plan, being built. Written against 2.13.0.
+A working document: analysis and a plan. Written against 2.13.0. **Status, 2026-11-21:** the
+public library (sections 1 to 3) is built and live since 2.16.0. The three-pane layout (section
+4) was built in 2.17.0 and 2.18.0 and taken out again in 2.19.0; what stayed is the dialog in the
+middle of the window on a wide screen. Read it as a record of the decisions, not of the app as it
+is: [using.md](using.md#a-public-library) and [server.md](server.md) say how it works now.
 
 Two things are asked for:
 

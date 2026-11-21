@@ -1,5 +1,8 @@
 # Cut-over to 2.0 (books and their editions)
 
+**Done: the cut-over was made on 2026-11-16 and 2.0.0 has been live since.** This is kept as the
+record of how; do not run it again.
+
 The steps of section 8 of [work-edition-plan.md](work-edition-plan.md), as commands, with what
 the rehearsal on a copy of production's database (2026-11-16) says each should print. Michel
 starts it; nothing here runs by itself. Take it in order and stop at any output that differs

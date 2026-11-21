@@ -14,16 +14,19 @@ Folio is a personal project, used every day by its author, with one deployment. 
 works for anyone: it needs no account and keeps your shelf on your device. The optional server
 is built for that one deployment: accounts are made by hand in the Django admin (there is no
 sign-up), and publishing goes to one particular Hugo booklog,
-[boeken.tsuk.org](https://boeken.tsuk.org). Every push to the default branch deploys. There are no
-releases; the server and the app's book logic have automated tests, the interface has not.
+[boeken.tsuk.org](https://boeken.tsuk.org). Every push to the default branch deploys, and every
+deploy is a numbered version (shown under Settings), listed in the
+[release notes](docs/release-notes.md). The server, the book logic, backups, the catalogue
+lookups and the cover straightening have automated tests; the interface has not.
 
 ## What it does
 
 - **Adding books.** Scan the ISBN barcode with the phone's camera (older paperbacks with only a
   shop barcode work too), photograph the cover, describe the book in a few words, share a page
   to it from another app (a bookshop, Goodreads, Audible), type an ISBN, or fill it in by hand.
-  Books are looked up in Open Library, Google Books and Audible's catalogue; where the server
-  has an assistant (a language model), it reads photographed covers and descriptions.
+  Books are looked up in Open Library and Google Books, a Dutch, Flemish or French ISBN also in
+  the national library (KB, BnF), an Audible link in Audible's catalogue; where the server has
+  an assistant (a language model), it reads photographed covers and descriptions.
 - **Lists.** *To read*, *Reading*, *Read* and *Did not finish* are built in, with progress in
   pages, time left or a percentage. Any other lists you like (*Library*, *Lent out*, a
   wishlist, where the books stand), some of them either-or, some with a note per book.
@@ -32,15 +35,24 @@ releases; the server and the app's book logic have automated tests, the interfac
   facts, cover, people and the lists of where that copy is. A second edition found by scanning
   or describing is added to the book it is an edition of, without asking (*Keep separate* if
   not). A book can be read more than once, each read of one edition, with its date, rating and
-  a review in Markdown. Series, authors and others with their roles, language, categories, tags.
-- **Finding and changing.** Filters, orders, four views (list, covers, cards, statistics that
-  follow the filters), and editing many books at once.
-- **Covers.** Taken from the catalogues, photographed and straightened, pasted or shared in.
+  a review in Markdown. Series, authors and others with their roles, language and original
+  language, categories, tags. A paper copy can be marked *can go* or *gone* without losing the
+  book.
+- **Series.** Drawn book by book, with what you lack; one *Look up* asks Hardcover and Wikidata
+  what the series has and puts the missing volumes on *To read*.
+- **Finding and changing.** Filters (a choice can also be left out), orders, four views (list,
+  covers, cards, statistics that follow the filters), and editing many books at once.
+- **Covers.** Taken from the catalogues, photographed and straightened, pasted or shared in;
+  a queue goes through the books that have none.
+- **Safe.** Deleting puts a book in the Trash; a backup file of the whole shelf can be saved
+  and restored; on the author's server the database is also copied every night.
 - **Offline** once installed, in English or Dutch.
 - **Your reading, public.** An export in the CSV layout of Goodreads, which StoryGraph,
   BookWyrm, Hardcover, LibraryThing and Goodreads import, all of them free: a public page of
   what you read, with ratings and reviews, without running anything yourself. There is a JSON
   export of the whole shelf too.
+- **A public library (optional):** with an account, a read-only page of the lists you choose,
+  at an address of your own.
 - **With the server (optional):** accounts and sync between devices, covers kept on the
   server, the assistant, and two-way sync with a Hugo booklog: its books are imported, and what
   changes in the app is published back to it as commits. This is built for the author's own
@@ -65,6 +77,11 @@ HTTPS. The sync server is a small Django app in [`server/`](server).
 - [The booklog](docs/booklog.md): importing from and publishing to boeken.tsuk.org
 - [Working on Folio](docs/development.md): layout of the repository, translations, the icon and
   its colours, releasing
+- [Release notes](docs/release-notes.md): what each version changed, from 1.0 on
+- Design notes, written before and during the work and kept as a record, not kept up to date:
+  [books and their editions](docs/work-edition-plan.md) and
+  [its cut-over](docs/cutover-2.0.md), [a public library](docs/public-library-plan.md),
+  [ideas from Shelf](docs/shelf-ideas-plan.md)
 
 ## Credits
 
@@ -79,7 +96,9 @@ Folio began as *Bookscan*, which is why a few internal names still say so.
 
 Folio collects nothing about you: no analytics, no advertising, no cookies but those that
 keep you signed in. Without an account your shelf never leaves your device; book lookups go
-from your device to Open Library and Google Books, which see what is looked up. With an account
+from your device to Open Library and Google Books (for a Dutch, Flemish or French ISBN also the
+KB or the BnF, and Wikidata for a series or an original language), which see what is looked up.
+With an account
 on the author's server, your shelf is kept there too, what you describe or photograph for the
 assistant goes through it to OpenAI, and it keeps the usual log of visits.
 
