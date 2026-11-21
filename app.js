@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.40.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.41.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2012,7 +2012,8 @@ function facetsOf() {
   const statuses = [...FIXED.keys()].filter((id) => !VISITING || listById(id));
   if (!status && statuses.length) {
     facets.push({ key: 'status', name: t('Reading status'),
-      values: statuses.map((id) => ({ value: id, name: listName(listById(id) || FIXED.get(id)), test: (b) => !!shelves(b)[id] })) });
+      values: [...statuses.map((id) => ({ value: id, name: listName(listById(id) || FIXED.get(id)), test: (b) => !!shelves(b)[id] })),
+        { value: 'none', name: t('No reading status'), notName: t('With a reading status'), test: (b) => !statuses.some((id) => shelves(b)[id]) }] });
   }
   const on = (e, id) => !!e.lists?.[id];
   for (const section of listSections().filter((sec) => sec.label && sec.label !== READING)) {
@@ -2021,7 +2022,8 @@ function facetsOf() {
         { value: 'none', name: t('None'), ...ofCopy((b, e) => !section.members.some((l) => on(e, l.id))) }] });
   }
   const kept = lists.filter((l) => !FIXED.has(l.id) && !l.group && l.id !== view.list);
-  if (kept.length) facets.push({ key: 'on', name: t('Lists'), values: kept.map((l) => ({ value: l.id, name: listName(l), ...ofCopy((b, e) => on(e, l.id)) })) });
+  if (kept.length) facets.push({ key: 'on', name: t('Lists'), values: [...kept.map((l) => ({ value: l.id, name: listName(l), ...ofCopy((b, e) => on(e, l.id)) })),
+    { value: 'none', name: t('On no list'), notName: t('On a list'), ...ofCopy((b, e) => !kept.some((l) => on(e, l.id))) }] });
   const formatIn = (b, e) => formatOf({ ...e, boeken: b.boeken });
   facets.push({ key: 'format', name: t('Format'),
     values: [...FORMATS.map((format) => ({ value: format, name: formatName(format), ...ofCopy((b, e) => formatIn(b, e) === format) })),
@@ -2033,10 +2035,15 @@ function facetsOf() {
     const all = [...new Set(books.flatMap(pick))].filter(Boolean).sort(order);
     return { key, values: all.map((value) => ({ value: String(value), name: name(value), test: (b) => pick(b).includes(value) })) };
   };
-  facets.push({ ...having('category', (b) => b.categories || [], categoryName, (a, b) => categoryName(a).localeCompare(categoryName(b), LOCALE)), name: t('Category') });
+  // Each with a value for books that have none of it (the sheet only shows it while some book has none).
+  const none = (facet, name, notName, test) => ({ ...facet, values: [...facet.values, { value: 'none', name, notName, ...test }] });
+  facets.push(none({ ...having('category', (b) => b.categories || [], categoryName, (a, b) => categoryName(a).localeCompare(categoryName(b), LOCALE)), name: t('Category') },
+    t('No category'), t('With a category'), { test: (b) => !b.categories?.length }));
   const languages = [...new Set(books.flatMap((b) => editionsOf(b).map((e) => e.language)))].filter(Boolean).sort();
-  facets.push({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) });
-  facets.push({ ...having('original', (b) => [b.originalLanguage].filter(Boolean), languageName, (a, b) => languageName(a).localeCompare(languageName(b), LOCALE)), name: t('Original language'), dropdown: true });
+  facets.push(none({ key: 'language', name: t('Language'), values: languages.map((code) => ({ value: code, name: languageName(code), ...ofCopy((b, e) => e.language === code) })) },
+    t('No language'), t('With a language'), ofCopy((b, e) => !e.language)));
+  facets.push(none({ ...having('original', (b) => [b.originalLanguage].filter(Boolean), languageName, (a, b) => languageName(a).localeCompare(languageName(b), LOCALE)), name: t('Original language'), dropdown: true },
+    t('Not known'), t('Known'), { test: (b) => !b.originalLanguage }));
   if (view.list !== 'to-read' && view.list !== 'reading') {
     // A span of years, from–to (openFilterSheet draws it as a slider). A book is in it when it
     // was read in any year of it: read in 2015 and again in 2020, it is among the books of both.
@@ -2242,18 +2249,37 @@ function spanSlider(facet, inScope, others, draft, choose) {
   return el;
 }
 
-/** Under the search box: what the view is narrowed by, each to be taken off again (or, `only`, that it shows the selected books). */
+/**
+ * Under the search box: what the view is narrowed by, each to be taken off again (or, `only`,
+ * that it shows the selected books). More than three values of one filter, chosen or left out,
+ * are one chip ("Category: 17 left out"), which names them when you point at it.
+ */
 function drawActiveFilters(facets, only = false) {
-  const chips = only ? [h('button', { class: 'chip active-filter', type: 'button', title: t('Remove'), onclick: () => showPicked(false) }, t('Selected'), icon('x'))] : facets.flatMap((facet) => (view.filters[facet.key] || []).map((value) => {
-    const out = !facet.match && value.startsWith(NOT), plain = out ? value.slice(NOT.length) : value;
-    const found = facet.values.find((v) => v.value === plain);
-    const named = facet.label ? facet.label(value) : found?.name || plain;
-    const name = out ? found?.notName || t('not {name}', { name: named }) : named;
-    return h('button', {
-      class: 'chip active-filter', type: 'button', title: t('Remove'), 'data-state': out ? 'out' : null,
-      onclick: () => refine({ filters: { ...view.filters, [facet.key]: view.filters[facet.key].filter((x) => x !== value) } }),
-    }, `${facet.name}: ${name}`, icon('x'));
-  }));
+  const MANY = 3;
+  const chips = only ? [h('button', { class: 'chip active-filter', type: 'button', title: t('Remove'), onclick: () => showPicked(false) }, t('Selected'), icon('x'))] : facets.flatMap((facet) => {
+    const chosen = view.filters[facet.key] || [];
+    const take = (gone) => refine({ filters: { ...view.filters, [facet.key]: chosen.filter((x) => !gone.includes(x)) } });
+    const each = chosen.map((value) => {
+      const out = !facet.match && value.startsWith(NOT), plain = out ? value.slice(NOT.length) : value;
+      const found = facet.values.find((v) => v.value === plain);
+      const named = facet.label ? facet.label(value) : found?.name || plain;
+      return { value, out, name: out ? found?.notName || t('not {name}', { name: named }) : named, plain: named };
+    });
+    return [false, true].flatMap((out) => {
+      const these = each.filter((x) => x.out === out);
+      if (these.length > MANY) {
+        return [h('button', {
+          class: 'chip active-filter', type: 'button', 'data-state': out ? 'out' : null,
+          title: `${these.map((x) => x.plain).join(', ')}\n${t('Remove')}`,
+          onclick: () => take(these.map((x) => x.value)),
+        }, `${facet.name}: ${out ? t('{n} left out', { n: these.length }) : t('{n} selected', { n: these.length })}`, icon('x'))];
+      }
+      return these.map((x) => h('button', {
+        class: 'chip active-filter', type: 'button', title: t('Remove'), 'data-state': out ? 'out' : null,
+        onclick: () => take([x.value]),
+      }, `${facet.name}: ${x.name}`, icon('x')));
+    });
+  });
   // Narrowed to the copies without a cover: they can be gone through, one by one, in this order.
   if (!only && !VISITING && (view.filters.other || []).includes('nocover')) {
     chips.push(h('button', { class: 'chip go-through', type: 'button', onclick: () => openCoverQueue(coverQueueOf(shown.rows, (b) => shown.faces?.get(b) || W.mainEdition(b))) },

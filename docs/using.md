@@ -142,9 +142,14 @@ What you see is decided in three steps.
    where a copy is, its format and language, it is a copy that must pass: a book with one copy
    on *Mag weg* and another not is shown as the other. *Year read* is a span instead, from one
    year to another: a slider with a handle at each end, over a small column per year of how
-   many books were read in it. What is chosen shows under the search box ("Lists: not Mag
-   weg"), to be taken off again, and is in the address
-   (`#/list/read?format=audiobook&on=-magweg&year=2015-2024`; a single year is `year=2024`).
+   many books were read in it. Reading status, lists, category, language and original
+   language each also have a choice for books that have none of it (*No category*, *No
+   language*, *Not known*…), shown while some book has none. What is chosen shows under the
+   search box ("Lists: not Mag weg"), to be taken off again; more than three values of one
+   filter are one chip (*Category: 17 left out*, *Category: 5 selected*), which names them when
+   you point at it and takes them all off at once. It is all in the address
+   (`#/list/read?format=audiobook&on=-magweg&year=2015-2024`; a single year is `year=2024`;
+   none is `category=none`).
 3. **In an order.** The button beside *Filter* names it and changes it: date added, date read,
    last changed, author (by surname), title (without its article), rating, year published,
    length, series. Choosing the same one again turns it round. Each place keeps its own, and
