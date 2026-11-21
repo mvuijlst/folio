@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.42.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.43.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -591,7 +591,7 @@ const personLink = (name) => h('a', {
   onclick: (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey) return;   // let the browser open a new tab
     e.preventDefault();
-    closeLayersThen(() => setView({ author: name }));
+    leaveFor({ author: name });
   },
 });
 
@@ -692,13 +692,43 @@ function setView(target) {
   else if (target?.series) view.series = target.series;
   else if (target?.seriesIndex) view.seriesIndex = true;
   else if (target?.author) view.author = target.author;
+  const leaving = { q: $('search').value, y: Math.round(window.scrollY) };
   if (wasSeries || view.seriesIndex || view.series || view.author) $('search').value = '';   // what you looked for among series isn't what you look for in one
   const address = addressOf();
   // Every view is a step in the browser's history, so Back always returns to the one before
   // (and only leaves the app from where you came in). Opening the view you are on adds nothing.
-  if (new URL(address, location.href).href !== location.href) history.pushState({ view: true }, '', address);
+  // The step left keeps what it showed (backTo): the search, how far down, the book open.
+  if (new URL(address, location.href).href !== location.href) {
+    history.replaceState({ ...history.state, view: true, ...leaving }, '');
+    history.pushState({ view: true }, '', address);
+  }
   renderLibrary();
   if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
+}
+
+/** From a book's page (or another sheet) to a view: what is open closes first, and Back comes to that book's page again. */
+function leaveFor(target) {
+  const book = new URLSearchParams(location.hash.split('?')[1] || '').get('book');
+  closeLayersThen(() => {
+    if (book) history.replaceState({ ...history.state, book }, '');
+    setView(target);
+  });
+}
+
+/** Back (or Forward) arrived at a view: as it was left, with its search, as far down, the book that was open open again. */
+function backTo(state) {
+  readRoute();
+  if (typeof state?.q === 'string') $('search').value = state.q;
+  renderLibrary();
+  const y = state?.y || 0;
+  // The shelf is drawn a page at a time: enough of it to get as far down as before.
+  for (let i = 0; i < 100 && $('more') && document.documentElement.scrollHeight < y + window.innerHeight; i++) appendRows();
+  window.scrollTo(0, y);
+  if (state?.book && books.some((b) => b.id === state.book)) {
+    history.replaceState({ ...state, book: null }, '');   // once: closing it again goes back to the view
+    view.book = state.book;
+    openAddressedBook(false);
+  }
 }
 
 /** The same place, narrowed or ordered differently. It is still that place: no new step in history. */
@@ -1541,9 +1571,10 @@ window.addEventListener('popstate', (e) => {
     return;
   }
   // Nothing was open on top: Back or Forward moved between views.
-  readRoute();
-  renderLibrary();
+  backTo(e.state);
 });
+// Back puts each view where it was itself (backTo), once its books are drawn.
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
 
 const sheet = {
   isOpen: false,
@@ -6571,7 +6602,7 @@ function openBook(book, rows) {
           others.flatMap(([role, names], i) => [i > 0 && ' · ', `${roleText(role)}: `, ...names.flatMap((name, j) => [j > 0 && ', ', personLink(name)])])),
         seriesLine(book) && h('button', {
           class: 'link-btn page-series', type: 'button', text: seriesLine(book),
-          onclick: () => closeLayersThen(() => setView({ series: book.series })),
+          onclick: () => leaveFor({ series: book.series }),
         }),
         metaLine(b) && h('p', { class: 'book-meta', text: metaLine(b, undefined, { words: true }) }),
         // What it is in and about, quietly: the language and categories, then the tags.
