@@ -197,6 +197,8 @@ img { display: block; max-width: 100%; }
 [data-theme="light"] .icon-light { display: block; }
 [data-theme="light"] .icon-dark { display: none; }
 
+/* The header and the tools under it: no box of its own, except on a phone (below). */
+.masthead { display: contents; }
 .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 8px; }
 .view-seg { margin-left: auto; flex: none; }
 /* Filter and order: beside the search box where there is room, under it on a phone. */
@@ -1157,6 +1159,27 @@ div.list-name { cursor: default; }
   .fab .icon { width: 24px; height: 24px; }
   .fab span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
+/* On a phone the header, search and filter stay at the top of the window. Scrolling down through
+   the books slides them away (all but the strip behind the status bar), scrolling up brings them
+   back (app.js: hidden). */
+@media (max-width: 639px) {
+  .app { padding-top: 0; }
+  .masthead {
+    display: block; position: sticky; top: 0; z-index: 5;
+    margin: 0 -20px; padding: calc(var(--safe-t) + 8px) 20px 2px;
+    background: var(--bg);
+    transition: transform .28s cubic-bezier(.2, .7, .2, 1), background .2s ease;
+  }
+  .masthead.away { transform: translateY(calc(-100% + var(--safe-t))); transition-timing-function: cubic-bezier(.4, 0, .8, .4); }
+  .masthead::after {
+    content: ''; position: absolute; left: 0; right: 0; top: 100%; height: 12px;
+    background: linear-gradient(var(--bg), transparent); pointer-events: none;
+    opacity: 0; transition: opacity .2s ease;
+  }
+  .masthead.stuck::after { opacity: 1; }
+  .masthead.away::after { opacity: 0; }
+}
+@media (max-width: 639px) and (prefers-reduced-motion: reduce) { .masthead { transition: none; } }
 @media (max-width: 359px) { #sortBtn span { display: none; } }
 @media (min-width: 640px) {
   .app { padding-left: 28px; padding-right: 28px; padding-top: calc(var(--safe-t) + 44px); }

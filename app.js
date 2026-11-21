@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.41.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.41.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2856,6 +2856,34 @@ window.addEventListener('scroll', () => {
   window.addEventListener('scroll', update, { passive: true });
   wide.addEventListener('change', update);
   document.addEventListener('focusin', (e) => { if ($('tools').contains(e.target) && e.target.matches(':focus-visible')) tuck(false); });
+}
+
+// On a phone the header, search and filter stay at the top of the window: they slide away while
+// you scroll down through the books and come back as soon as you scroll up (or reach the top,
+// or are typing in the search, or tab into them).
+{
+  const phone = matchMedia('(max-width: 639px)');
+  let lastY = window.scrollY, travel = 0;
+  const away = (on) => {
+    const head = $('masthead');
+    if (head.classList.contains('away') !== on) head.classList.toggle('away', on);
+    travel = 0;
+  };
+  const update = () => {
+    const head = $('masthead');
+    const y = window.scrollY, delta = y - lastY;
+    lastY = y;
+    head.classList.toggle('stuck', phone.matches && y > 0);
+    const typing = head.contains(document.activeElement) && document.activeElement.matches('input, :focus-visible');
+    if (!phone.matches || y <= head.offsetHeight || typing || document.body.classList.contains('locked')) return away(false);
+    if (!delta) return;
+    travel = Math.sign(delta) === Math.sign(travel) ? travel + delta : delta;
+    if (travel > 24) away(true);
+    else if (travel < -12) away(false);
+  };
+  window.addEventListener('scroll', update, { passive: true });
+  phone.addEventListener('change', update);
+  document.addEventListener('focusin', (e) => { if ($('masthead').contains(e.target)) away(false); });
 }
 
 function appendRows(upTo = shown.next + PAGE) {
