@@ -12,11 +12,14 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
-## 2.43.0 · 2026-11-21
+## 2.43.0–2.43.1 · 2026-11-21
 
 - **Back returns to the screen you left, as you left it.** Each view keeps its search, how far
   down it was and the book whose page was open; Back from an author or series reached from a
   book's page opens that book again.
+- **A series knows your books by more of their titles.** A volume Hardcover or Wikidata names
+  *Wit'ch Fire* is your *Wit'ch Fire (Banned & the Banished)*: what is in brackets is left out
+  when titles are compared, and your editions' titles count too.
 
 ## 2.42.0 · 2026-11-21
 

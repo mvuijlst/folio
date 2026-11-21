@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import {
   upgrade, settle, mainEdition, faceEdition, shelves, newWork, addEdition, findWork, volumeOf, combine, split, twins, twinsOf, setApart, flatView, fold,
-  firstOut, writerOrder, categoriesLike, blankEdition, fillEdition, placeEdition,
+  firstOut, writerOrder, categoriesLike, blankEdition, fillEdition, placeEdition, sameTitle,
 } from '../works.js';
 
 const dir = new URL('./fixtures/works/', import.meta.url);
@@ -327,4 +327,13 @@ test('nextEditionId: an edition in the book\'s own trash keeps its id', async ()
   const { nextEditionId } = await import('../works.js');
   assert.equal(nextEditionId({ editions: [{ id: 'e1' }] }), 'e2');
   assert.equal(nextEditionId({ editions: [{ id: 'e1' }], trash: [{ at: '2026', edition: { id: 'e2' } }, { at: '2026', review: { id: 'r' } }] }), 'e3');
+});
+
+test('sameTitle: brackets and subtitles, but not two subtitles of one title', () => {
+  assert.ok(sameTitle("Wit'ch Fire (Banned & the Banished)", "Wit'ch Fire"));
+  assert.ok(sameTitle('Dune', 'Dune (Dune #1)'));
+  assert.ok(sameTitle('The Hobbit: or There and Back Again', 'The Hobbit'));
+  assert.ok(!sameTitle('Dune: Messiah', 'Dune: Children'));
+  assert.ok(!sameTitle("Wit'ch Fire", "Wit'ch Storm (Banned & the Banished)"));
+  assert.ok(!sameTitle('', 'Dune'));
 });

@@ -378,7 +378,9 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   and on the series page, until you have seen it. No notifications. **Your numbers win**: where a
   source numbers a book you have differently, that is said (*Hardcover has it as #3*); nothing is
   renumbered. A book of yours with no number that a source places by its title says so (*No
-  number yet; Wikidata has it as #1*) with **Make it #1**, and **Number them (n)** above the
+  number yet; Wikidata has it as #1*) with **Make it #1**. A title is recognised with or without
+  what is in brackets after it or a subtitle (*Wit'ch Fire (Banned & the Banished)* is *Wit'ch
+  Fire*), and by any of its editions' titles, and **Number them (n)** above the
   books does all of them at once, with one *Undo*; a book in another series is left alone. Where Hardcover names the series otherwise (*Kiekeboe* for *De Kiekeboes*), *Choose
   on Hardcover* (or *Another series on Hardcover*) searches it, and your name stays; *None of
   these* stops asking Hardcover about it. Wikidata takes, of the items the series' name finds,

@@ -416,10 +416,14 @@ export function placeEdition(work, shown) {
   return (work.editions || []).find((e) => e.format === 'paper') || shown;
 }
 
+/** A title without what is in brackets ("Wit'ch Fire (Banned & the Banished)", "Dune (Dune #1)"). */
+const bare = (title) => String(title || '').replace(/\s*[([{][^)\]}]*[)\]}]\s*/g, ' ');
 /** A title as it is compared: folded, and without what follows a colon or a dash (the subtitle). */
-const mainTitle = (title) => fold(String(title || '').split(/\s*[:—–]\s*|\s+-\s+/)[0]);
+const mainTitle = (title) => fold(bare(title).split(/\s*[:—–]\s*|\s+-\s+/)[0]);
+/** Whether two titles are one book's: the same, or one is the other without its subtitle or
+ *  what is in brackets. Two subtitles of one title ("Dune: Messiah", "Dune: Children") aren't. */
 export function sameTitle(a, b) {
-  const fa = fold(a), fb = fold(b);
+  const fa = fold(bare(a)) || fold(a), fb = fold(bare(b)) || fold(b);
   if (!fa || !fb) return false;
   return fa === fb || mainTitle(a) === fb || fa === mainTitle(b);
 }

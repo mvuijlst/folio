@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.43.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.43.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2449,9 +2449,11 @@ function seriesVolumes(name) {
 const volumesByNumber = (name) => (seriesRecord(name)?.doneWith ? new Map() : new Map(seriesVolumes(name).filter((v) => Number.isInteger(v.n)).map((v) => [v.n, v])));
 /** A book of yours that is this volume (the same title, by the same writer or none said). */
 function onShelfAs(name, v) {
-  const title = W.fold(v.title);
-  return books.find((b) => b.series === name && W.fold(b.title) === title) || books.find((b) => W.fold(b.title) === title && (!v.authors?.length || v.authors.some((a) => fold(b.author).includes(fold(a)))));
+  return books.find((b) => b.series === name && knownAs(b, v.title)) || books.find((b) => knownAs(b, v.title) && (!v.authors?.length || v.authors.some((a) => fold(b.author).includes(fold(a)))));
 }
+/** Whether a book of yours goes by a title: its own, its original's or an edition's, with or
+ *  without what is in brackets after it ("Wit'ch Fire (Banned & the Banished)" is "Wit'ch Fire"). */
+const knownAs = (b, title) => [b.title, b.originalTitle, ...editionsOf(b).map((e) => e.title)].some((one) => one && W.sameTitle(one, title));
 /** The language most of your books in a series are in (two letters): the language its titles are wanted in. */
 function seriesLanguage(name) {
   const count = {};
@@ -2587,7 +2589,7 @@ function openSeries(name, said = { failed: [] }) {
     const mine = books.filter((b) => b.series === name);
     const used = new Set(), out = [];
     for (const v of seriesVolumes(name)) {
-      const yours = mine.find((b) => !used.has(b) && seriesOrder(b) === v.n) || mine.find((b) => !used.has(b) && W.fold(b.title) === W.fold(v.title)) || onShelfAs(name, v);
+      const yours = mine.find((b) => !used.has(b) && seriesOrder(b) === v.n) || mine.find((b) => !used.has(b) && knownAs(b, v.title)) || onShelfAs(name, v);
       if (yours) used.add(yours);
       out.push({ n: v.n, v, yours });
     }
