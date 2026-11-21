@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.41.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.41.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2434,24 +2434,32 @@ function seriesLanguage(name) {
 
 const WDQS = 'https://query.wikidata.org/sparql?format=json&query=';
 const sparql = async (query) => (await getJSON(WDQS + encodeURIComponent(query), 20000)).results?.bindings || [];
+const wikidataLang = (language) => (/^[a-z]{2,3}$/.test(language) ? language : 'en');
+/** The items Wikidata finds by a name (in `language` and in English), each with how many works are numbered in it, most first: [{id, label, description, n}]. */
+async function wikidataCandidates(query, language) {
+  const lang = wikidataLang(language), found = new Map();
+  for (const l of new Set([lang, 'en'])) {
+    const hits = (await getJSON(`${WIKIDATA}&action=wbsearchentities&type=item&limit=7&language=${l}&uselang=${lang}&search=${encodeURIComponent(query)}`)).search || [];
+    for (const x of hits) if (/^Q\d+$/.test(x.id) && !found.has(x.id)) found.set(x.id, { id: x.id, label: x.label || x.id, description: x.description || '', n: 0 });
+  }
+  if (!found.size) return [];
+  const counts = await sparql(`SELECT ?s (COUNT(?w) AS ?n) WHERE { VALUES ?s { ${[...found.keys()].map((q) => `wd:${q}`).join(' ')} } ?w p:P179 ?st . ?st ps:P179 ?s ; pq:P1545 ?o . } GROUP BY ?s`);
+  for (const c of counts) found.get(c.s.value.split('/').pop()) && (found.get(c.s.value.split('/').pop()).n = Number(c.n.value));
+  return [...found.values()].sort((a, b) => b.n - a.n);
+}
 /**
  * Wikidata's works of a series that have a number in it (P179 part of the series, its P1545
  * series ordinal). `id`: the series' item, else found by its name (of what the name finds in
- * the series' language and in English, the item with most numbered works). → {id, volumes} or null.
+ * the series' language and in English, the item with most numbered works; you can choose
+ * another, openWikidataChoice). → {id, label, volumes} or null.
  */
 async function seriesFromWikidata(name, id, language) {
-  const lang = /^[a-z]{2,3}$/.test(language) ? language : 'en';
+  const lang = wikidataLang(language);
+  let label;
   if (!id) {
-    const found = [];
-    for (const l of new Set([lang, 'en'])) {
-      const hits = (await getJSON(`${WIKIDATA}&action=wbsearchentities&type=item&limit=5&language=${l}&search=${encodeURIComponent(name)}`)).search || [];
-      for (const x of hits) if (/^Q\d+$/.test(x.id) && !found.includes(x.id)) found.push(x.id);
-    }
-    if (!found.length) return null;
-    const counts = await sparql(`SELECT ?s (COUNT(?w) AS ?n) WHERE { VALUES ?s { ${found.slice(0, 8).map((q) => `wd:${q}`).join(' ')} } ?w p:P179 ?st . ?st ps:P179 ?s ; pq:P1545 ?o . } GROUP BY ?s`);
-    const best = counts.sort((a, b) => Number(b.n.value) - Number(a.n.value))[0];
-    if (!best) return null;
-    id = best.s.value.split('/').pop();
+    const best = (await wikidataCandidates(name, lang))[0];
+    if (!best?.n) return null;
+    ({ id, label } = best);
   }
   if (!/^Q\d+$/.test(id)) return null;
   const rows = await sparql(`SELECT ?w ?o (MIN(?d) AS ?date) (SAMPLE(?l1) AS ?own) (SAMPLE(?l2) AS ?other) (GROUP_CONCAT(DISTINCT ?an; separator="|") AS ?authors) WHERE {
@@ -2469,16 +2477,20 @@ async function seriesFromWikidata(name, id, language) {
     const year = Number(String(r.date?.value || '').slice(0, 4));
     volumes.push({ n, id: r.w.value.split('/').pop(), title, other, year: year > 0 ? year : null, authors: (r.authors?.value || '').split('|').filter(Boolean) });
   }
-  return volumes.length ? { id, volumes: volumes.sort((a, b) => a.n - b.n) } : null;
+  return volumes.length ? { id, label, volumes: volumes.sort((a, b) => a.n - b.n) } : null;
 }
 
+/** The highest whole number of a series that the sources (`hardcover`, `wikidata`: as they are kept) or your books have, or 0. */
+const highestKnown = (name, hardcover, wikidata) => Math.max(0, ...[...(hardcover?.volumes || []), ...(wikidata?.volumes || [])].map((v) => v.n).filter(Number.isInteger), ownHighest(name));
+
 /**
- * Asks Hardcover (`hardcoverId`: that series there) and Wikidata about a series, at the same
- * time, and keeps what they say; its length becomes the highest number anyone knows, yours
- * included, unless you marked it complete. → {failed: [source names], choose: Hardcover's
- * proposals when it knows no series by this name}.
+ * Asks Hardcover (`hardcoverId`: that series there) and Wikidata (`wikidata`: {id, label}, that
+ * item there) about a series, at the same time, and keeps what they say; its length becomes the
+ * highest number anyone knows, yours included, unless you marked it finished (after a source
+ * chosen by hand, what the one before said no longer counts). → {failed: [source names],
+ * choose: Hardcover's proposals when it knows no series by this name}.
  */
-async function lookUpSeries(name, hardcoverId) {
+async function lookUpSeries(name, { hardcoverId, wikidata: chosen } = {}) {
   const rec = seriesRecord(name) || {};
   const today = new Date().toISOString().slice(0, 10);
   const patch = {}, said = { failed: [] };
@@ -2495,17 +2507,19 @@ async function lookUpSeries(name, hardcoverId) {
     patch.hardcover = { id: series.id, name: series.name, count: series.books_count, completed: series.completed, checked: today, volumes: series.volumes, news: [] };
   };
   const wikidata = async () => {
-    const got = await seriesFromWikidata(name, rec.wikidata?.id, seriesLanguage(name));
-    if (got) patch.wikidata = { ...got, checked: today };
+    const got = await seriesFromWikidata(name, chosen?.id || rec.wikidata?.id, seriesLanguage(name));
+    if (chosen) patch.wikidata = { id: chosen.id, label: chosen.label, volumes: got?.volumes || [], checked: today };
+    else if (got) patch.wikidata = { ...got, label: got.label || rec.wikidata?.label, checked: today };
   };
-  const asks = [wikidata().catch(() => said.failed.push('Wikidata'))];
+  const asks = [];
+  if (chosen || !rec.wikidata?.none) asks.push(wikidata().catch(() => said.failed.push('Wikidata')));
   if (sync.user && sync.hardcover && (hardcoverId || !rec.hardcover?.none)) asks.push(hardcover().catch(() => said.failed.push('Hardcover')));
   await Promise.all(asks);
   if (!Object.keys(patch).length) return said;
   if (!rec.complete) {
-    const highest = Math.max(0, ...[...(patch.hardcover || rec.hardcover)?.volumes || [], ...(patch.wikidata || rec.wikidata)?.volumes || []]
-      .map((v) => v.n).filter(Number.isInteger), ownHighest(name));
-    if (highest > (Number(rec.total) || 0)) patch.total = highest;
+    const highest = highestKnown(name, patch.hardcover || rec.hardcover, patch.wikidata || rec.wikidata);
+    if (hardcoverId || chosen) patch.total = highest || null;
+    else if (highest > (Number(rec.total) || 0)) patch.total = highest;
   }
   await saveSeries(name, patch);
   return said;
@@ -2627,15 +2641,17 @@ function openSeries(name, said = { failed: [] }) {
       list.length > shown ? h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => { shown += PAGE; draw(); } }, t('Show {n} more', { n: Math.min(PAGE, list.length - shown) })) : '');
 
     // Where it comes from, and what can be asked again.
-    const hc = seriesHardcover(name), wd = rec.wikidata;
-    const from = [hc && `Hardcover${W.fold(hc.name) !== W.fold(name) ? ` (${t('as “{name}”', { name: hc.name })})` : ''}`, wd && 'Wikidata'].filter(Boolean);
+    const hc = seriesHardcover(name), wd = rec.wikidata?.id ? rec.wikidata : null;
+    const as = (label) => (label && W.fold(label) !== W.fold(name) ? ` (${t('as “{name}”', { name: label })})` : '');
+    const from = [hc && `Hardcover${as(hc.name)}`, wd && `Wikidata${as(wd.label)}`].filter(Boolean);
     const checked = [hc?.checked, wd?.checked].filter(Boolean).sort().pop();
     fill(foot,
       h('p', { class: 'sheet-note' },
         from.length ? t('From {sources}, {date}', { sources: from.length > 1 ? t('{some} and {last}', { some: from[0], last: from[1] }) : from[0], date: longDate(checked) })
-          : sync.user && sync.hardcover ? t('Neither Hardcover nor Wikidata knows this series by its name.') : t('Wikidata doesn’t know this series by its name.'),
+          : sync.user && sync.hardcover ? t('Neither Hardcover nor Wikidata knows this series by its name.') : !rec.wikidata?.none ? t('Wikidata doesn’t know this series by its name.') : '',
         said.failed.length > 0 && ` ${t('{sources} didn’t answer.', { sources: said.failed.filter((s) => s !== '?').join(', ') || t('The sources') })}`,
-        said.choose && ` ${t('Hardcover knows no series by this name.')}`),
+        said.choose && ` ${t('Hardcover knows no series by this name.')}`,
+        rec.wikidata?.none && ` ${t('Not asked on Wikidata: you said none of its items is this series.')}`),
       h('div', { class: 'series-hardcover-actions' },
         h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async (e) => {
           const btn = e.currentTarget;
@@ -2649,7 +2665,9 @@ function openSeries(name, said = { failed: [] }) {
           let found = said.choose;
           if (!found) try { found = (await api('hardcover', { name })).found; } catch (err) { toast(err.message); return; }
           openSeriesChoice(name, found, () => openSeries(name));
-        } }, hc ? t('Another series on Hardcover') : t('Choose on Hardcover'))));
+        } }, hc ? t('Another series on Hardcover') : t('Choose on Hardcover')),
+        h('button', { class: 'link-btn quiet-action', type: 'button', onclick: () => openWikidataChoice(name, () => openSeries(name)) },
+          wd ? t('Another item on Wikidata') : t('Choose on Wikidata'))));
   }
   draw();
   sheet.open(h('div', { class: 'volumes-sheet series-window' }, head, marks, filters, body, foot));
@@ -2661,7 +2679,7 @@ function openSeriesChoice(name, found, back) {
   const list = h('div', { class: 'list-rows' });
   const draw = (rows) => fill(list, rows.length ? rows.map((s) => h('div', { class: 'list-row nav-row' },
     h('button', { class: 'list-name', type: 'button', onclick: async () => {
-      try { await lookUpSeries(name, s.id); renderLibrary(); back(); } catch (err) { toast(err.message); }
+      try { await lookUpSeries(name, { hardcoverId: s.id }); renderLibrary(); back(); } catch (err) { toast(err.message); }
     } }, h('span', { text: s.name }), h('small', { text: [s.author, plural(s.books_count, 'book')].filter(Boolean).join(' · ') })),
     h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron')))) : h('p', { class: 'sheet-note', text: t('Hardcover doesn’t know a series by that name.') }));
   sheet.open(h('form', {
@@ -2676,9 +2694,48 @@ function openSeriesChoice(name, found, back) {
     list,
     h('p', { class: 'sheet-note', text: t('Its name there may differ from yours (De Kiekeboes, Kiekeboe). Your name stays.') }),
     h('div', { class: 'series-hardcover-actions' },
-      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => { await saveSeries(name, { hardcover: { none: true } }); renderLibrary(); back(); } }, t('None of these')),
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => { await dropSource(name, 'hardcover'); back(); } }, t('None of these')),
       h('button', { class: 'link-btn quiet-action', type: 'button', onclick: back }, t('Back')))));
   draw(found);
+}
+
+/** A source that has the wrong series, or none: not asked about it again (until you choose there), and its length no longer counts. */
+async function dropSource(name, source) {
+  const rec = seriesRecord(name) || {};
+  const left = { hardcover: seriesHardcover(name), wikidata: rec.wikidata?.id ? rec.wikidata : null, [source]: null };
+  await saveSeries(name, { [source]: { none: true }, ...(!rec.complete && { total: highestKnown(name, left.hardcover, left.wikidata) || null }) });
+  renderLibrary();
+}
+
+/**
+ * The items Wikidata finds by the series' name (or another you search), with how many works
+ * are numbered in each: choose the series, or none of them; then `back`. From the device, so
+ * signed out too.
+ */
+function openWikidataChoice(name, back) {
+  const lang = seriesLanguage(name), now = seriesRecord(name)?.wikidata?.id;
+  const query = h('input', { name: 'q', value: name, autocomplete: 'off', autocapitalize: 'words' });
+  const list = h('div', { class: 'list-rows' });
+  const say = (text) => fill(list, h('p', { class: 'sheet-note', text }));
+  const draw = (rows) => (rows.length ? fill(list, rows.map((s) => h('div', { class: `list-row nav-row${s.n ? '' : ' is-empty'}` },
+    h('button', { class: 'list-name', type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try { await lookUpSeries(name, { wikidata: s }); renderLibrary(); back(); } catch (err) { e.currentTarget.disabled = false; toast(err.message); }
+    } }, h('span', { text: s.label }), h('small', { text: [s.description, t('{n} numbered', { n: s.n }), s.id === now && t('now')].filter(Boolean).join(' · ') })),
+    h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron'))))) : say(t('Wikidata finds nothing by that name.')));
+  const search = async () => {
+    say(t('Looking…'));
+    try { draw(await wikidataCandidates(query.value.trim() || name, lang)); } catch { say(t('Wikidata didn’t answer. Try again later.')); }
+  };
+  sheet.open(h('form', { novalidate: true, onsubmit: (e) => { e.preventDefault(); search(); } },
+    sheetHead(t('Which item on Wikidata?'), name),
+    h('div', { class: 'field-row' }, h('label', { class: 'field' }, query), h('button', { class: 'btn btn-outline', type: 'submit' }, icon('search'), t('Search'))),
+    list,
+    h('p', { class: 'sheet-note', text: t('The series is usually the item with most works numbered in it; a franchise, a character or a writer has few or none. Your name stays.') }),
+    h('div', { class: 'series-hardcover-actions' },
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: async () => { await dropSource(name, 'wikidata'); back(); } }, t('None of these')),
+      h('button', { class: 'link-btn quiet-action', type: 'button', onclick: back }, t('Back')))));
+  search();
 }
 
 /** Volumes the strip names (a dot, or "+n"): what each is, with To read. */

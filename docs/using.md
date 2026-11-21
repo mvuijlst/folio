@@ -363,7 +363,12 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   source numbers a book you have differently, that is said (*Hardcover has it as #3*); nothing is
   renumbered. Where Hardcover names the series otherwise (*Kiekeboe* for *De Kiekeboes*), *Choose
   on Hardcover* (or *Another series on Hardcover*) searches it, and your name stays; *None of
-  these* stops asking Hardcover about it. Measured on 2026-11-20/21: Hardcover is strong on
+  these* stops asking Hardcover about it. Wikidata takes, of the items the series' name finds,
+  the one with most works numbered in it; where that is the wrong one (a franchise, a
+  character), *Another item on Wikidata* lists what the name (or another you search) finds,
+  each with how many works are numbered in it, to choose the series; *None of these* stops
+  asking Wikidata about it. After a source chosen or dropped by hand, its length is worked out
+  again from what is left (unless the series is marked finished). Measured on 2026-11-20/21: Hardcover is strong on
   English novel series and weak on Flemish comics (Thorgal in French, half of Suske en Wiske, 7
   Jommeke albums, 4 Kiekeboes); Wikidata has Dutch titles and years for novels and Thorgal (41)
   but numbers few Flemish albums (Suske 39 of 400, Jommeke 4, Kiekeboes 1). Covers are copied to
