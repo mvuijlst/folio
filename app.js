@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.44.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.44.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -692,12 +692,12 @@ function setView(target) {
   else if (target?.series) view.series = target.series;
   else if (target?.seriesIndex) view.seriesIndex = true;
   else if (target?.author) view.author = target.author;
-  const leaving = { q: $('search').value, y: Math.round(window.scrollY) };
+  const leaving = { q: $('search').value, y: Math.round(window.scrollY), mode: view.mode };
   if (wasSeries || view.seriesIndex || view.series || view.author) $('search').value = '';   // what you looked for among series isn't what you look for in one
   const address = addressOf();
   // Every view is a step in the browser's history, so Back always returns to the one before
   // (and only leaves the app from where you came in). Opening the view you are on adds nothing.
-  // The step left keeps what it showed (backTo): the search, how far down, the book open.
+  // The step left keeps what it showed (backTo): the search, how far down, the layout.
   if (new URL(address, location.href).href !== location.href) {
     history.replaceState({ ...history.state, view: true, ...leaving }, '');
     history.pushState({ view: true }, '', address);
@@ -706,29 +706,26 @@ function setView(target) {
   if (window.scrollY > $('lists').offsetTop) window.scrollTo(0, 0);
 }
 
-/** From a book's page (or another sheet) to a view: what is open closes first, and Back comes to that book's page again. */
+/** From a book's page (or another sheet) to a view: what is open closes first. Back comes to
+    the view the book was opened from, not to the book's page: that is where you were. */
 function leaveFor(target) {
-  const book = new URLSearchParams(location.hash.split('?')[1] || '').get('book');
-  closeLayersThen(() => {
-    if (book) history.replaceState({ ...history.state, book }, '');
-    setView(target);
-  });
+  closeLayersThen(() => setView(target));
 }
 
-/** Back (or Forward) arrived at a view: as it was left, with its search, as far down, the book that was open open again. */
+/** Back (or Forward) arrived at a view: as it was left, with its search, its layout, as far down. */
 function backTo(state) {
   readRoute();
   if (typeof state?.q === 'string') $('search').value = state.q;
+  // Covers on an author's page, say, and Back: the list you came from as you had it.
+  if (VIEWS.includes(state?.mode) && state.mode !== view.mode) {
+    view.mode = state.mode;
+    store.set('view', state.mode);
+  }
   renderLibrary();
   const y = state?.y || 0;
   // The shelf is drawn a page at a time: enough of it to get as far down as before.
   for (let i = 0; i < 100 && $('more') && document.documentElement.scrollHeight < y + window.innerHeight; i++) appendRows();
   window.scrollTo(0, y);
-  if (state?.book && books.some((b) => b.id === state.book)) {
-    history.replaceState({ ...state, book: null }, '');   // once: closing it again goes back to the view
-    view.book = state.book;
-    openAddressedBook(false);
-  }
 }
 
 /** The same place, narrowed or ordered differently. It is still that place: no new step in history. */

@@ -96,9 +96,10 @@ Every book can be on any number of lists. The app starts with *Library*, *To rea
   shelf comes off *Lent out*. (There is no scanning *off* a list, on purpose.)
 - Each list has its own address (`#/list/read`), so it can be bookmarked or opened directly.
   Every list or series you open is a step in the browser's history: Back returns to the one
-  before, as you left it: each view keeps its search, how far down it was and the book whose
-  page was open. Back from an author or series reached from a book's page opens that book
-  again (closing it is the step after). *All series* and the other links open a view afresh.
+  before, as you left it: each view keeps its search, its filters, its order, its layout
+  (list, covers, cards) and how far down it was. Back from an author or series reached from a
+  book's page returns to the view the book was opened from, not to the book's page.
+  *All series* and the other links open a view afresh.
 
 ## Keep, can go, gone
 

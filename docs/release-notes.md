@@ -12,6 +12,13 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.44.1 · 2026-11-21
+
+- **Back returns to the list, not to the book.** From a book's page to its author or series,
+  and Back: the list you opened the book from, with its filters, order, layout and place on
+  the page, rather than the book's page again. A layout chosen on the author's page (covers,
+  say) is not carried back to it.
+
 ## 2.44.0 · 2026-11-21
 
 - **A series asks about books that look like a volume.** A volume you seem to lack whose title
