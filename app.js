@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.40.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.40.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -3464,7 +3464,8 @@ function drawPicking() {
   const all = shown.rows.length > 0 && shown.rows.every((b) => picking.ids.has(b.id));
   const hidden = n ? hiddenPicks().length : 0;
   const photos = n ? pickedBooks().filter((b) => photoEditions(b).length) : [];
-  const bare = n ? pickedBooks().filter((b) => !b.pending && !b.categories?.length) : [];
+  // Categories can be proposed for any of them: those with none first, the others beside what they have.
+  const bare = n ? pickedBooks().filter((b) => !b.pending).sort((a, b) => (a.categories?.length ? 1 : 0) - (b.categories?.length ? 1 : 0)) : [];
   fill($('pickBar'),
     h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Stop selecting'), title: t('Stop selecting'), onclick: closeLayer }, icon('x')),
     // The number apart from its word: on a phone there is only room for the number (styles.css).
@@ -3484,7 +3485,7 @@ function drawPicking() {
       class: 'btn btn-outline pick-straighten', type: 'button', title: t('Straighten covers'), 'aria-label': t('Straighten covers'),
       onclick: () => openStraightenCovers(photos),
     }, icon('crop'), h('span', { text: t('Straighten') })),
-    // Books without a category among them: what kind of books they are can be looked up.
+    // What kind of books they are can be looked up.
     bare.length > 0 && h('button', {
       class: 'btn btn-outline pick-propose', type: 'button', title: t('Propose categories'), 'aria-label': t('Propose categories'),
       onclick: () => openProposeCategories(bare),
@@ -4022,7 +4023,7 @@ async function catalogueSubjects(book) {
 }
 
 /**
- * Categories for the books selected that have none, all at once. Each book is looked up, the
+ * Categories for the books selected, all at once. Each book is looked up, the
  * surest way first, and what it would get is shown:
  *   1. the shelf itself: the categories of its series, or the ones its writer's other books
  *      agree on (as a scan gets them). Ticked.
@@ -4032,17 +4033,21 @@ async function catalogueSubjects(book) {
  *   4. what the catalogues say the book is about (terms.js reads their subjects).
  * The last two are guesses and come unticked, as does a book the assistant doesn't know. A tap
  * ticks or unticks a book; the ticked ones get their categories, and Undo takes them back.
+ * A book that has categories already is shown with them, never ticked by itself, and keeps them
+ * unless you tick it (its proposal then replaces them); one whose proposal is what it has says so.
  * Nothing here needs an account: without one, the shelf and the catalogues are asked.
  */
 function openProposeCategories(chosen) {
   const allowed = categoryNames();
-  const items = chosen.map((book) => ({ book, state: 'looking', from: '', on: false, categories: null }));
+  const items = chosen.map((book) => ({ book, state: 'looking', from: '', on: false, categories: null, had: book.categories?.length ? [...book.categories] : null }));
+  const same = (a, b) => [...(a || [])].sort().join(' ') === [...(b || [])].sort().join(' ');
   let busy = false, unanswered = false;
   const apply = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, onclick: submit });
   const note = h('p', { class: 'sheet-note' });
   const said = (it) => {
     if (it.state === 'looking') return t('Looking…');
     if (it.state === 'none') return t('Nothing found');
+    if (it.state === 'same') return t('As it is now');
     if (it.from === 'shelf') return it.state === 'sure' ? t('Going by your other books') : t('Going by your other books, but not sure: check it');
     if (it.from === 'assistant') return it.state === 'sure' ? t('Going by the assistant') : t('The assistant doesn’t know this book: check it');
     return t('Going by the catalogue’s subjects: check it');
@@ -4053,19 +4058,20 @@ function openProposeCategories(chosen) {
     it.box = h('input', { type: 'checkbox', disabled: true, onchange: () => { it.on = it.box.checked; refresh(); } });
     it.tags = h('div', { class: 'book-tags' });
     it.say = h('div', { class: 'book-meta propose-say' });
+    it.now = it.had && h('div', { class: 'book-meta propose-now', text: t('Now: {categories}', { categories: it.had.map(categoryName).join(', ') }) });
     it.el = h('label', { class: 'proposal' },
       it.box, coverEl(b),
       h('div', { class: 'book-text' },
         h('div', { class: 'book-title', text: displayTitle(b) }),
         (b.author || seriesLine(b)) && h('div', { class: 'book-author', text: [b.author, seriesLine(b)].filter(Boolean).join(' · ') }),
-        it.tags, it.say));
+        it.now, it.tags, it.say));
     draw(it);
   }
   const list = h('div', { class: 'proposals' }, items.map((it) => it.el));
 
   function draw(it) {
     it.box.checked = it.on;
-    it.box.disabled = busy || !it.categories;
+    it.box.disabled = busy || !it.categories || it.state === 'same';
     it.el.dataset.state = it.state;
     fill(it.tags, ...(it.categories || []).map((slug) => h('span', { class: 'tag', text: categoryName(slug) })));
     it.say.textContent = said(it);
@@ -4077,11 +4083,13 @@ function openProposeCategories(chosen) {
     fill(apply, icon('check'), t('Categorise {books}', { books: plural(n, 'book') }));
     note.textContent = left
       ? t('Looking up what kind of books these are: {n} to go.', { n: left })
-      : [t('Ticked where it is clear. Tap a book to tick or untick it; the others stay without a category.'),
+      : [t('Ticked where it is clear. Tap a book to tick or untick it; the others stay as they are.'),
         unanswered && t('The assistant didn’t answer, so these go by your shelf and the catalogues.')].filter(Boolean).join(' ');
   }
   function found(it, categories, from, sure) {
-    Object.assign(it, { categories, from, state: sure ? 'sure' : 'guess', on: sure });
+    // A book with categories already keeps them unless you tick it.
+    if (it.had && same(categories, it.had)) Object.assign(it, { categories, from, state: 'same', on: false });
+    else Object.assign(it, { categories, from, state: sure ? 'sure' : 'guess', on: sure && !it.had });
     draw(it);
   }
 
@@ -4148,8 +4156,8 @@ function openProposeCategories(chosen) {
   })();
 
   async function submit() {
-    // Only books that are still there and still have none: one given a category meanwhile keeps it.
-    const picked = items.filter((it) => it.on && it.categories?.length && books.includes(it.book) && !it.book.categories?.length);
+    // Only books that are still there and still have what they had: one changed meanwhile keeps that.
+    const picked = items.filter((it) => it.on && it.categories?.length && books.includes(it.book) && same(it.book.categories, it.had));
     if (!picked.length || busy) return;
     busy = true;
     items.forEach(draw);
@@ -4160,7 +4168,7 @@ function openProposeCategories(chosen) {
     closeLayersThen(() => toast(t('{books} categorised', { books: plural(changed.length, 'book') }), {
       action: t('Undo'), ms: 8000,
       onAction: async () => {
-        for (const book of changed) delete book.categories;
+        for (const it of picked) { if (it.had) it.book.categories = [...it.had]; else delete it.book.categories; }
         await saveBooks(changed);
       },
     }));

@@ -194,8 +194,8 @@ Each part starts out changing nothing and shows, with a count on each choice, ho
 books have it now. A part that would change something says so (its name lit, with *Reset*),
 and only those parts are applied. *Undo* in the message afterwards puts every book back.
 
-When books without a category are among those selected, the bar also has *Categories* (the
-sparkles). It looks up what kind of book each of them is and shows what it would get, the
+With books selected, the bar also has *Categories* (the sparkles). It looks up what kind of
+book each of them is and shows what it would get, the
 surest way first:
 
 1. your shelf: the categories of its series, or the ones the other books of its writer agree
@@ -210,6 +210,10 @@ or the assistant where it knows the book) and unticked where it is a guess to ch
 ticks or unticks it. *Categorise* gives the ticked books their categories and leaves the
 others as they are; *Undo* takes them back. Nothing is published by it: a book only goes to
 the booklog when you say so.
+
+A book that has categories already is shown with them (*Now: …*) and is never ticked by itself:
+it keeps them unless you tick it, and then the proposal replaces them; where the proposal is what
+it has, it says *As it is now*. *Undo* gives them back what they had.
 
 ## Views, covers and reviews
 
