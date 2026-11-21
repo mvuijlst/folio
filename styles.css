@@ -1159,11 +1159,10 @@ div.list-name { cursor: default; }
   .fab .icon { width: 24px; height: 24px; }
   .fab span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 }
-/* On a phone the header, search and filter stay at the top of the window. Scrolling down through
+/* On a phone or tablet the header, search and filter stay at the top of the window. Scrolling down through
    the books slides them away (all but the strip behind the status bar), scrolling up brings them
-   back (app.js: hidden). */
-@media (max-width: 639px) {
-  .app { padding-top: 0; }
+   back (app.js: hidden). A wide screen keeps only the tools at the top (below). */
+@media (max-width: 899px) {
   .masthead {
     display: block; position: sticky; top: 0; z-index: 5;
     margin: 0 -20px; padding: calc(var(--safe-t) + 8px) 20px 2px;
@@ -1179,11 +1178,18 @@ div.list-name { cursor: default; }
   .masthead.stuck::after { opacity: 1; }
   .masthead.away::after { opacity: 0; }
 }
-@media (max-width: 639px) and (prefers-reduced-motion: reduce) { .masthead { transition: none; } }
+@media (max-width: 899px) and (prefers-reduced-motion: reduce) { .masthead { transition: none; } }
 @media (max-width: 359px) { #sortBtn span { display: none; } }
 @media (min-width: 640px) {
   .app { padding-left: 28px; padding-right: 28px; padding-top: calc(var(--safe-t) + 44px); }
   .lists { margin-left: -28px; margin-right: -28px; padding-left: 28px; padding-right: 28px; }
+}
+/* The masthead (above) takes over the padding at the top, and reaches out to the edges. On a
+   tablet most of the space above it stays outside, so the bar is no taller than it needs once stuck. */
+@media (max-width: 899px) { .app { padding-top: 0; } }
+@media (min-width: 640px) and (max-width: 899px) {
+  .app { padding-top: 28px; }
+  .masthead { margin: 0 -28px; padding: calc(var(--safe-t) + 16px) 28px 2px; }
 }
 /* Wide screens: the lists become a sidebar beside the books. */
 @media (min-width: 900px) {

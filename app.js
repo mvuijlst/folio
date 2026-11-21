@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.41.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.41.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -2858,11 +2858,11 @@ window.addEventListener('scroll', () => {
   document.addEventListener('focusin', (e) => { if ($('tools').contains(e.target) && e.target.matches(':focus-visible')) tuck(false); });
 }
 
-// On a phone the header, search and filter stay at the top of the window: they slide away while
+// On a phone or tablet the header, search and filter stay at the top of the window: they slide away while
 // you scroll down through the books and come back as soon as you scroll up (or reach the top,
 // or are typing in the search, or tab into them).
 {
-  const phone = matchMedia('(max-width: 639px)');
+  const phone = matchMedia('(max-width: 899px)');
   let lastY = window.scrollY, travel = 0;
   const away = (on) => {
     const head = $('masthead');
