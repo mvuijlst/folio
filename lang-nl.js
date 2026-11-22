@@ -325,6 +325,7 @@ export default {
   'Which lists should go in the file?': 'Welke lijsten moeten in het bestand?',
   'No books on those lists': 'Geen boeken op die lijsten',
   'Continue': 'Doorgaan',
+  'Include the text of reviews (ratings are always included)': 'Tekst van recensies meenemen (beoordelingen gaan altijd mee)',
   '{n} as JSON, oldest first.': '{n} als JSON, oudste eerst.',
   'Save file': 'Bestand opslaan',
   'Share…': 'Delen…',

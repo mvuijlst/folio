@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.45.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.45.1'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -7015,7 +7015,7 @@ async function suggestListWords(back) {
 
 /* ───────────────────────── Export ───────────────────────── */
 
-function exportJson(src = books) {
+function exportJson(src = books, { reviews = true } = {}) {
   const named = (on) => lists.filter((l) => on?.[l.id]).map((l) => ({ list: listName(l), since: on[l.id].at || '', ...(on[l.id].note && { note: on[l.id].note }) }));
   const rows = [...src].reverse().map((b) => ({
     title: b.title, author: b.author, added: b.added,
@@ -7028,7 +7028,7 @@ function exportJson(src = books) {
       isbn: e.isbn, language: e.language, cover: e.cover ? abs(e.cover) : '', people: e.people, lists: named(e.lists),
       have: haveOf({ ...e, boeken: b.boeken }) !== 'keep' ? e.have : '',
     }).filter(([, v]) => v != null && v !== '' && !(Array.isArray(v) && !v.length)))),
-    ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, text: r.text || '', edition: r.ed, ...(r.dnf && { dnf: true }) })) }),
+    ...(b.reviews?.length && { reviews: sortedReviews(b).map((r) => ({ date: r.date || '', rating: r.rating ?? null, ...(reviews && { text: r.text || '' }), edition: r.ed, ...(r.dnf && { dnf: true }) })) }),
   }));
   return JSON.stringify(rows, null, 2);
 }
@@ -7063,7 +7063,7 @@ function toIsbn10(isbn13) {
   return core + (check === 10 ? 'X' : String(check));
 }
 
-function exportGoodreads(src = books) {
+function exportGoodreads(src = books, { reviews = true } = {}) {
   const cell = (v) => { const text = String(v ?? ''); return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
   const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso || '') ? iso.slice(0, 10).replace(/-/g, '/') : '');
   const quoted = (isbn) => (isbn ? `="${isbn}"` : '');   // as Goodreads writes them, so a spreadsheet keeps the zeros
@@ -7080,7 +7080,7 @@ function exportGoodreads(src = books) {
       const on = listsOf(book, ed).filter(({ list }) => !FIXED.has(list.id));
       const isbn13 = toIsbn13(b.isbn) || '';
       const rating = read ? read.rating : b.rating;
-      const text = read ? read.text : sortedReviews(book).find((r) => !r.date && r.text?.trim())?.text;
+      const text = !reviews ? '' : read ? read.text : sortedReviews(book).find((r) => !r.date && r.text?.trim())?.text;
       return [
         '', b.series ? `${b.title} (${b.series}${seriesNo(b) ? `, #${seriesNo(b)}` : ''})` : b.title, writers[0] || '', lastFirst(writers[0]), others.join(', '), quoted(toIsbn10(isbn13)), quoted(isbn13),
         rating != null ? Math.max(1, Math.round(rating / 2)) : 0, '', b.publisher || '',
@@ -7112,6 +7112,7 @@ function openExport(kind = 'json') {
   const how = EXPORTS[kind];
   const counts = new Map(lists.map((l) => [l.id, books.filter((b) => W.shelves(b)[l.id]).length]));
   const picked = new Set(lists.map((l) => l.id));
+  let withReviews = true;   // ratings and the dates of reads always go in; this is the text of reviews
   const go = h('button', { class: 'btn btn-primary btn-block', type: 'button' }, icon('download'), t('Continue'));
   const update = () => { go.disabled = !picked.size; };
   go.onclick = () => {
@@ -7119,7 +7120,7 @@ function openExport(kind = 'json') {
     const chosen = picked.size === lists.length ? books : books.filter((b) => { const on = W.shelves(b); return [...picked].some((id) => on[id]); });
     if (!chosen.length) { toast(t('No books on those lists')); return; }
     offerFile({
-      title: t('Export'), about: how.about(plural(chosen.length, 'book')), text: how.make(chosen), type: how.type,
+      title: t('Export'), about: how.about(plural(chosen.length, 'book')), text: how.make(chosen, { reviews: withReviews }), type: how.type,
       name: `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`, copied: how.copied(),
     });
   };
@@ -7128,7 +7129,11 @@ function openExport(kind = 'json') {
     h('span', { text: `${listName(l)} (${counts.get(l.id)})` })));
   sheet.open(h('div', null,
     sheetHead(t('Export'), t('Which lists should go in the file?')),
-    h('div', { class: 'stack' }, ...rows, go)));
+    h('div', { class: 'stack' }, ...rows,
+      h('label', { class: 'check-line' },
+        h('input', { type: 'checkbox', checked: true, onchange: (e) => { withReviews = e.target.checked; } }),
+        h('span', { text: t('Include the text of reviews (ratings are always included)') })),
+      go)));
 }
 
 /** A sheet to save, share or (given `copied`, the toast for it) copy a file made here. */
