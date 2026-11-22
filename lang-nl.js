@@ -322,6 +322,9 @@ export default {
   // Export
   'Export': 'Exporteren',
   'Nothing to export yet': 'Nog niets om te exporteren',
+  'Which lists should go in the file?': 'Welke lijsten moeten in het bestand?',
+  'No books on those lists': 'Geen boeken op die lijsten',
+  'Continue': 'Doorgaan',
   '{n} as JSON, oldest first.': '{n} als JSON, oudste eerst.',
   'Save file': 'Bestand opslaan',
   'Share…': 'Delen…',

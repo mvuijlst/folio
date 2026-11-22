@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.44.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.45.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -7015,9 +7015,9 @@ async function suggestListWords(back) {
 
 /* ───────────────────────── Export ───────────────────────── */
 
-function exportJson() {
+function exportJson(src = books) {
   const named = (on) => lists.filter((l) => on?.[l.id]).map((l) => ({ list: listName(l), since: on[l.id].at || '', ...(on[l.id].note && { note: on[l.id].note }) }));
-  const rows = [...books].reverse().map((b) => ({
+  const rows = [...src].reverse().map((b) => ({
     title: b.title, author: b.author, added: b.added,
     lists: named(b.lists),
     ...(b.series && { series: b.series, seriesNumber: seriesNo(b) }),
@@ -7063,12 +7063,12 @@ function toIsbn10(isbn13) {
   return core + (check === 10 ? 'X' : String(check));
 }
 
-function exportGoodreads() {
+function exportGoodreads(src = books) {
   const cell = (v) => { const text = String(v ?? ''); return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
   const day = (iso) => (/^\d{4}-\d{2}-\d{2}/.test(iso || '') ? iso.slice(0, 10).replace(/-/g, '/') : '');
   const quoted = (isbn) => (isbn ? `="${isbn}"` : '');   // as Goodreads writes them, so a spreadsheet keeps the zeros
   const slug = (text) => fold(text).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  const rows = [...books].reverse().flatMap((book) => {
+  const rows = [...src].reverse().flatMap((book) => {
     const status = Object.keys(book.lists || {}).find((id) => FIXED.has(id));
     const shelf = GOODREADS_SHELF[status] || 'to-read';
     /** One row: the book as edition `ed`, for `read` (a review with a reading date) or for where it stands now. */
@@ -7106,13 +7106,29 @@ const EXPORTS = {
   goodreads: { make: exportGoodreads, type: 'text/csv', ext: 'csv', about: (n) => t('{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per read, with the edition that was read; ratings become 1 to 5 stars.', { n }), copied: () => t('CSV copied to clipboard') },
 };
 
+/** Choose which lists to export (all of them to begin with), then offer the file of the books on them. */
 function openExport(kind = 'json') {
   if (!books.length) { toast(t('Nothing to export yet')); return; }
   const how = EXPORTS[kind];
-  offerFile({
-    title: t('Export'), about: how.about(plural(books.length, 'book')), text: how.make(), type: how.type,
-    name: `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`, copied: how.copied(),
-  });
+  const counts = new Map(lists.map((l) => [l.id, books.filter((b) => W.shelves(b)[l.id]).length]));
+  const picked = new Set(lists.map((l) => l.id));
+  const go = h('button', { class: 'btn btn-primary btn-block', type: 'button' }, icon('download'), t('Continue'));
+  const update = () => { go.disabled = !picked.size; };
+  go.onclick = () => {
+    // Every list chosen is everything, including books on no list.
+    const chosen = picked.size === lists.length ? books : books.filter((b) => { const on = W.shelves(b); return [...picked].some((id) => on[id]); });
+    if (!chosen.length) { toast(t('No books on those lists')); return; }
+    offerFile({
+      title: t('Export'), about: how.about(plural(chosen.length, 'book')), text: how.make(chosen), type: how.type,
+      name: `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`, copied: how.copied(),
+    });
+  };
+  const rows = lists.map((l) => h('label', { class: 'check-line' },
+    h('input', { type: 'checkbox', checked: true, onchange: (e) => { if (e.target.checked) picked.add(l.id); else picked.delete(l.id); update(); } }),
+    h('span', { text: `${listName(l)} (${counts.get(l.id)})` })));
+  sheet.open(h('div', null,
+    sheetHead(t('Export'), t('Which lists should go in the file?')),
+    h('div', { class: 'stack' }, ...rows, go)));
 }
 
 /** A sheet to save, share or (given `copied`, the toast for it) copy a file made here. */
