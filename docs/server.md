@@ -94,6 +94,11 @@ sudo bash /home/django/folio-yusupov/server/setup-cover-fetch.sh
 See what it did with `journalctl -u folio-covers.service`. A cover that can't be fetched is
 tried again a week later.
 
+Whether covers reach the server at all, and why one doesn't: `sudo bash server/check-covers.sh
+[USERNAME]` (it changes nothing) fetches one known cover from Open Library, counts each
+account's covers kept here (small, and also large), and lists every cover still elsewhere with
+the error its address gives now.
+
 If a library doesn't show, `sudo bash server/check-public-library.sh` (no arguments, changes
 nothing) says for each library what is missing, and whether nginx or the Folio server refuses it.
 

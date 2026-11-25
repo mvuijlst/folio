@@ -12,6 +12,12 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.47.1 · 2026-11-25
+
+- **Why a cover isn't on the server.** `server/check-covers.sh` (run as root, changes nothing)
+  says whether the server can fetch covers at all, how many each account has there, and for
+  each cover still elsewhere what its address answers now. See [Running Folio](server.md).
+
 ## 2.47.0 · 2026-11-25
 
 - **The HTML export is a website to browse.** A home page (reading now, read lately, your
