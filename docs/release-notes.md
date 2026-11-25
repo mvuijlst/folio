@@ -12,6 +12,15 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.45.0–2.45.3 · 2026-11-22 to 2026-11-25
+
+- **Export asks which lists, and whether reviews' text, go in.** Export as JSON and for
+  Goodreads show your lists, all ticked, with how many books each has; the file holds the
+  books on the ticked lists. Ratings and the dates of reads always go in.
+- **Words is one row under Settings.** Lists, Categories, Tags and Roles are on a page of their
+  own under it, and Back from one of them returns there; the row says what wants seeing to.
+  (2.45.2 didn't start: a bracket was missing. 2.45.3 puts it back.)
+
 ## 2.44.1 · 2026-11-21
 
 - **Back returns to the list, not to the book.** From a book's page to its author or series,

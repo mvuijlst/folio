@@ -15,7 +15,7 @@ import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
 
-const APP_VERSION = '2.45.2'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.45.3'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -7766,7 +7766,7 @@ function openWordsPage() {
       navRow(t('Lists'), [plural(lists.length, 'list'), listWordsLacking().length && t('{n} without a name in both languages', { n: listWordsLacking().length })].filter(Boolean).join(' · '), () => openPage(openLists, openWordsPage)),
       navRow(t('Categories'), plural(categoryNames().length, 'category'), () => openPage(openCategories, openWordsPage)),
       navRow(t('Tags'), [plural(T.counts(books, 'tags').size, 'tag'), tidy && t('{n} to tidy', { n: tidy })].filter(Boolean).join(' · '), () => openPage(openTags, openWordsPage)),
-      navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles, openWordsPage))));
+      navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles, openWordsPage)))));
 }
 
 /* A public library, the owner's side (docs/public-library-plan.md, 3.6). Whether this account
