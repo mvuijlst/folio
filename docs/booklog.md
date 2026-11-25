@@ -11,8 +11,9 @@ venv/bin/python manage.py import_boeken /path/to/boeken --user NAME
 venv/bin/python manage.py import_boeken --user NAME --remove                    # undo
 ```
 
-- Each post becomes a book on *To read*, *Reading* or *Read* (or *Abandoned*, a list that is
-  made when first needed), dated as in the booklog. A reread is the same book, not a second one:
+- Each post becomes a book on *To read*, *Reading*, *Read* or *Did not finish* (the list
+  `abandoned`, as the booklog calls the status; the import makes it on the server when first
+  needed), dated as in the booklog. A reread is the same book, not a second one:
   a book is one `rereadOf` group of posts.
 - A book comes with its rating, series, how far along it is, and a link to its page in the
   booklog. Every read becomes a **review** of the book: the day it was read, the rating, the
@@ -52,6 +53,7 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | --- | --- |
 | a review is edited | its post gets the new text, rating and reading date (a date in another month keeps the old address as an alias) |
 | an edition is changed | the posts of every read of it get the publisher, year, pages or length, ISBN, language and cover; an edition nobody read changes nothing there |
+| an edition gets a publication line in words (*In words*) | `publication` on the posts of its reads, shown there in place of publisher, year and pages; imported back |
 | what an edition is (paper, e-book, audiobook) changes | `format` on the posts of its reads; an audiobook gets its length instead of pages |
 | the people of an edition change | `authors` and `roles` of the posts of its reads; someone new gets an author page, and people who didn't change keep the page they had |
 | *To read* → *Reading* | the post's status, with progress started |
@@ -62,12 +64,15 @@ venv/bin/python manage.py sync_boeken --user NAME             # fetch, publish, 
 | a book being read is marked *Did not finish* | the post's status becomes `abandoned` |
 | a book that was only marked as read gets its review later | that same post gets the text and rating: no reread is made of it |
 | a book to read is dropped | its post is deleted, with its cover and the author, tag and series pages nothing else uses. Never a book that was read: that is refused |
+| *Remove from boeken.tsuk.org*, on a book or on one read | those posts are deleted (*Verwijderd: …*), with what nothing else uses; the book and its reads stay in the app and are never published again. When the first read's post goes, the next becomes the first |
+| a book is deleted (it goes to the Trash) | nothing: its posts stay, in the Trash and after it is deleted for good |
 | title or series change | the front matter of every read of the book (a read of an edition with a title of its own, a translation, keeps that title) |
 | an edition has a title of its own | the posts of its reads carry it; the linter allows another title in another language (D-054) |
 | a book is combined with another, or an edition with reads is made a book of its own | the posts are regrouped (*Samengevoegd: …*, *Gesplitst: …*): the earliest post the first read, the others rereads of it; a group that loses its first post gets the earliest left as its first. Of two posts waiting to be read, the book's own stays |
 | the main edition changes (*I'm reading this one*) | the post of the read not done yet gets that edition's facts |
 | categories or tags change | `categories` and `tags` on every read's post that has any, and the latest's; a new tag gets its page, and a category the booklog doesn't have is refused |
-| the cover is replaced | the picture goes into `media/` and the post points at it |
+| the cover is replaced | the picture goes into `media/` and the post points at it (named apart from the covers there whatever the case: `bone-2.jpg` beside an old `Bone.jpg`) |
+| a tag is merged, removed or given another Dutch name (Settings → *Words*) | one commit, *Woorden uit Folio*, once no post has the old tag: a merged tag's page goes and its address leads to the other, a removed tag loses its page, a renamed one gets the new title |
 
 - **Only what changed is written.** Posts are edited line by line, as boeggn did, never
   re-serialised; a post nobody touched in the app stays byte for byte as it was. Each book is

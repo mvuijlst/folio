@@ -15,8 +15,10 @@
 | `screensaver.js` | the cover wall; loaded only when asked for |
 | `lang-nl.js` | the app's text in Dutch |
 | `sw.js`, `manifest.webmanifest`, `icons/` | offline support and install metadata |
-| `server/` | optional Django sync server (accounts, a copy of each shelf and its lists), and the booklog import |
-| `covers/` | cover images kept by the server: `boeken/` from the import, `web/` from the catalogues (not in the repository) |
+| `server/` | optional Django sync server (accounts, a copy of each shelf and its lists), the booklog import and publishing, and the scripts that set up its timers (`setup-*.sh`) |
+| `.github/workflows/deploy.yml` | the deploy: every push to `main` (see [Updating](server.md#updating)) |
+| `CLAUDE.md` | what an assistant working on the repository is told: when to push to `main`, and what to do first |
+| `covers/` | cover images kept by the server: `boeken/` from the import, `web/` fetched from the catalogues and anywhere else on the web, `own/` the ones photographed or supplied (not in the repository) |
 | `fonts/` | Fraunces and Instrument Sans (SIL Open Font License) |
 | `vendor/tesseract/` | [tesseract.js](https://github.com/naptha/tesseract.js) 7.0.0 and its English data, for printed ISBNs (Apache-2.0) |
 | `vendor/barcode/` | [barcode-detector](https://github.com/Sec-ant/barcode-detector) 3.2.3 / zxing-wasm (MIT) |
