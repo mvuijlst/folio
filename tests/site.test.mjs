@@ -247,6 +247,28 @@ test('website: the authors A to Z by surname, the series in order, a person by w
   assert.match(files.get('lists/lent-out.html'), /Jan · Added 2026-09-01/);
 });
 
+test('website: the authors index in the order of the alphabet, whatever a name starts with', () => {
+  const person = (name, sortAs) => ({ name, role: '', sortAs });
+  const odd = [
+    { id: 'o1', title: '’Salem’s Lot', writers: ['Mitric -Nicolas'], people: [person('Mitric -Nicolas', '-Nicolas, Mitric')], lists: [], editions: [], reads: [] },
+    { id: 'o2', title: 'Abc', writers: ['(Pseudo) Pim'], people: [person('(Pseudo) Pim', '(Pim), Pseudo')], lists: [], editions: [], reads: [] },
+    { id: 'o3', title: 'Zed', writers: ['Ann Aardvark'], people: [person('Ann Aardvark', 'Aardvark, Ann')], lists: [], editions: [], reads: [] },
+    { id: 'o4', title: '1984', writers: ['张 伟'], people: [person('张 伟', '伟, 张')], lists: [], editions: [], reads: [] },
+    { id: 'o5', title: 'Émile', writers: ['Ömer Öz'], people: [person('Ömer Öz', 'Öz, Ömer')], lists: [], editions: [], reads: [] },
+  ];
+  const files = byPath(S.htmlSite(odd, { lists: LISTS }));
+  const authors = files.get('authors/index.html');
+  const letters = [...authors.match(/<nav class="letters">(.*?)<\/nav>/)[1].matchAll(/>([^<]+)<\/a>/g)].map((m) => m[1]);
+  assert.deepEqual(letters, ['A', 'N', 'O', 'P', '#']);
+  const headings = [...authors.matchAll(/<h2 class="letter" id="([^"]+)">/g)].map((m) => m[1]);
+  assert.deepEqual(headings, ['A', 'N', 'O', 'P', 'other']);
+  assert.ok(authors.indexOf('Mitric -Nicolas') > authors.indexOf('id="N"') && authors.indexOf('Mitric -Nicolas') < authors.indexOf('id="O"'));
+  // Titles too: a quote mark or a digit doesn't put a book before A.
+  const books = files.get('books/index.html');
+  const order = [...books.matchAll(/<span class="t">([^<]+)<\/span>/g)].map((m) => m[1]);
+  assert.deepEqual(order, ['1984', 'Abc', 'Émile', '’Salem’s Lot', 'Zed']);
+});
+
 test('website: linked covers, in another language', () => {
   const files = byPath(S.htmlSite(shelf(), {
     lists: LISTS, covers: 'link', lang: 'nl', title: 'Mijn boeken',

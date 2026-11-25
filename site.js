@@ -225,7 +225,9 @@ export const stars = (rating) => {
 };
 
 /** How a title is put in order: without accents, case or a leading article. */
-const titleKey = (title) => fold(title).replace(/^(?:the|an?|de|het|een|le|la|les|der|die|das|el|los|las|il|lo|l['’])\s*(?=\S)/, '').trim();
+const titleKey = (title) => sortKey(sortKey(title).replace(/^(?:the|an?|de|het|een|le|la|les|der|die|das|el|los|las|il|lo|l['’])\s*(?=\S)/, ''));
+/** How a name or title is put in order: without accents or case, and without what comes before its first letter or digit ("'Salem's Lot", "-Nicolas"). */
+const sortKey = (text) => fold(text).replace(/^[^\p{L}\p{N}]+/u, '').trim();
 const byTitle = (a, b) => titleKey(a.title).localeCompare(titleKey(b.title)) || String(a.title).localeCompare(String(b.title));
 const newest = (key) => (a, b) => String(key(b) || '').localeCompare(String(key(a) || '')) || byTitle(a, b);
 const lastRead = (book) => (book.reads || []).reduce((m, r) => (r.date > m ? r.date : m), '');
@@ -532,13 +534,14 @@ ${grid(root, all.slice(0, 12))}`,
   }
 
   // ── Authors ──
-  const sortedPeople = [...people.values()].sort((a, b) => fold(a.sortAs).localeCompare(fold(b.sortAs)));
-  const initial = (p) => (fold(p.sortAs).match(/[a-z]/)?.[0] || '#').toUpperCase();
+  const sortedPeople = [...people.values()].sort((a, b) => sortKey(a.sortAs).localeCompare(sortKey(b.sortAs)) || a.name.localeCompare(b.name));
+  // Under the letter their surname starts with; a name that starts with none of a to z (a digit, another script) under # at the end.
+  const initial = (p) => (/^[a-z]/.test(sortKey(p.sortAs)) ? sortKey(p.sortAs)[0].toUpperCase() : '#');
   if (people.size) {
     page('authors/index.html', {
       title: w.authors, section: 'authors',
       body: (root) => {
-        const letters = [...new Set(sortedPeople.map(initial))];
+        const letters = [...new Set(sortedPeople.map(initial))].sort((a, b) => (a === '#') - (b === '#') || a.localeCompare(b));
         return `<h1>${esc(w.authors)}</h1>
 <nav class="letters">${letters.map((x) => `<a href="#${x === '#' ? 'other' : x}">${x}</a>`).join(' ')}</nav>
 ${letters.map((x) => `<h2 class="letter" id="${x === '#' ? 'other' : x}">${x}</h2>

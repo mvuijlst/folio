@@ -686,13 +686,14 @@ and **Export for Eleventy (11ty)** make the content for a site of your own.
   reader's device is.
   - *Home*: what you are reading, what you read lately, your lists (each with a few covers), and
     the first of all books.
-  - *Books*: every book, A to Z (a leading *The*, *De*, *Le*… left out), as pages of covers, 48
-    to a page, with a pager.
+  - *Books*: every book, A to Z (a leading *The*, *De*, *Le*… left out, and a quote mark), as
+    pages of covers, 48 to a page, with a pager.
   - *Lists*: one for each list you exported that has books on it, as pages of covers: *Read*
     and *Did not finish* newest read first, the others newest on the list first, with the note
     of a list that has them (*Lent out*: to whom).
-  - *Authors*: everyone on a book, A to Z by surname (*Le Guin* under L), each with their books;
-    someone who translated or read a book has those under that role.
+  - *Authors*: everyone on a book, A to Z by surname (*Le Guin* under L; a name in another
+    script under # at the end), each with their books; someone who translated or read a book
+    has those under that role.
   - *Series*: each with its volumes in order, numbered.
   - *Categories* and *Tags*, when your books have them.
   - A page for **every book**: its cover large, title and original title, who wrote it (and

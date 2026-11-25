@@ -12,6 +12,13 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.47.2 · 2026-11-25
+
+- **The website's authors A to Z.** The letters at the top of Authors, and the sections under
+  them, go in the order of the alphabet; a name that starts with a hyphen or a bracket
+  (*Mitric -Nicolas*) is under its first letter, not before A, and one that starts with no
+  letter at all is under # at the end. Titles likewise: *’Salem’s Lot* is under S.
+
 ## 2.47.1 · 2026-11-25
 
 - **Why a cover isn't on the server.** `server/check-covers.sh` (run as root, changes nothing)

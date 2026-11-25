@@ -16,7 +16,7 @@ import * as B from './backup.js';
 import * as N from './national.js';
 import * as S from './site.js';
 
-const APP_VERSION = '2.47.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.47.2'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
