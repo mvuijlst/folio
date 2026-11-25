@@ -17,7 +17,8 @@ sign-up), and publishing goes to one particular Hugo booklog,
 [boeken.tsuk.org](https://boeken.tsuk.org). Every push to the default branch deploys, and every
 deploy is a numbered version (shown under Settings), listed in the
 [release notes](docs/release-notes.md). The server, the book logic, backups, the catalogue
-lookups and the cover straightening have automated tests; the interface has not.
+lookups, the website export and the cover straightening have automated tests; the interface
+has not.
 
 ## What it does
 
@@ -49,15 +50,17 @@ lookups and the cover straightening have automated tests; the interface has not.
 - **Offline** once installed, in English or Dutch.
 - **Your reading, public.** An export in the CSV layout of Goodreads, which StoryGraph,
   BookWyrm, Hardcover, LibraryThing and Goodreads import, all of them free: a public page of
-  what you read, with ratings and reviews, without running anything yourself. There is a JSON
-  export of the whole shelf too.
+  what you read, with ratings and reviews, without running anything yourself. Or as a website
+  of your own: a zip of finished web pages to put on any web server, or a Markdown page per
+  read, with front matter, for a Hugo or Eleventy site. There is a JSON export of the whole
+  shelf too. Each export asks which lists go in, and whether the text of reviews does.
 - **A public library (optional):** with an account, a read-only page of the lists you choose,
   at an address of your own.
 - **With the server (optional):** accounts and sync between devices, covers kept on the
   server, the assistant, and two-way sync with a Hugo booklog: its books are imported, and what
   changes in the app is published back to it as commits. This is built for the author's own
-  [boeken.tsuk.org](https://boeken.tsuk.org) and is not yet usable with another site; the CSV
-  export above is the way to put your reading online.
+  [boeken.tsuk.org](https://boeken.tsuk.org) and is not yet usable with another site; the
+  exports above are the way to put your reading online.
 
 ## Trying it
 
@@ -98,9 +101,9 @@ Folio collects nothing about you: no analytics, no advertising, no cookies but t
 keep you signed in. Without an account your shelf never leaves your device; book lookups go
 from your device to Open Library and Google Books (for a Dutch, Flemish or French ISBN also the
 KB or the BnF, and Wikidata for a series or an original language), which see what is looked up.
-With an account
-on the author's server, your shelf is kept there too, what you describe or photograph for the
-assistant goes through it to OpenAI, and it keeps the usual log of visits.
+With an account on the author's server, your shelf and its covers are kept there too, what you
+describe or photograph for the assistant goes through it to OpenAI, what is asked of Hardcover
+(a series, a page count) goes through it as well, and it keeps the usual log of visits.
 
 A public library is off until you turn it on (and the person who runs the server allows it
 for your account). Then anyone with its address can read the books on the lists you chose,

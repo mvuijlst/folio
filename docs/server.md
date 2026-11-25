@@ -110,7 +110,9 @@ opens the old address any more, its nginx site can become a redirect.
 
 Pushing to the repository deploys to the server (`.github/workflows/deploy.yml`, which lists the
 secrets it needs): it copies the files whose content changed and, where the sync server is set up,
-installs its requirements, migrates and restarts it. Otherwise replace the files on the server by
+installs its requirements, migrates and restarts it. Before anything is copied it checks that
+every script parses and that `index.html` and `app.js` say the same version; the README, `docs/`
+and `tests/` are not copied. Otherwise replace the files on the server by
 hand; nothing else is needed for the app. An installed copy compares its cached
 files with the server each time it is opened (and when it returns to the foreground), and
 restarts itself into the new version within a few seconds. If you are in the middle of
@@ -275,3 +277,25 @@ lists every book with what each source said and why it may need a look; that fil
 is what `--apply FILE` stores. Nothing is published: the booklog doesn't have these
 fields. Wikidata's query service may be rate-limited; the command then waits as long as it is
 told to and tries again.
+
+## Corrections from a file
+
+For changes worked out elsewhere (a list of books and what each should get), a few commands
+apply a JSON file to the books that are only on the shelf; booklog books are left alone, since
+the booklog says their facts. Each takes `--user NAME` and only says what it would do without
+`--write`. A changed book keeps its `modified` and gets a new `changed`, so every device
+fetches it. Make a database copy first. The file's shape is at the top of each command.
+
+- `manage.py set_categories FILE`: `{book id: {"from": [...], "to": [...]}}`, the categories a
+  book has and those it gets (made for D-055); a book whose categories are no longer the
+  `from` ones is left alone and reported.
+- `manage.py add_tags FILE`: `{book id: [tags]}`, added to what a book has; nothing is taken
+  away (made for the tag *young-adult* of D-057).
+- `manage.py apply_fixes FILE`: `"change"`, fields of books and editions as `[old, new]`, made
+  only where the field still holds the old value (else reported), and `"combine"`, pairs of duplicate books to
+  make one.
+
+`manage.py fill_languages --user NAME [--dry-run]` gives editions with an ISBN and no language
+theirs: Open Library's record of the edition, else Google Books, else the ISBN's registration
+group (978-90 is Dutch). `manage.py mark_cover_photos` and `manage.py try_covers` are in
+[using.md](using.md).

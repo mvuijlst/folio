@@ -287,9 +287,12 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   it. What nobody knows stays empty; it is set under *Edit details* (*Original language*, *Original
   title*). These stay in Folio: the booklog doesn't have them. `manage.py fill_original` (see
   [server.md](server.md)) fills them in for books already on the shelf.
-- **Settings** is a short list: *Account*, *Language*, then *Words* (*Categories*, *Tags*,
-  *Roles*), then *Your shelf* (*Lookups*, *As a file*, *About*). Each row opens a page of its
-  own with Back (and Escape, and a phone's back gesture) to the list, and Close.
+- **Settings** is a short list: *Account*, *Language* and *Words*, then *Your shelf*: *Public
+  library* (once your account may share), *Paper copies*, *Lookups*, *As a file*, *Trash* and
+  *About*. Each row opens a page of its own with Back (and Escape, and a phone's back gesture)
+  to the list, and Close. *Words* is a page with *Lists*, *Categories*, *Tags* and *Roles*, each
+  a page of its own from which Back returns to *Words*; its row in Settings says what wants
+  seeing to (lists without a name in both languages, tags to tidy, roles to sort out).
 - **Lists, in two languages.** Settings → *Words* → *Lists* (or *Edit lists* beside them) has every
   list, in its order. A list's form has its name, the name of its either-or set and the label of
   its note each in English and in Dutch, the app's language first; with an account and the
@@ -300,7 +303,7 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
 - **Categories and tags, in two languages.** Both stay on books as the booklog writes them
   (`geschiedenis`, `belgie`); what is shown is a name in the language of the app: in Dutch the
   title of its page in the booklog (*België*), in English a name of its own (*Belgium*).
-  *Categories* lists the booklog's categories (D-055, D-057) with both names; they can be named, not
+  Settings → *Words* → *Categories* lists the booklog's categories (D-055, D-057) with both names; they can be named, not
   added or merged, which is the booklog's business. *Tags* lists every tag with how many books
   have it, to search and order by use or name, and *To tidy*: tags spelled two ways
   (*vampiers*, *vampieren*), tags that say what a category or a series says, and, with an
@@ -344,6 +347,13 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   under *Other: No cover exists*. Closing the page ends the queue. Settings → *Paper copies* has
   the same for the paper copies listed there. A chosen cover is copied to the server at once
   (signed in), whatever catalogue it came from: no book points at another site for its cover.
+- **Paper copies.** Settings → *Paper copies* has two lists to work through. *Without a cover*:
+  paper copies with no cover whose book has another copy with one;
+  tap the cover the paper copy should get, or *The first one for each*, then *Copy n covers*.
+  For a book in the booklog the new cover goes there too. *To scan again*: paper copies read
+  and logged in the booklog that have no ISBN, grouped by the list they are on, so a shelf can
+  be done at a time; a scan of the barcode fills in what the copy doesn't say yet, and the
+  booklog page gets the ISBN.
 - **The menu shows the lists that have books on them.** An empty list is still there to put
   books on, and under *Edit lists*.
 - **In the covers view the covers stand on one base line**, whether or not a book has a rating
@@ -456,7 +466,12 @@ With more than one edition:
   every edition; a voice or translator of one edition stays.
 - **An edition's sheet** (tap its row) has its facts: format, publisher, year, pages or
   length, ISBN, language, cover, everyone on it, a title of its own when it has one (a
-  translation), and the lists of where that copy is. At the bottom, quietly: *Make it a book of
+  translation), and the lists of where that copy is. Where publisher, year and pages can't say
+  it (a run spread over publishers and volumes, who drew which issues), the quiet pen at the
+  end of the *Published* and *Pages* row (*Say it in words*) opens **In words**: a line of your own that stands in
+  their place on the book's page and in the line about the edition; lists keep the short
+  line. It is searched, and published to the booklog as `publication`. A book with one edition
+  has the same pen in its details. At the bottom, quietly: *Make it a book of
   its own* (it goes with its reads; *Undo* in the message), and the bin, when the book has
   another edition. An edition that was read says first that its reads go with it, and for
   reads in the booklog their pages there too.
@@ -714,9 +729,12 @@ rename them.
 - Google Books' keyless quota is shared and often exhausted. Open Library still answers, but
   for the best hit rate add a free Google Books API key under the settings icon.
 - Nothing about you is collected: no analytics, no advertising, no cookies but those that
-  keep you signed in. Lookups go from your device to Open Library and Google Books (and for a
-  Dutch or French ISBN the KB or the BnF), which see what is looked up. With an account, what you describe or photograph for the assistant goes
-  through the server to OpenAI, and the server keeps the usual log of visits (address, time,
-  page).
+  keep you signed in. Lookups go from your device to Open Library and Google Books (for a
+  Dutch, Flemish or French ISBN also the KB or the BnF, and Wikidata for a series or an
+  original language), which see what is looked up; a cover's picture comes from where it is
+  (a catalogue, Amazon for the one it has by ISBN) unless the server keeps a copy. With an
+  account, what you describe or photograph for the assistant goes through the server to
+  OpenAI, a series or page count it asks Hardcover goes through the server too, and the
+  server keeps the usual log of visits (address, time, page).
 - Barcode scanning uses the browser's built-in detector on Android and falls back to a
   bundled WebAssembly one elsewhere.
