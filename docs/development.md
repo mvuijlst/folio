@@ -66,5 +66,6 @@ Run the tests, add the version to [release-notes.md](release-notes.md), and bump
 shown at the bottom of the settings sheet, so you can tell which build is running, and a page
 whose version is not the script's is reloaded once (an old page from the cache next to a new
 script, while a new version's service worker takes over). `tests/page.test.mjs` and the deploy
-both refuse the two apart. How a push reaches the server, and installed copies, is under
-[Updating](server.md#updating).
+both refuse the two apart. The deploy also refuses a script that doesn't parse (`node --check`
+on each `.js` at the top, as a module): it would stop the whole app. How a push reaches the
+server, and installed copies, is under [Updating](server.md#updating).

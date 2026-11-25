@@ -63,6 +63,26 @@ jobs:
       - uses: actions/checkout@v4
         if: steps.ready.outputs.go == 'true'
 
+      # A script that doesn't parse stops the whole app (2.45.2 went out without a bracket). Each
+      # is checked as the module it is, and nothing is copied to the server if one fails.
+      - name: Check that every script parses
+        if: steps.ready.outputs.go == 'true'
+        run: |
+          tmp=$(mktemp -d)
+          failed=0
+          for f in *.js; do
+            cp "$f" "$tmp/$f.mjs"
+            if ! out=$(node --check "$tmp/$f.mjs" 2>&1); then
+              line=$(printf '%s\n' "$out" | sed -n "s|^$tmp/$f.mjs:\([0-9]*\)$|\1|p" | head -1)
+              echo "::error file=$f,line=${line:-1}::$f does not parse: $(printf '%s\n' "$out" | grep -m1 'Error')"
+              printf '%s\n' "$out" | sed "s|$tmp/$f.mjs|$f|"
+              failed=1
+            fi
+          done
+          rm -rf "$tmp"
+          [ "$failed" = 0 ] && echo "Every script parses." || echo "::error::Not deployed: a script that doesn't parse stops the whole app."
+          exit $failed
+
       # A page and a script of different versions reload once on every visit (app.js pageInStep).
       - name: Check that the page and the script are of one version
         if: steps.ready.outputs.go == 'true'
