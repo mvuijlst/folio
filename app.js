@@ -7830,9 +7830,9 @@ window.addEventListener('beforeinstallprompt', (e) => {
   if (matchMedia('(pointer: coarse)').matches) installPrompt = e;
 });
 
-/* Settings: a short list, each row a page of its own (Account, Language, the words the app keeps
-   in two languages, lookups, the shelf as a file, about). A page under it has Back (and Escape,
-   and the phone's back gesture) to the list, and Close to leave. */
+/* Settings: a short list, each row a page of its own (Account, Language, Words: the words the app
+   keeps in two languages, a short list of its own; lookups, the shelf as a file, about). A page
+   under it has Back (and Escape, and the phone's back gesture) to the list, and Close to leave. */
 
 let settingsDepth = 0;
 /** Opens a page under Settings: `render` draws it with pageHead. Back returns to the list, or to page `from` (a page under a page). */
@@ -7865,8 +7865,6 @@ function languageAbout() {
 
 function openSettings() {
   sync.summary = h('small', { text: accountAbout() });
-  const roles = T.survey(books, roleVocab().all);
-  const tidy = tagsToTidy();
   sheet.open(h('div', { class: 'settings-hub' },
     sheetHead(t('Settings')),
     installPrompt && h('button', {
@@ -7877,12 +7875,8 @@ function openSettings() {
       h('div', { class: 'list-row nav-row' },
         h('button', { class: 'list-name', type: 'button', onclick: () => openPage(openAccountPage) }, h('span', { text: t('Account') }), sync.summary),
         h('span', { class: 'list-go', 'aria-hidden': 'true' }, icon('chevron'))),
-      navRow(t('Language'), languageAbout(), () => openPage(openLanguagePage))),
-    navGroup(t('Words'),
-      navRow(t('Lists'), [plural(lists.length, 'list'), listWordsLacking().length && t('{n} without a name in both languages', { n: listWordsLacking().length })].filter(Boolean).join(' · '), () => openPage(openLists)),
-      navRow(t('Categories'), plural(categoryNames().length, 'category'), () => openPage(openCategories)),
-      navRow(t('Tags'), [plural(T.counts(books, 'tags').size, 'tag'), tidy && t('{n} to tidy', { n: tidy })].filter(Boolean).join(' · '), () => openPage(openTags)),
-      navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles))),
+      navRow(t('Language'), languageAbout(), () => openPage(openLanguagePage)),
+      navRow(t('Words'), wordsAbout(), () => openPage(openWordsPage))),
     navGroup(t('Your shelf'),
       sync.user && sharing?.allowed && navRow(t('Public library'), sharingAbout(), () => openPage(openLibraryPage)),
       navRow(t('Paper copies'), paperAbout(), () => openPage(openPaperPage)),
@@ -7898,6 +7892,28 @@ function openSettings() {
     if (!!sharing?.allowed !== shownAllowed && sheet.isOpen && $('sheetBody').querySelector('.settings-hub')) openSettings();
   });
   if (sync.user && !sync.running && time(sync.last) < Date.now() - 30000) runSync();
+}
+
+/** What Settings says of Words: the four kinds of word, and what among them wants seeing to. */
+function wordsAbout() {
+  const tidy = tagsToTidy(), roles = T.survey(books, roleVocab().all).unknown.length, lacking = listWordsLacking().length;
+  const todo = [lacking && t('{n} without a name in both languages', { n: lacking }), tidy && t('{n} to tidy', { n: tidy }),
+    roles && t('{n} to sort out', { n: plural(roles, 'word') })].filter(Boolean);
+  return todo.length ? todo.join(' · ') : t('Lists, categories, tags and roles');
+}
+
+/* Settings → Words: the words the app keeps in two languages, each kind a page of its own.
+   Back from one of them comes here. */
+function openWordsPage() {
+  const roles = T.survey(books, roleVocab().all);
+  const tidy = tagsToTidy();
+  sheet.open(h('div', { class: 'words-hub' },
+    pageHead(t('Words')),
+    navGroup(null,
+      navRow(t('Lists'), [plural(lists.length, 'list'), listWordsLacking().length && t('{n} without a name in both languages', { n: listWordsLacking().length })].filter(Boolean).join(' · '), () => openPage(openLists, openWordsPage)),
+      navRow(t('Categories'), plural(categoryNames().length, 'category'), () => openPage(openCategories, openWordsPage)),
+      navRow(t('Tags'), [plural(T.counts(books, 'tags').size, 'tag'), tidy && t('{n} to tidy', { n: tidy })].filter(Boolean).join(' · '), () => openPage(openTags, openWordsPage)),
+      navRow(t('Roles'), [plural(roleVocab().all.length, 'role'), roles.unknown.length && t('{n} to sort out', { n: plural(roles.unknown.length, 'word') })].filter(Boolean).join(' · '), () => openPage(openRoles, openWordsPage)))));
 }
 
 /* A public library, the owner's side (docs/public-library-plan.md, 3.6). Whether this account
