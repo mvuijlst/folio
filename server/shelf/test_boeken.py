@@ -396,11 +396,13 @@ class CoverTests(TestCase):
         self.assertTrue(Path(self.tmp.name, 'web', book['cover'].rsplit('/', 1)[1]).is_file())
         self.assertEqual(answer['changes'][0]['modified'], '2026-11-14T10:00:00Z')   # nobody edited the book
 
-    def test_only_the_catalogues_are_asked(self):
+    def test_nothing_on_the_servers_own_network_and_nothing_but_https_is_asked(self):
+        # Any site on the web is (test_covers); an address inside this server's network never is.
         with mock.patch.object(covers, 'download') as download:
-            answer = self.sync({'id': 'b1', 'title': 'A', 'cover': 'https://example.org/internal.jpg'},
+            answer = self.sync({'id': 'b1', 'title': 'A', 'cover': 'https://10.0.0.5/internal.jpg'},
                                {'id': 'b2', 'title': 'B', 'cover': 'http://books.google.com/x'},
-                               {'id': 'b3', 'title': 'C', 'cover': 'covers/web/already.webp'})
+                               {'id': 'b3', 'title': 'C', 'cover': 'covers/web/already.webp'},
+                               {'id': 'b4', 'title': 'D', 'cover': 'https://localhost/x.jpg'})
         download.assert_not_called()
         self.assertEqual(answer['changes'], [])
 

@@ -108,3 +108,46 @@ class CoverTests(TestCase):
         call_command('fetch_covers', stdout=out)
         self.assertIn('0 covers still only small', out.getvalue())
         self.assertTrue(all(self.edition(f'b{n}').get('coverFull') for n in range(7)))
+
+    def test_a_cover_from_any_site_on_the_web_is_kept(self):
+        shop = 'https://www.example-bookshop.nl/media/cover/9789044652539.jpg'
+        self.book('shop', cover=shop)
+        covers.adopt(self.user)
+        e = self.edition('shop')
+        self.assertEqual(e['coverSource'], shop)
+        self.assertTrue(e['cover'].startswith('covers/web/') and e['coverFull'].startswith('covers/web/'))
+
+
+class AddressTests(TestCase):
+    """What the server may be made to fetch: the public web, over https, nothing on its own network."""
+
+    def test_any_https_address_on_the_web(self):
+        for url in ('https://covers.openlibrary.org/b/id/9-M.jpg', 'https://www.example-bookshop.nl/a.jpg',
+                    'https://8.8.8.8/cover.jpg', 'https://[2606:4700::1111]/cover.jpg'):
+            self.assertTrue(covers.wanted(url), url)
+
+    def test_never_this_servers_own_network(self):
+        for url in ('http://covers.openlibrary.org/b/id/9-M.jpg', 'https://localhost/x.jpg', 'https://127.0.0.1/x.jpg',
+                    'https://10.0.0.5/x.jpg', 'https://192.168.1.1/x.jpg', 'https://169.254.169.254/latest/meta-data',
+                    'https://[::1]/x.jpg', 'https://[::ffff:127.0.0.1]/x.jpg', 'https://intranet/x.jpg',
+                    'https://printer.local/x.jpg', 'file:///etc/passwd', '', None, 'https://[bad/x.jpg'):
+            self.assertFalse(covers.wanted(url), url)
+
+    def test_a_name_that_leads_into_the_servers_network_is_dropped_on_connecting(self):
+        import socket
+        listener = socket.socket()
+        listener.bind(('127.0.0.1', 0))
+        listener.listen(1)
+        self.addCleanup(listener.close)
+        connection = covers.PublicOnly('127.0.0.1', listener.getsockname()[1], timeout=2)
+        with self.assertRaises(OSError):
+            connection.connect()
+        self.assertIsNone(connection.sock)
+
+    def test_a_redirect_away_from_the_web_is_not_followed(self):
+        import urllib.error
+        import urllib.request
+        request = urllib.request.Request('https://www.example-bookshop.nl/a.jpg')
+        with self.assertRaises(urllib.error.HTTPError):
+            covers.HttpsRedirects().redirect_request(request, None, 302, 'Found', {}, 'http://169.254.169.254/')
+        self.assertIsNotNone(covers.HttpsRedirects().redirect_request(request, None, 302, 'Found', {}, 'https://cdn.example.org/a.jpg'))

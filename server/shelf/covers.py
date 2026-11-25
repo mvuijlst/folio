@@ -14,7 +14,10 @@ gets one when it is fetched, and the ones from before that are fetched again a f
 """
 import base64
 import hashlib
+import http.client
 import io
+import ipaddress
+import ssl
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -30,10 +33,9 @@ MAX_BYTES = 8_000_000
 TIMEOUT = 6            # seconds, per download
 RETRY_AFTER = 7 * 24 * 3600   # a cover that couldn't be fetched is left alone for a week
 
-# Only these are ever asked for an image: the catalogues the app looks books up in, and the booklog.
-HOSTS = {'books.google.com', 'books.googleusercontent.com', 'covers.openlibrary.org', 'boeken.tsuk.org', 'm.media-amazon.com',
-         'images-na.ssl-images-amazon.com',   # Amazon's picture by ISBN-10, a cover candidate in the app
-         'assets.hardcover.app'}   # the cover of a series volume added from Hardcover
+# Any picture on the public web can be a cover (a catalogue's, a bookshop's, one found on the web):
+# with an account every cover is kept here, wherever it came from. Only https, and never an
+# address on this server's own network: what is connected to is checked (see download).
 
 
 def folder(kind):
@@ -82,10 +84,67 @@ def ratio_of(path):
 
 
 def wanted(url):
-    """Is this a cover address the server should fetch a copy of?"""
+    """Is this a cover address the server should fetch a copy of? Any https address of a host on
+    the public web; whether it really is public is checked again on connecting (download)."""
     if not isinstance(url, str) or not url.startswith('https://'):
         return False
-    return urlsplit(url).hostname in HOSTS
+    try:
+        host = urlsplit(url).hostname
+    except ValueError:
+        return False
+    if not host or host == 'localhost' or host.endswith(('.localhost', '.local', '.internal')):
+        return False
+    try:
+        return public(host)   # an address written out: it has to be a public one
+    except ValueError:
+        return '.' in host    # a name: a dotted one (not "intranet")
+
+
+def public(address):
+    """Is this IP address one on the public internet (not loopback, private, link-local, …)?"""
+    ip = ipaddress.ip_address(address.split('%')[0])
+    if ip.version == 6 and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global
+
+
+class PublicOnly(http.client.HTTPSConnection):
+    """An https connection that is dropped, before a byte is sent, when the address it reached
+    isn't a public one: a cover's host name may lead into this server's own network."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        reach = self._create_connection
+
+        def checked(*a, **k):
+            sock = reach(*a, **k)
+            if not public(sock.getpeername()[0]):
+                sock.close()
+                raise OSError('not an address on the public web')
+            return sock
+
+        self._create_connection = checked
+
+
+class PublicHandler(urllib.request.HTTPSHandler):
+    def https_open(self, req):
+        return self.do_open(PublicOnly, req, context=ssl.create_default_context())
+
+
+class HttpsRedirects(urllib.request.HTTPRedirectHandler):
+    """Redirects are followed only to https addresses that are wanted."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not wanted(newurl):
+            raise urllib.error.HTTPError(newurl, code, 'redirected away from the public web', headers, fp)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# Connected to directly (no proxy, whose address would be the one checked), https only.
+OPENER = urllib.request.OpenerDirector()
+for handler in (urllib.request.ProxyHandler({}), PublicHandler(), HttpsRedirects(),
+                urllib.request.HTTPDefaultErrorHandler(), urllib.request.HTTPErrorProcessor()):
+    OPENER.add_handler(handler)
 
 
 def candidates(url):
@@ -102,8 +161,10 @@ def candidates(url):
 
 
 def download(url):
+    if not wanted(url):
+        raise ValueError('not a cover address')
     request = urllib.request.Request(url, headers={'User-Agent': 'Folio/1 (cover thumbnails)'})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+    with OPENER.open(request, timeout=TIMEOUT) as response:
         data = response.read(MAX_BYTES + 1)
     if len(data) > MAX_BYTES:
         raise ValueError('too large')

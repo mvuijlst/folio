@@ -14,8 +14,9 @@ import * as T from './terms.js';
 import { findCover, coverRatio } from './corners.js';
 import * as B from './backup.js';
 import * as N from './national.js';
+import * as S from './site.js';
 
-const APP_VERSION = '2.45.1'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.46.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -4510,7 +4511,7 @@ function coverFields(choice) {
  */
 async function keepCover(target, choice, book) {
   if (!sync.user || navigator.onLine === false) return;
-  const still = () => books.includes(book) && (choice.picture ? target.thumb === choice.picture.thumb : target.coverSource === choice.url);
+  const still = () => books.includes(book) && (choice.picture ? target.thumb === choice.picture.thumb : target.coverSource === choice.url || target.cover === choice.url);
   try {
     if (!csrfToken()) await fetch(abs('api/session'), { credentials: 'same-origin', cache: 'no-store' });
     const sent = choice.picture
@@ -4523,7 +4524,7 @@ async function keepCover(target, choice, book) {
     });
     if (!res.ok || !still()) return;   // or the cover was changed again meanwhile
     const kept = await res.json();
-    Object.assign(target, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio });
+    Object.assign(target, { cover: kept.cover, coverFull: kept.coverFull, coverRatio: kept.coverRatio, ...(kept.coverSource && { coverSource: kept.coverSource }) });
     await saveBook(book);
   } catch (err) {
     console.warn('Cover not kept', err);
@@ -7104,7 +7105,125 @@ function exportGoodreads(src = books, { reviews = true } = {}) {
 const EXPORTS = {
   json: { make: exportJson, type: 'application/json', ext: 'json', about: (n) => t('{n} as JSON, oldest first.', { n }), copied: () => t('JSON copied to clipboard') },
   goodreads: { make: exportGoodreads, type: 'text/csv', ext: 'csv', about: (n) => t('{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per read, with the edition that was read; ratings become 1 to 5 stars.', { n }), copied: () => t('CSV copied to clipboard') },
+  hugo: { site: 'hugo', about: (n) => t('{n} as a zip for a Hugo site: a Markdown page per read in content/books, its facts and rating in the front matter, the review below.', { n }) },
+  eleventy: { site: 'eleventy', about: (n) => t('{n} as a zip for an Eleventy site: a Markdown page per read in books/, its facts and rating in the front matter, the review below.', { n }) },
+  html: { site: 'html', about: (n) => t('{n} as a zip of plain web pages, one per reading status, ready to put on any web server.', { n }) },
 };
+
+/* ───────────────────────── Your reading as a website (site.js) ─────────────────────────
+
+   A zip for Hugo, for Eleventy, or of plain HTML pages: one page per read, and one for a book
+   not read yet or being read. Covers go in the archive, or the pages point at them. Signed in,
+   the server keeps a copy of every cover first, so what is pointed at is the server's own copy
+   and what goes in is fetched from it; without an account a cover is its catalogue's address,
+   or the small picture inside the book (as a data: address). */
+
+const SITE_STATUS = { read: 'read', reading: 'reading', 'to-read': 'to-read', abandoned: 'did-not-finish' };
+
+/** A review's Markdown as HTML, drawn as the book's page draws it (nothing in it is read as HTML). */
+function markdownHtml(text) {
+  const box = h('div');
+  box.append(renderMarkdown(text));
+  return box.innerHTML;
+}
+
+/** Where a cover is to be had: {link, from} (from: where to fetch the picture), or null. `large`:
+    the large copy, for a site that may show it large; else the small one. */
+function coverAddress(x, large) {
+  const kept = (p) => /^covers\//.test(p || '');
+  if (kept(x.cover) || kept(x.coverFull)) {
+    const own = abs((large && x.coverFull) || x.cover || x.coverFull);
+    return { link: own, from: own };
+  }
+  if (/^https:/.test(x.cover || '')) return { link: x.cover, from: large ? largeCover(x.cover) : x.cover };
+  if (/^data:image\//.test(x.thumb || '') && !x.cover) return { link: x.thumb, from: x.thumb };
+  if (x.cover) return { link: abs(x.cover), from: abs(x.cover) };
+  return null;
+}
+
+const PICTURE_EXT = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png', 'image/gif': 'gif', 'image/avif': 'avif' };
+
+/** The picture at `url` as {bytes, ext}; null when it can't be had (a catalogue that won't share it). */
+async function pictureBytes(url) {
+  try {
+    const res = await fetch(url, { mode: 'cors', credentials: 'same-origin' });
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    const ext = PICTURE_EXT[blob.type] || (/\.(jpe?g|webp|png|gif)(?:$|\?)/i.exec(url)?.[1] || 'jpg').toLowerCase().replace('jpeg', 'jpg');
+    if (blob.size < 200 || (blob.type && !blob.type.startsWith('image/'))) return null;   // a placeholder pixel, an error page
+    return { bytes: new Uint8Array(await blob.arrayBuffer()), ext };
+  } catch {
+    return null;
+  }
+}
+
+/** The entries of site.js for these books: one per read, and one for where a book not read (yet, or again) stands. */
+function siteEntries(src, { reviews = true, html = false, large = true } = {}) {
+  const out = [];
+  for (const book of src) {
+    const status = Object.keys(book.lists || {}).find((id) => FIXED.has(id));
+    const entry = (ed, read) => {
+      const b = look(book, ed);
+      const people = peopleOf(b);
+      const text = !reviews ? '' : (read ? read.text : sortedReviews(book).find((r) => !r.date && r.text?.trim())?.text) || '';
+      return {
+        book: book.id, title: b.title || book.title, bookTitle: book.title,
+        writers: writersIn(people), people: people.map((p) => ({ name: p.name, role: p.role ? roleText(p.role) : '' })),
+        series: b.series || '', seriesNumber: b.series ? seriesNo(b) : '',
+        originalTitle: book.originalTitle || '', originalLanguage: book.originalLanguage || '',
+        categories: (book.categories || []).map(categoryName), tags: (book.tags || []).map(tagName),
+        lists: listsOf(book, ed).filter(({ list }) => !FIXED.has(list.id)).map(({ list }) => listName(list)),
+        status: read ? (read.dnf ? 'did-not-finish' : 'read') : SITE_STATUS[status] || '',
+        date: String(read?.date || book.lists?.[status]?.at || book.added || '').slice(0, 10), dated: !!read,
+        rating: read ? read.rating ?? null : status === 'read' ? book.rating ?? null : null,
+        text, html: html && text.trim() ? markdownHtml(text) : '',
+        edition: { format: formatOf(b), publisher: b.publisher || '', year: yearOf(b.date), pages: b.pages || '', duration: b.duration || '', minutes: minutesOf(b.duration), isbn: b.isbn || '', language: b.language || '' },
+        cover: coverAddress(b, large),
+      };
+    };
+    const reads = (book.reviews || []).filter((r) => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
+    for (const r of reads) out.push(entry(W.editionOf(book, r.ed) || W.mainEdition(book), r));
+    if (!reads.length || (status !== 'read' && status !== 'abandoned')) out.push(entry(W.mainEdition(book), null));
+  }
+  return out;
+}
+
+/** The zip of a site export. `step(done, all)` hears how far the covers are. → {data, linked}: linked,
+    the covers that were to go in but could only be pointed at. */
+async function makeSite(target, chosen, { reviews, covers, step = () => {} }) {
+  // Signed in: every cover on the server first, wherever it came from, so the site has the server's copy.
+  if (sync.user && navigator.onLine !== false) {
+    const elsewhere = chosen.flatMap((book) => editionsOf(book).filter((e) => /^https:/.test(e.cover || '')).map((e) => [e, book]));
+    for (let i = 0; i < elsewhere.length; i += 4) {
+      step(i, elsewhere.length);
+      await Promise.all(elsewhere.slice(i, i + 4).map(([e, book]) => keepCover(e, { url: e.cover }, book)));
+    }
+  }
+  const entries = siteEntries(chosen, { reviews, html: target === 'html', large: target !== 'html' });
+  if (covers === 'include') {
+    const got = new Map();
+    const wanted = [...new Set(entries.map((e) => e.cover?.from).filter(Boolean))];
+    for (let i = 0; i < wanted.length; i += 6) {
+      step(i, wanted.length);
+      await Promise.all(wanted.slice(i, i + 6).map(async (url) => got.set(url, await pictureBytes(url))));
+    }
+    for (const e of entries) {
+      const picture = e.cover && got.get(e.cover.from);
+      if (picture) Object.assign(e.cover, picture);
+    }
+  }
+  const files = S.siteFiles(entries, {
+    target, covers, lang,
+    longDate,
+    words: {
+      title: t('Reading'), read: t('Read'), reading: t('Reading'), 'to-read': t('To read'), 'did-not-finish': t('Did not finish'), '': t('Other books'),
+      readOn: t('Read {date}'), since: t('Since {date}'), added: t('Added {date}'), gaveUp: t('Stopped {date}'),
+      pages: t('{n} pages'), by: t('by'), made: t('Made with Folio'), reread: t('reread'),
+      ebook: t('E-book'), audiobook: t('Audiobook'), coverOf: t('Cover of {title}'),
+    },
+  });
+  return { data: S.zip(files), linked: new Set(entries.filter((e) => e.cover && !e.cover.bytes && covers === 'include').map((e) => e.cover.from)).size };
+}
 
 /** Choose which lists to export (all of them to begin with), then offer the file of the books on them. */
 function openExport(kind = 'json') {
@@ -7113,12 +7232,32 @@ function openExport(kind = 'json') {
   const counts = new Map(lists.map((l) => [l.id, books.filter((b) => W.shelves(b)[l.id]).length]));
   const picked = new Set(lists.map((l) => l.id));
   let withReviews = true;   // ratings and the dates of reads always go in; this is the text of reviews
-  const go = h('button', { class: 'btn btn-primary btn-block', type: 'button' }, icon('download'), t('Continue'));
+  let covers = 'include';   // a site: the pictures in the archive, or only their addresses
+  const label = h('span', { text: t('Continue') });
+  const go = h('button', { class: 'btn btn-primary btn-block', type: 'button' }, icon('download'), label);
   const update = () => { go.disabled = !picked.size; };
-  go.onclick = () => {
+  go.onclick = async () => {
     // Every list chosen is everything, including books on no list.
     const chosen = picked.size === lists.length ? books : books.filter((b) => { const on = W.shelves(b); return [...picked].some((id) => on[id]); });
     if (!chosen.length) { toast(t('No books on those lists')); return; }
+    if (how.site) {
+      go.disabled = true;
+      label.textContent = t('Gathering covers…');
+      try {
+        const made = await makeSite(how.site, chosen, { reviews: withReviews, covers, step: (done, all) => { label.textContent = t('Gathering covers… {done} of {all}', { done, all }); } });
+        const about = how.about(plural(chosen.length, 'book'));
+        offerFile({
+          title: t('Export'), text: made.data, type: 'application/zip', name: `folio-${how.site}-${new Date().toISOString().slice(0, 10)}.zip`,
+          about: made.linked ? `${about} ${t('Linked to instead, as they could not be fetched: {n}.', { n: plural(made.linked, 'cover') })}` : about,
+        });
+      } catch (err) {
+        console.warn('Export failed', err);
+        toast(t('The export didn’t work'));
+        go.disabled = false;
+        label.textContent = t('Continue');
+      }
+      return;
+    }
     offerFile({
       title: t('Export'), about: how.about(plural(chosen.length, 'book')), text: how.make(chosen, { reviews: withReviews }), type: how.type,
       name: `folio-${new Date().toISOString().slice(0, 10)}.${how.ext}`, copied: how.copied(),
@@ -7133,6 +7272,14 @@ function openExport(kind = 'json') {
       h('label', { class: 'check-line' },
         h('input', { type: 'checkbox', checked: true, onchange: (e) => { withReviews = e.target.checked; } }),
         h('span', { text: t('Include the text of reviews (ratings are always included)') })),
+      how.site && h('div', { class: 'pick-row', role: 'radiogroup', 'aria-label': t('Covers') },
+        h('span', { class: 'pick-label', text: t('Covers') }),
+        h('label', { class: 'check-line' },
+          h('input', { type: 'radio', name: 'export-covers', checked: true, onchange: () => { covers = 'include'; } }),
+          h('span', { text: t('In the archive') })),
+        h('label', { class: 'check-line' },
+          h('input', { type: 'radio', name: 'export-covers', onchange: () => { covers = 'link'; } }),
+          h('span', { text: sync.user ? t('Only linked: the pages point at the copies on the server') : t('Only linked: the pages point at where the covers are') }))),
       go)));
 }
 
@@ -7168,7 +7315,7 @@ function offerFile({ title, about, text, type, name, copied }) {
     sheetHead(title, about),
     h('div', { class: 'stack' },
       h('button', { class: 'btn btn-primary btn-block', type: 'button', onclick: save }, icon('download'), t('Save file')),
-      navigator.share && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: share }, icon('share'), t('Share…')),
+      navigator.share && (canShareFile || typeof text === 'string') && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: share }, icon('share'), t('Share…')),
       copied && navigator.clipboard && h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: copy }, icon('copy'), t('Copy to clipboard')))));
 }
 
@@ -7980,7 +8127,14 @@ function openFilePage() {
       h('div', { class: 'stack' },
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('json') }, icon('download'), t('Export as JSON')),
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('goodreads') }, icon('download'), t('Export for Goodreads, StoryGraph…'))),
-      h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') }))));
+      h('p', { class: 'sheet-note', text: t('StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads, all free, can import the CSV: a public page of what you read, with your ratings and reviews.') })),
+    h('div', { class: 'sheet-section' },
+      h('h3', { text: t('As a website') }),
+      h('div', { class: 'stack' },
+        h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('html') }, icon('download'), t('Export as web pages (HTML)')),
+        h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('hugo') }, icon('download'), t('Export for Hugo')),
+        h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('eleventy') }, icon('download'), t('Export for Eleventy (11ty)'))),
+      h('p', { class: 'sheet-note', text: t('A zip with a page for every read: plain web pages to put on any web server, or Markdown pages for a Hugo or Eleventy site of your own. The covers go in the zip, or the pages link to them.') }))));
 }
 
 /** What Settings → About says of the server's nightly copy (docs/server.md). */

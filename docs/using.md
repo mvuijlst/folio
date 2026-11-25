@@ -424,11 +424,12 @@ it has, it says *As it is now*. *Undo* gives them back what they had.
   boeken.tsuk.org** takes that read's page. The book and its reads stay in Folio, and those
   reads are never published again. When the first read of a book goes, the next one becomes
   the first (the others become rereads of it). The booklog's history keeps a copy of everything.
-- **Covers are kept on the server.** For signed-in users the server fetches a copy of each
-  cover that comes from a book catalogue (Open Library, Google Books, Amazon), a few per sync, as a
-  320-pixel WebP in `covers/web/`, and the book then points at that copy. `manage.py
-  fetch_covers` does a whole shelf at once. Covers you photographed yourself already travel
-  with the book.
+- **Covers are kept on the server.** For signed-in users the server keeps a copy of every
+  cover, wherever it came from (a book catalogue, a bookshop, a picture on the web): at once
+  when you choose it, otherwise a few per sync and every hour (`setup-cover-fetch.sh`), as a
+  320-pixel WebP and a large JPEG in `covers/web/`, and the book then points at that copy.
+  `manage.py fetch_covers` does a whole shelf at once. Covers you photographed yourself already
+  travel with the book.
 
 ## Books and their editions
 
@@ -608,7 +609,9 @@ export below can't be read back; only a backup can.
 
 ## Export
 
-Settings → *Your shelf, as a file* has two exports. Each can be saved, shared or copied.
+Settings → *Your shelf, as a file* has two exports of data and three of a website. Each asks
+which lists go in, and whether the text of reviews does; the file can then be saved or shared
+(the data ones copied too).
 
 **Export for Goodreads, StoryGraph…** writes a CSV file laid out like a Goodreads export,
 which other reading sites import: [StoryGraph](https://app.thestorygraph.com),
@@ -657,6 +660,39 @@ edition it was of):
   }
 ]
 ```
+
+### As a website
+
+**Export as web pages (HTML)**, **Export for Hugo** and **Export for Eleventy (11ty)** make a
+zip with a page for every read: a book read twice has two, the second saying it is a reread of
+the first. A book not read yet, being read or given up has one for where it stands.
+
+- **HTML** is a finished site that needs nothing: `index.html` (what you read, newest first,
+  under the year), `reading.html`, `to-read.html`, `did-not-finish.html` (and `other.html` for
+  books on none of those), each with the others linked at the top, and `style.css`, plain and
+  light or dark as the reader's device is. Each book: its cover, title, who wrote it (and
+  translated or read it), the series, the day read, the rating in stars, the edition (format,
+  publisher, year, pages or length) and the review. Put the folder on any web server, or open
+  `index.html` straight from the disk. It speaks the app's language.
+- **Hugo** and **Eleventy** get the content only, to go into a site of your own: a Markdown page
+  per read (`content/books/` for Hugo, `books/` for Eleventy), the review as its text and
+  everything else in YAML front matter: `title`, `date` (the day read; for a book not read, the
+  day it was put where it is), `authors`, `contributors` (name and role), `series`,
+  `series_number`, `original_title`, `original_language`, `status` (`read`, `reading`,
+  `to-read`, `did-not-finish`), `reread_of` (the page of the first read), `rating` (0–10),
+  `stars` (0–5, halves), `format`, `publisher`, `year`, `pages` or `duration` and `minutes`,
+  `isbn`, `language`, `categories`, `tags`, `lists` (your other lists) and `cover`. Hugo pages
+  also get their `slug`; on Eleventy every page is tagged `books`, so `collections.books` holds
+  them all. A `README.txt` in the zip says how to switch on author and series pages in Hugo,
+  and the covers in Eleventy.
+- **Covers**, asked each time: *In the archive* puts the pictures in the zip (`covers/`, for
+  Hugo `static/covers/`) and the pages point at them there; *Only linked* leaves them out and
+  the pages point at where they are. Signed in, that is always the copy on the server: before
+  the zip is made, every cover still at a catalogue or elsewhere is fetched by the server
+  first. For Hugo and Eleventy it is the large copy, for HTML the small one. Without an account,
+  a cover is linked at its catalogue (a cover you photographed, at its small copy inside the
+  page, as a `data:` address); one a catalogue won't hand over to the app is linked even when
+  the pictures go in the zip, and the export says how many.
 
 ## Language
 

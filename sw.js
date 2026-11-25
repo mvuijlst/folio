@@ -5,7 +5,7 @@ const SHELL = 'bookscan-shell-v2';   // only renamed when the cache layout chang
 const VENDOR = 'bookscan-vendor-v1'; // big, rarely changing libraries (OCR, barcode fallback)
 const SHARE = 'bookscan-share-v1';   // what another app just shared to this one, until the page picks it up
 
-const MODULES = ['app.js', 'works.js', 'terms.js', 'corners.js', 'backup.js', 'national.js', 'screensaver.js', 'lang-nl.js'];   // imported by one another: refreshed together
+const MODULES = ['app.js', 'works.js', 'terms.js', 'corners.js', 'backup.js', 'national.js', 'site.js', 'screensaver.js', 'lang-nl.js'];   // imported by one another: refreshed together
 const BYPASS = /\/(api|admin|django-static|covers|u)\//;   // never cached here; see the fetch handler (u/: a public library's page)
 
 const SHELL_FILES = [
@@ -18,6 +18,7 @@ const SHELL_FILES = [
   'corners.js',
   'backup.js',
   'national.js',
+  'site.js',
   'screensaver.js',
   'lang-nl.js',
   'manifest.webmanifest',

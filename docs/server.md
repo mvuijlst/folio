@@ -80,8 +80,19 @@ location /api/public/ {
 ```
 
 The server keeps every cover twice: small for lists and large (at most 1600 px) to look at,
-for public libraries too, and for the booklog. Covers from before it kept large ones get theirs
-a few per sync; `sudo bash server/fetch-large-covers.sh` (no arguments) does them all at once.
+for public libraries too, for the booklog and for site exports. Every cover of a signed-in
+account is kept there, wherever it came from: a catalogue, a bookshop, any picture on the web
+(over https; an address on the server's own network is refused, also when a name or a redirect
+leads there). Covers still elsewhere, and covers from before it kept large ones, are fetched a
+few per sync; `sudo bash server/fetch-large-covers.sh` (no arguments) does them all at once. To
+have that done every hour, also when nobody syncs, install the timer once:
+
+```bash
+sudo bash /home/django/folio-yusupov/server/setup-cover-fetch.sh
+```
+
+See what it did with `journalctl -u folio-covers.service`. A cover that can't be fetched is
+tried again a week later.
 
 If a library doesn't show, `sudo bash server/check-public-library.sh` (no arguments, changes
 nothing) says for each library what is missing, and whether nginx or the Folio server refuses it.

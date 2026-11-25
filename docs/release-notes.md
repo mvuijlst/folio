@@ -12,6 +12,25 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.46.0 · 2026-11-25
+
+- **Your reading as a website.** Settings → *Your shelf, as a file* → *As a website*: a zip of
+  plain web pages (what you read, what you are reading, what is to read, each a page), or the
+  Markdown content for a Hugo or Eleventy site of your own, a page per read with everything in
+  its front matter. The covers go in the zip, or the pages link to them. See [Using
+  Folio](using.md#as-a-website).
+- **Every cover on the server.** Signed in, the server now keeps a copy of a cover from
+  anywhere on the web (a bookshop, a page you shared), not only from the catalogues it knew,
+  and never of an address on its own network. An hourly job
+  (`server/setup-cover-fetch.sh`, installed once) fetches whatever is still elsewhere, also
+  when nobody syncs.
+
+## 2.45.0–2.45.1 · 2026-11-22
+
+- **Export asks which lists, and whether reviews' text, go in.** Export as JSON and for
+  Goodreads show your lists, all ticked, with how many books each has; the file holds the
+  books on the ticked lists. Ratings and the dates of reads always go in.
+
 ## 2.44.1 · 2026-11-21
 
 - **Back returns to the list, not to the book.** From a book's page to its author or series,
