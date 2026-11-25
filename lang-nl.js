@@ -607,6 +607,7 @@ export default {
     'Tik op een keuze om alleen die boeken te tonen, nog eens om ze weg te laten, een derde keer om ze los te laten.',
   // Roles, in two languages (Settings → Words → Roles)
   'Words': 'Woorden',
+  'Lists, categories, tags and roles': 'Lijsten, categorieën, tags en rollen',
   'Roles': 'Rollen',
   '{n} to sort out': '{n} uit te zoeken',
   'written differently on {n}': 'anders geschreven op {n}',
