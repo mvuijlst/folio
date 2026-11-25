@@ -51,8 +51,9 @@ has not.
 - **Your reading, public.** An export in the CSV layout of Goodreads, which StoryGraph,
   BookWyrm, Hardcover, LibraryThing and Goodreads import, all of them free: a public page of
   what you read, with ratings and reviews, without running anything yourself. Or as a website
-  of your own: a zip of finished web pages to put on any web server, or a Markdown page per
-  read, with front matter, for a Hugo or Eleventy site. There is a JSON export of the whole
+  of your own: a zip of a finished website to put on any web server (pages of covers for all
+  books and each list, a page for every book, author, series, category and tag), or a Markdown
+  page per read, with front matter, for a Hugo or Eleventy site. There is a JSON export of the whole
   shelf too. Each export asks which lists go in, and whether the text of reviews does.
 - **A public library (optional):** with an account, a read-only page of the lists you choose,
   at an address of your own.

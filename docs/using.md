@@ -678,17 +678,30 @@ edition it was of):
 
 ### As a website
 
-**Export as web pages (HTML)**, **Export for Hugo** and **Export for Eleventy (11ty)** make a
-zip with a page for every read: a book read twice has two, the second saying it is a reread of
-the first. A book not read yet, being read or given up has one for where it stands.
+**Export as web pages (HTML)** makes a whole website to browse, in a zip; **Export for Hugo**
+and **Export for Eleventy (11ty)** make the content for a site of your own.
 
-- **HTML** is a finished site that needs nothing: `index.html` (what you read, newest first,
-  under the year), `reading.html`, `to-read.html`, `did-not-finish.html` (and `other.html` for
-  books on none of those), each with the others linked at the top, and `style.css`, plain and
-  light or dark as the reader's device is. Each book: its cover, title, who wrote it (and
-  translated or read it), the series, the day read, the rating in stars, the edition (format,
-  publisher, year, pages or length) and the review. Put the folder on any web server, or open
-  `index.html` straight from the disk. It speaks the app's language.
+- **HTML** needs nothing: put the folder on any web server, or open `index.html` straight from
+  the disk (every link is relative). It speaks the app's language, and is light or dark as the
+  reader's device is.
+  - *Home*: what you are reading, what you read lately, your lists (each with a few covers), and
+    the first of all books.
+  - *Books*: every book, A to Z (a leading *The*, *De*, *Le*… left out), as pages of covers, 48
+    to a page, with a pager.
+  - *Lists*: one for each list you exported that has books on it, as pages of covers: *Read*
+    and *Did not finish* newest read first, the others newest on the list first, with the note
+    of a list that has them (*Lent out*: to whom).
+  - *Authors*: everyone on a book, A to Z by surname (*Le Guin* under L), each with their books;
+    someone who translated or read a book has those under that role.
+  - *Series*: each with its volumes in order, numbered.
+  - *Categories* and *Tags*, when your books have them.
+  - A page for **every book**: its cover large, title and original title, who wrote it (and
+    translated it, and so on, each linked), where it stands in its series with the volumes
+    before and after it, its status and rating, the lists it is on, its categories and tags,
+    every read (the day, the rating, the edition when it has several, the review), a note
+    written before reading, and the facts of each edition.
+  The pages of covers show the small picture, a book's own page the large one. A cover that
+  doesn't load shows the book's title instead.
 - **Hugo** and **Eleventy** get the content only, to go into a site of your own: a Markdown page
   per read (`content/books/` for Hugo, `books/` for Eleventy), the review as its text and
   everything else in YAML front matter: `title`, `date` (the day read; for a book not read, the
@@ -704,7 +717,8 @@ the first. A book not read yet, being read or given up has one for where it stan
   Hugo `static/covers/`) and the pages point at them there; *Only linked* leaves them out and
   the pages point at where they are. Signed in, that is always the copy on the server: before
   the zip is made, every cover still at a catalogue or elsewhere is fetched by the server
-  first. For Hugo and Eleventy it is the large copy, for HTML the small one. Without an account,
+  first. For Hugo and Eleventy what goes in is the large copy; for HTML, the large copy made
+  600 pixels wide, enough for both the pages of covers and a book's page. Without an account,
   a cover is linked at its catalogue (a cover you photographed, at its small copy inside the
   page, as a `data:` address); one a catalogue won't hand over to the app is linked even when
   the pictures go in the zip, and the export says how many.

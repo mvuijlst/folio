@@ -967,14 +967,26 @@ export default {
   'Export as web pages (HTML)': 'Exporteren als webpagina’s (HTML)',
   'Export for Hugo': 'Exporteren voor Hugo',
   'Export for Eleventy (11ty)': 'Exporteren voor Eleventy (11ty)',
-  'A zip with a page for every read: plain web pages to put on any web server, or Markdown pages for a Hugo or Eleventy site of your own. The covers go in the zip, or the pages link to them.':
-    'Een zip met een pagina voor elke lezing: gewone webpagina’s voor op elke webserver, of Markdown-pagina’s voor een eigen Hugo- of Eleventy-site. De covers gaan mee in de zip, of de pagina’s linken ernaar.',
+  'A zip: a website to browse, with a page for every book, author, series and list, to put on any web server; or Markdown pages, one per read, for a Hugo or Eleventy site of your own. The covers go in the zip, or the pages link to them.':
+    'Een zip: een website om door te bladeren, met een pagina voor elk boek, elke auteur, reeks en lijst, voor op elke webserver; of Markdown-pagina’s, één per lezing, voor een eigen Hugo- of Eleventy-site. De covers gaan mee in de zip, of de pagina’s linken ernaar.',
   '{n} as a zip for a Hugo site: a Markdown page per read in content/books, its facts and rating in the front matter, the review below.':
     '{n} als zip voor een Hugo-site: een Markdown-pagina per lezing in content/books, met de gegevens en beoordeling in de front matter en de recensie eronder.',
   '{n} as a zip for an Eleventy site: a Markdown page per read in books/, its facts and rating in the front matter, the review below.':
     '{n} als zip voor een Eleventy-site: een Markdown-pagina per lezing in books/, met de gegevens en beoordeling in de front matter en de recensie eronder.',
-  '{n} as a zip of plain web pages, one per reading status, ready to put on any web server.':
-    '{n} als zip met gewone webpagina’s, één per leesstatus, klaar voor elke webserver.',
+  '{n} as a zip of a website to browse: pages of covers for all books and for each list, a page for every book, author and series. It needs nothing but a web server, or open index.html from the disk.':
+    '{n} als zip met een website om door te bladeren: pagina’s met covers van alle boeken en van elke lijst, een pagina voor elk boek, elke auteur en elke reeks. Er is alleen een webserver voor nodig, of open index.html van de schijf.',
+  'Home': 'Start',
+  'Reading now': 'Nu aan het lezen',
+  'Recently read': 'Onlangs gelezen',
+  'See all': 'Alles bekijken',
+  'Page {n} of {all}': 'Pagina {n} van {all}',
+  'Previous': 'Vorige',
+  'Next': 'Volgende',
+  'Book {n} in {series}': 'Deel {n} van {series}',
+  'In {series}': 'In {series}',
+  'Edition details': 'Uitgaven',
+  'Not numbered': 'Zonder nummer',
+  'Made with Folio, {date}': 'Gemaakt met Folio, {date}',
   'In the archive': 'In de zip',
   'Only linked: the pages point at the copies on the server': 'Alleen gelinkt: de pagina’s verwijzen naar de kopieën op de server',
   'Only linked: the pages point at where the covers are': 'Alleen gelinkt: de pagina’s verwijzen naar waar de covers staan',
@@ -982,12 +994,9 @@ export default {
   'Gathering covers… {done} of {all}': 'Covers verzamelen… {done} van {all}',
   'Linked to instead, as they could not be fetched: {n}.': 'Niet op te halen, dus gelinkt: {n}.',
   'The export didn’t work': 'Het exporteren is niet gelukt',
-  'Other books': 'Andere boeken',
   'Read {date}': 'Gelezen {date}',
   'Since {date}': 'Sinds {date}',
   'Added {date}': 'Toegevoegd {date}',
   'Stopped {date}': 'Gestopt {date}',
   'by': 'door',
-  'Made with Folio': 'Gemaakt met Folio',
-  'reread': 'herlezing',
 };
