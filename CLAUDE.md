@@ -10,3 +10,7 @@ ask before it goes to `main`.
 
 Before pushing, bump the version in `app.js` (`APP_VERSION`) and `index.html`
 (`folio-version`) together, and run the tests with `node --test tests/*.test.mjs`.
+
+With the version, add an entry to `docs/release-notes.md` and bring the docs along in the
+same commit: `docs/using.md` for what the app does, `docs/server.md`, `docs/booklog.md` and
+`docs/development.md` for their side of it, and the README's feature list for anything new.
