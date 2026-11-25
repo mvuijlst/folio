@@ -16,7 +16,7 @@ import * as B from './backup.js';
 import * as N from './national.js';
 import * as S from './site.js';
 
-const APP_VERSION = '2.46.0'; // shown under Settings, so you can tell which build is running
+const APP_VERSION = '2.47.0'; // shown under Settings, so you can tell which build is running
 
 /* ───────────────────────── Helpers ───────────────────────── */
 
@@ -7107,7 +7107,7 @@ const EXPORTS = {
   goodreads: { make: exportGoodreads, type: 'text/csv', ext: 'csv', about: (n) => t('{n} as a CSV file laid out like a Goodreads export, which StoryGraph, BookWyrm, Hardcover, LibraryThing and Goodreads can import. One row per read, with the edition that was read; ratings become 1 to 5 stars.', { n }), copied: () => t('CSV copied to clipboard') },
   hugo: { site: 'hugo', about: (n) => t('{n} as a zip for a Hugo site: a Markdown page per read in content/books, its facts and rating in the front matter, the review below.', { n }) },
   eleventy: { site: 'eleventy', about: (n) => t('{n} as a zip for an Eleventy site: a Markdown page per read in books/, its facts and rating in the front matter, the review below.', { n }) },
-  html: { site: 'html', about: (n) => t('{n} as a zip of plain web pages, one per reading status, ready to put on any web server.', { n }) },
+  html: { site: 'html', about: (n) => t('{n} as a zip of a website to browse: pages of covers for all books and for each list, a page for every book, author and series. It needs nothing but a web server, or open index.html from the disk.', { n }) },
 };
 
 /* ───────────────────────── Your reading as a website (site.js) ─────────────────────────
@@ -7127,19 +7127,19 @@ function markdownHtml(text) {
   return box.innerHTML;
 }
 
-/** Where a cover is to be had: {link, from} (from: where to fetch the picture), or null. `large`:
-    the large copy, for a site that may show it large; else the small one. */
-function coverAddress(x, large) {
+/** Where a cover is to be had: {small, large} (addresses; a picture inside the book is a data: one), or null. */
+function coverAddress(x) {
   const kept = (p) => /^covers\//.test(p || '');
-  if (kept(x.cover) || kept(x.coverFull)) {
-    const own = abs((large && x.coverFull) || x.cover || x.coverFull);
-    return { link: own, from: own };
-  }
-  if (/^https:/.test(x.cover || '')) return { link: x.cover, from: large ? largeCover(x.cover) : x.cover };
-  if (/^data:image\//.test(x.thumb || '') && !x.cover) return { link: x.thumb, from: x.thumb };
-  if (x.cover) return { link: abs(x.cover), from: abs(x.cover) };
+  if (kept(x.cover) || kept(x.coverFull)) return { small: abs(x.cover || x.coverFull), large: abs(x.coverFull || x.cover) };
+  if (/^https:/.test(x.cover || '')) return { small: x.cover, large: largeCover(x.cover) };
+  if (/^data:image\//.test(x.thumb || '') && !x.cover) return { small: x.thumb, large: x.thumb };
+  if (x.cover) return { small: abs(x.cover), large: abs(x.cover) };
   return null;
 }
+/** A cover for Hugo and Eleventy: the large picture, which a site may show large. */
+const markdownCover = (x) => { const c = coverAddress(x); return c && { link: c.large, from: c.large }; };
+/** A cover for the website: pages of covers show the small one, a book's page the large one; what goes in the zip is the large one, made smaller. */
+const pageCover = (x) => { const c = coverAddress(x); return c && { link: c.small, large: c.large, from: c.large }; };
 
 const PICTURE_EXT = { 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/png': 'png', 'image/gif': 'gif', 'image/avif': 'avif' };
 
@@ -7158,7 +7158,7 @@ async function pictureBytes(url) {
 }
 
 /** The entries of site.js for these books: one per read, and one for where a book not read (yet, or again) stands. */
-function siteEntries(src, { reviews = true, html = false, large = true } = {}) {
+function siteEntries(src, { reviews = true } = {}) {
   const out = [];
   for (const book of src) {
     const status = Object.keys(book.lists || {}).find((id) => FIXED.has(id));
@@ -7176,9 +7176,9 @@ function siteEntries(src, { reviews = true, html = false, large = true } = {}) {
         status: read ? (read.dnf ? 'did-not-finish' : 'read') : SITE_STATUS[status] || '',
         date: String(read?.date || book.lists?.[status]?.at || book.added || '').slice(0, 10), dated: !!read,
         rating: read ? read.rating ?? null : status === 'read' ? book.rating ?? null : null,
-        text, html: html && text.trim() ? markdownHtml(text) : '',
+        text,
         edition: { format: formatOf(b), publisher: b.publisher || '', year: yearOf(b.date), pages: b.pages || '', duration: b.duration || '', minutes: minutesOf(b.duration), isbn: b.isbn || '', language: b.language || '' },
-        cover: coverAddress(b, large),
+        cover: markdownCover(b),
       };
     };
     const reads = (book.reviews || []).filter((r) => r.date).sort((a, b) => (a.date < b.date ? -1 : 1));
@@ -7188,9 +7188,57 @@ function siteEntries(src, { reviews = true, html = false, large = true } = {}) {
   return out;
 }
 
+/** The books of the website (site.js htmlSite): each with its editions and reads, on the lists in `picked`. */
+function siteBooks(src, { picked, reviews = true }) {
+  const html = (text) => (reviews && text?.trim() ? markdownHtml(text) : '');
+  return src.map((book) => {
+    const main = W.mainEdition(book);
+    const b = look(book, main);
+    const status = Object.keys(book.lists || {}).find((id) => FIXED.has(id));
+    const order = seriesOrder(b);
+    return {
+      id: book.id, title: book.title || b.title,
+      originalTitle: book.originalTitle || '', originalLanguage: book.originalLanguage ? languageName(book.originalLanguage) : '',
+      writers: writersIn(peopleOf(b)),
+      people: peopleOf(b).map((p) => ({ name: p.name, role: p.role ? roleText(p.role) : '', sortAs: lastFirst(p.name) })),
+      series: b.series || '', seriesNumber: b.series ? seriesNo(b) : '', seriesOrder: Number.isFinite(order) ? order : null,
+      categories: (book.categories || []).map(categoryName), tags: (book.tags || []).map(tagName),
+      status: SITE_STATUS[status] || '', rating: book.rating ?? sortedReviews(book).find((r) => r.rating != null)?.rating ?? null, added: String(book.added || '').slice(0, 10),
+      lists: listsOf(book).filter(({ list }) => picked.has(list.id)).map(({ list, at, note }) => ({ id: list.id, since: String(at || '').slice(0, 10), note })),
+      cover: pageCover(b),
+      editions: editionsOf(book).map((e) => {
+        const f = look(book, e);
+        return {
+          id: e.id, title: e.title || '', format: formatOf(f), publisher: f.publisher || '', year: yearOf(f.date),
+          pages: f.pages || '', duration: f.duration || '', isbn: f.isbn || '', language: f.language ? languageName(f.language) : '',
+          main: e === main, cover: pageCover(f),
+        };
+      }),
+      reads: (book.reviews || []).filter((r) => r.date).map((r) => ({ date: r.date, rating: r.rating ?? null, dnf: !!r.dnf, html: html(r.text), edition: r.ed })),
+      note: html(sortedReviews(book).find((r) => !r.date && r.text?.trim())?.text),
+    };
+  });
+}
+
+/** A picture made no larger than a website needs (`max` wide): a JPEG, or the picture itself if it is small already. */
+async function shrinkPicture(picture, max = 600) {
+  try {
+    const bitmap = await createImageBitmap(new Blob([picture.bytes]));
+    const k = Math.min(1, max / bitmap.width, (max * 1.6) / bitmap.height);
+    if (k === 1) { bitmap.close?.(); return picture; }
+    const canvas = h('canvas', { width: Math.round(bitmap.width * k), height: Math.round(bitmap.height * k) });
+    canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    return blob ? { bytes: new Uint8Array(await blob.arrayBuffer()), ext: 'jpg' } : picture;
+  } catch {
+    return picture;
+  }
+}
+
 /** The zip of a site export. `step(done, all)` hears how far the covers are. → {data, linked}: linked,
     the covers that were to go in but could only be pointed at. */
-async function makeSite(target, chosen, { reviews, covers, step = () => {} }) {
+async function makeSite(target, chosen, { picked, reviews, covers, step = () => {} }) {
   // Signed in: every cover on the server first, wherever it came from, so the site has the server's copy.
   if (sync.user && navigator.onLine !== false) {
     const elsewhere = chosen.flatMap((book) => editionsOf(book).filter((e) => /^https:/.test(e.cover || '')).map((e) => [e, book]));
@@ -7199,30 +7247,45 @@ async function makeSite(target, chosen, { reviews, covers, step = () => {} }) {
       await Promise.all(elsewhere.slice(i, i + 4).map(([e, book]) => keepCover(e, { url: e.cover }, book)));
     }
   }
-  const entries = siteEntries(chosen, { reviews, html: target === 'html', large: target !== 'html' });
+  const website = target === 'html';
+  const items = website ? siteBooks(chosen, { picked, reviews }) : siteEntries(chosen, { reviews });
+  const coversOf = (item) => (website ? [item.cover, ...item.editions.map((e) => e.cover)] : [item.cover]).filter(Boolean);
   if (covers === 'include') {
     const got = new Map();
-    const wanted = [...new Set(entries.map((e) => e.cover?.from).filter(Boolean))];
+    const wanted = [...new Set(items.flatMap(coversOf).map((c) => c.from).filter(Boolean))];
     for (let i = 0; i < wanted.length; i += 6) {
       step(i, wanted.length);
-      await Promise.all(wanted.slice(i, i + 6).map(async (url) => got.set(url, await pictureBytes(url))));
+      await Promise.all(wanted.slice(i, i + 6).map(async (url) => {
+        const picture = await pictureBytes(url);
+        got.set(url, picture && website ? await shrinkPicture(picture) : picture);
+      }));
     }
-    for (const e of entries) {
-      const picture = e.cover && got.get(e.cover.from);
-      if (picture) Object.assign(e.cover, picture);
-    }
+    for (const c of items.flatMap(coversOf)) if (got.get(c.from)) Object.assign(c, got.get(c.from));
   }
-  const files = S.siteFiles(entries, {
-    target, covers, lang,
-    longDate,
-    words: {
-      title: t('Reading'), read: t('Read'), reading: t('Reading'), 'to-read': t('To read'), 'did-not-finish': t('Did not finish'), '': t('Other books'),
-      readOn: t('Read {date}'), since: t('Since {date}'), added: t('Added {date}'), gaveUp: t('Stopped {date}'),
-      pages: t('{n} pages'), by: t('by'), made: t('Made with Folio'), reread: t('reread'),
-      ebook: t('E-book'), audiobook: t('Audiobook'), coverOf: t('Cover of {title}'),
-    },
-  });
-  return { data: S.zip(files), linked: new Set(entries.filter((e) => e.cover && !e.cover.bytes && covers === 'include').map((e) => e.cover.from)).size };
+  // Covers that were to go in, but could only be linked to.
+  const linked = covers === 'include' ? new Set(items.flatMap(coversOf).filter((c) => !c.bytes).map((c) => c.from)).size : 0;
+  const files = website
+    ? S.htmlSite(items, {
+      lists: lists.filter((l) => picked.has(l.id)).map((l) => ({ id: l.id, name: listName(l) })),
+      covers, lang, longDate, title: t('Books'),
+      words: {
+        title: t('Books'), home: t('Home'), books: t('Books'), lists: t('Lists'), authors: t('Authors'), series: t('Series'), categories: t('Categories'), tags: t('Tags'),
+        allBooks: t('All books'), readingNow: t('Reading now'), recentlyRead: t('Recently read'), seeAll: t('See all'),
+        count: (n) => plural(n, 'book'),
+        page: t('Page {n} of {all}'), previous: t('Previous'), next: t('Next'), pages: t('Pages'),
+        inSeries: t('Book {n} in {series}'), partOf: t('In {series}'),
+        read: t('Read'), reading: t('Reading'), 'to-read': t('To read'), 'did-not-finish': t('Did not finish'),
+        readOn: t('Read {date}'), gaveUp: t('Stopped {date}'), since: t('Since {date}'), added: t('Added {date}'),
+        reads: t('Read'), note: t('Note'), editions: t('Edition details'),
+        publisher: t('Publisher'), published: t('Published'), pageCount: t('Pages'), length: t('Length'), isbn: 'ISBN',
+        language: t('Language'), format: t('Format'), originalTitle: t('Original title'), originalLanguage: t('Original language'),
+        pagesCount: t('{n} pages'), by: t('by'), made: t('Made with Folio, {date}'),
+        paper: t('Paper'), ebook: t('E-book'), audiobook: t('Audiobook'),
+        coverOf: t('Cover of {title}'), unnumbered: t('Not numbered'),
+      },
+    })
+    : S.siteFiles(items, { target, covers });
+  return { data: S.zip(files), linked };
 }
 
 /** Choose which lists to export (all of them to begin with), then offer the file of the books on them. */
@@ -7244,7 +7307,7 @@ function openExport(kind = 'json') {
       go.disabled = true;
       label.textContent = t('Gathering covers…');
       try {
-        const made = await makeSite(how.site, chosen, { reviews: withReviews, covers, step: (done, all) => { label.textContent = t('Gathering covers… {done} of {all}', { done, all }); } });
+        const made = await makeSite(how.site, chosen, { picked, reviews: withReviews, covers, step: (done, all) => { label.textContent = t('Gathering covers… {done} of {all}', { done, all }); } });
         const about = how.about(plural(chosen.length, 'book'));
         offerFile({
           title: t('Export'), text: made.data, type: 'application/zip', name: `folio-${how.site}-${new Date().toISOString().slice(0, 10)}.zip`,
@@ -8150,7 +8213,7 @@ function openFilePage() {
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('html') }, icon('download'), t('Export as web pages (HTML)')),
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('hugo') }, icon('download'), t('Export for Hugo')),
         h('button', { class: 'btn btn-outline btn-block', type: 'button', onclick: () => openExport('eleventy') }, icon('download'), t('Export for Eleventy (11ty)'))),
-      h('p', { class: 'sheet-note', text: t('A zip with a page for every read: plain web pages to put on any web server, or Markdown pages for a Hugo or Eleventy site of your own. The covers go in the zip, or the pages link to them.') }))));
+      h('p', { class: 'sheet-note', text: t('A zip: a website to browse, with a page for every book, author, series and list, to put on any web server; or Markdown pages, one per read, for a Hugo or Eleventy site of your own. The covers go in the zip, or the pages link to them.') }))));
 }
 
 /** What Settings → About says of the server's nightly copy (docs/server.md). */

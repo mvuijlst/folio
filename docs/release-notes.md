@@ -12,6 +12,14 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.47.0 · 2026-11-25
+
+- **The HTML export is a website to browse.** A home page (reading now, read lately, your
+  lists), all books as pages of covers, a page of covers for every list you exported, a page
+  for every book (its reads and reviews, editions, series, people and lists, all linked), and
+  pages for every author, series, category and tag. Covers in the zip are made 600 pixels wide;
+  one that doesn't load shows the title. See [Using Folio](using.md#as-a-website).
+
 ## 2.46.0 · 2026-11-25
 
 - **Your reading as a website.** Settings → *Your shelf, as a file* → *As a website*: a zip of
