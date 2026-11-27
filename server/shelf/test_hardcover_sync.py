@@ -200,3 +200,60 @@ class Run(TestCase):
         fake = Fake([{'id': 50, 'book_id': 5, 'isbn_13': '9780571219780'}])
         counts, _ = hs.run(self.user, hs.Client(ask=fake, budget=4, sleep=lambda s: None))
         self.assertEqual(counts['left for later'], 3)
+
+
+def mine(ub_id, book_id, title, author, status=3):
+    return {'id': ub_id, 'book_id': book_id, 'edition_id': None, 'status_id': status, 'rating': None, 'user_book_reads': [],
+            'book': {'title': title, 'cached_contributors': [{'author': {'name': author}, 'contribution': None}]}}
+
+
+class ByTitle(TestCase):
+    """A book no number finds is looked for in the user's own library: one title, one writer."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create(username='michel')
+
+    def book(self, uid, title, author, isbn=None, lists=None):
+        now = timezone.now()
+        ed = {'id': 'e1', 'people': [{'name': author, 'role': ''}]} | ({'isbn': isbn} if isbn else {})
+        Book.objects.create(user=self.user, uid=uid, title=title, modified=now, changed=now,
+                            data={'title': title, 'lists': lists or {'read': {}}, 'editions': [ed]})
+
+    def sync(self, fake):
+        return hs.run(self.user, hs.Client(ask=fake, sleep=lambda s: None))[0]
+
+    def test_adopts_the_one_book_of_that_title_and_writer(self):
+        self.book('a', "Death's Master (Tales from the Flat Earth #2)", 'Tanith Lee')
+        fake = Fake([], [mine(9, 5, "Death's Master", 'Tanith Lee', status=1)])
+        counts = self.sync(fake)
+        self.assertEqual((counts['by title'], counts['updated'], counts['added']), (1, 1, 0))
+        self.assertEqual(fake.books[9]['status_id'], 3)
+        self.assertFalse(HardcoverLink.objects.get().created)
+
+    def test_never_adds_by_title_nor_guesses_between_two(self):
+        self.book('a', 'Rogues', 'George R. R. Martin')
+        self.book('b', 'Kull', 'Robert E. Howard')
+        fake = Fake([], [mine(9, 5, 'Rogues', 'Gardner Dozois'), mine(10, 6, 'Kull', 'Robert E. Howard'), mine(11, 7, 'Kull: Exile', 'R. Howard')])
+        counts = self.sync(fake)
+        self.assertEqual((counts['by title'], counts['unmatched'], counts['added']), (0, 2, 0))
+
+    def test_a_number_match_keeps_its_book_from_a_title_match(self):
+        self.book('a', 'Wool', 'Hugh Howey', isbn='9781476733951')
+        self.book('b', 'Wool', 'Hugh Howey', lists={'to-read': {}})
+        fake = Fake([{'id': 50, 'book_id': 5, 'isbn_13': '9781476733951'}], [mine(9, 5, 'Wool', 'Hugh Howey')])
+        counts = self.sync(fake)
+        self.assertEqual((counts['adopted'], counts['by title'], counts['unmatched']), (1, 0, 1))
+
+    def test_numbers_must_agree(self):
+        self.book('a', 'The League of Extraordinary Gentlemen, Vol. 3: Century - 1969', 'Alan Moore')
+        self.book('b', 'The Books of Magic, vol. 2', 'Neil Gaiman')
+        fake = Fake([], [mine(9, 5, 'The League of Extraordinary Gentlemen, Vol. 3 - Century, Part 1: 1910', 'Alan Moore'),
+                         mine(10, 6, 'The Books of Magic', 'Neil Gaiman')])
+        self.assertEqual(self.sync(fake)['by title'], 0)
+
+    def test_two_subtitles_after_one_colon_are_two_books(self):
+        self.book('a', 'The Mongoliad: Book One', 'Neal Stephenson')
+        self.book('b', 'Mother Night: A Novel', 'Kurt Vonnegut')
+        fake = Fake([], [mine(9, 5, 'The Mongoliad: Book Three', 'Neal Stephenson'), mine(10, 6, 'Mother Night', 'Kurt Vonnegut')])
+        counts = self.sync(fake)
+        self.assertEqual((counts['by title'], counts['unmatched']), (1, 1))

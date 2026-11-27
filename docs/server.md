@@ -257,9 +257,14 @@ It goes one way, and Folio is the record:
   read with a full date (finished on that day, in its edition). A read with only a year or a
   month, and a read marked *did not finish*, stay home. Reviews, categories, tags, places and
   notes never go. Books with no status don't go either: unlogged is not unread.
-- **Matching** is by number only, never by title: ISBN-13, ISBN-10 or ASIN, the edition read
-  last first. A book with no match is counted, and asked about again when its editions change
-  or after a week.
+- **Matching** is by number first: ISBN-13, ISBN-10 or ASIN, the edition read last first. A
+  book no number finds may be in your own Hardcover library. It is taken when exactly one book
+  there has the same title and a writer with the same surname. The title can be the book's
+  own, an edition's or the original, brackets are left out, and one title may stop at a colon
+  where the other goes on, with the same numbers in both (*Mother Night* is *Mother Night: A
+  Novel*, but *The Mongoliad: Book One* is not *Book Three*). A title is never looked up in
+  Hardcover's catalogue, and never adds a book. A book still without a match is counted, and
+  asked about again when its editions change or after a week.
 - **What is already there is adopted.** A book already in the Hardcover library (an old
   Goodreads import) is updated, not added again: its status always, its rating only when Folio
   has one, its edition when Folio's is on Hardcover. Reads of the same day count as one read,

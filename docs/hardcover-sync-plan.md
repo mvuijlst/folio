@@ -14,6 +14,14 @@ run on a copy of production (27 requests): of 1,580 books with a status, 162 wou
 have a single book of the same title in his own Hardcover library, which a title-and-writer match
 against his library alone (not the whole catalogue) could adopt. Nothing has been written yet.
 
+On his "Yes, add it" the title match was added the same day: one book only, the same surname,
+titles alike with the same numbers outside brackets, one title only allowed to stop at a colon
+where the other goes on (prefix against prefix gave *The Mongoliad: Book One* → *Book Three*).
+The dry run then gave 162 to add, 728 to adopt (470 of them by title; 485 with changes: rating
+342, edition 126, status 8) and 690 unmatched. Of the 50 title matches that are not word for
+word the same, one is doubtful (*The Books of Magic, vol. 2* → *The Books of Magic*, through an
+edition titled without its number).
+
 ## What it is for
 
 Michel has accounts on Hardcover, LibraryThing, Goodreads and StoryGraph and wants Folio's data

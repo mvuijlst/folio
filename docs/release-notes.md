@@ -16,8 +16,9 @@ Add an entry here with each release (see [development.md](development.md#releasi
 
 - **Hardcover sync.** `manage.py sync_hardcover` sends the books with a reading status to your
   Hardcover library every night, one way: status, rating, the edition and each dated read.
-  Books are matched by ISBN or ASIN; a book already there (an old Goodreads import) is
-  updated, never deleted, and only what the sync added goes again when it leaves the shelf.
+  Books are matched by ISBN or ASIN, or else by title and writer against the books already in
+  your Hardcover library (never its whole catalogue); a book already there (an old Goodreads
+  import) is updated, never deleted, and only what the sync added goes again when it leaves the shelf.
   Reviews stay home. Goodreads, StoryGraph and LibraryThing can't be written to by a program
   and keep the CSV export. See [Running Folio](server.md#hardcover-sync).
 

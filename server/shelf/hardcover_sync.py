@@ -8,9 +8,13 @@ entry that was there before the sync (Michel imported his Goodreads shelf in 202
 updated, never deleted. Only what the sync added itself is taken away again when the book leaves
 Folio's shelf, or loses its reading status.
 
-Books are matched by number only: ISBN-13, ISBN-10 or ASIN, edition by edition (the edition of
-the latest read first, then the main one, then the rest). No title search: a book with no match
-is left out and counted.
+Books are matched by number first: ISBN-13, ISBN-10 or ASIN, edition by edition (the edition of
+the latest read first, then the main one, then the rest). A book no number finds may still be in
+the user's own Hardcover library: when exactly one book there has the same title (its own, an
+edition's or the original, brackets left out, or what comes before a colon, with the same
+numbers in it) and a writer of the
+same surname, it is adopted. That match is never made against Hardcover's whole catalogue and
+never adds a book: a book neither finds is left out and counted.
 
 What a book is on Hardcover is remembered in HardcoverLink, with a hash of what was last sent, so
 an unchanged book costs no request. An unmatched book is asked again when its editions change,
@@ -29,7 +33,8 @@ from django.utils import timezone
 
 from . import hardcover
 from .models import Book, HardcoverLink
-from .works import by_date, edition_of, main_edition
+from .boeken import AUTHOR_ROLES, fold
+from .works import by_date, edition_of, main_edition, same_title
 
 # Folio's reading status → Hardcover's user_book_statuses (1 Want to Read, 2 Currently Reading,
 # 3 Read, 4 Paused, 5 Did Not Finish, 6 Ignored).
@@ -99,6 +104,34 @@ def editions_in_order(data):
     return out
 
 
+def unbracketed(title):
+    return re.sub(r'\s*[(\[][^)\]]*[)\]]', '', str(title or ''))
+
+
+def numbers(title):
+    return sorted(int(n) for n in re.findall(r'\d+', unbracketed(title)))
+
+
+def alike(titles, theirs):
+    """One of `titles` is `theirs`: the same, or one is the other up to its colon (Mother Night is
+    Mother Night: A Novel, but The Mongoliad: Book One is not The Mongoliad: Book Three), brackets
+    left out, with the same numbers in it (Vol. 3: Century 1969 is not Vol. 3: Century 1910)."""
+    return any(same_title(unbracketed(t), unbracketed(theirs)) and numbers(t) == numbers(theirs) for t in titles)
+
+
+def surnames(names):
+    return {fold(n).split()[-1] for n in names if fold(n)}
+
+
+def writers_of(data):
+    """The writers' names: the people of every edition with a writer's role (or none)."""
+    names = [p.get('name') for e in data.get('editions') or [] if isinstance(e, dict) for p in e.get('people') or []
+             if isinstance(p, dict) and str(p.get('role') or '').strip().lower() in AUTHOR_ROLES | {''}]
+    if data.get('author'):
+        names.append(data['author'])
+    return [n for n in names if n]
+
+
 def stars(rating):
     """Folio's 1–10 → Hardcover's 0.5–5 (None for no rating)."""
     try:
@@ -127,6 +160,9 @@ def wanted(data):
         'reads': [{'date': str(r['date'])[:10], 'ed': r.get('ed')} for r in full],
         'partial': len(reads) - len(full),
         'editions': [{'id': e.get('id'), 'keys': keys_of(e)} for e in editions_in_order(data)],
+        'titles': sorted({str(t) for t in [data.get('title'), data.get('originalTitle')]
+                          + [e.get('title') for e in data.get('editions') or [] if isinstance(e, dict)] if t}),
+        'writers': sorted(surnames(writers_of(data))),
     }
 
 
@@ -152,6 +188,19 @@ def place(want, found):
             if hit:
                 eds[e['id']] = hit['edition_id']
     return book_id, eds
+
+
+def by_title(want, entries, taken):
+    """The one entry of the user's library with one of the book's titles and a writer of the same
+    surname, among the books not `taken`; None when there is none, or more than one."""
+    titles, writers = want.get('titles') or [], set(want.get('writers') or ())
+    if not titles or not writers:
+        return None
+    hits = {e['book_id']: e for e in entries if e['book_id'] not in taken
+            and alike(titles, (e.get('book') or {}).get('title'))
+            and surnames([((c or {}).get('author') or {}).get('name') for c in (e.get('book') or {}).get('cached_contributors') or []
+                          if (c or {}).get('contribution') in (None, '', 'Author')]) & writers}
+    return next(iter(hits.values())) if len(hits) == 1 else None
 
 
 def entry_changes(want, eds, entry):
@@ -222,6 +271,7 @@ ME = '{ me { id } }'
 LIBRARY = """query($uid: Int!, $off: Int!) {
   user_books(where: {user_id: {_eq: $uid}}, order_by: {id: asc}, limit: 500, offset: $off) {
     id book_id edition_id status_id rating user_book_reads { id started_at finished_at edition_id }
+    book { title cached_contributors }
   }
 }"""
 READS = 'query($id: Int!) { user_books_by_pk(id: $id) { id user_book_reads { id started_at finished_at edition_id } } }'
@@ -303,7 +353,7 @@ def checked(result, field):
 def run(user, client, *, dry_run=False, limit=None, now=None, say=lambda line: None):
     """Bring the user's Hardcover library in line with the shelf. → counts"""
     now = now or timezone.now()
-    counts = {'unchanged': 0, 'added': 0, 'updated': 0, 'adopted': 0, 'in step': 0, 'unmatched': 0,
+    counts = {'unchanged': 0, 'added': 0, 'updated': 0, 'adopted': 0, 'by title': 0, 'in step': 0, 'unmatched': 0,
               'shared': 0, 'removed': 0, 'let go': 0, 'failed': 0, 'partial dates': 0, 'left for later': 0}
     fields = {}
     links = {link.uid: link for link in HardcoverLink.objects.filter(user=user)}
@@ -355,6 +405,8 @@ def run(user, client, *, dry_run=False, limit=None, now=None, say=lambda line: N
         if not dry_run:
             link.delete()
 
+    # A book a number finds keeps it from a title match of another book.
+    numbered = {place(want, found)[0] for _, want, _, _ in todo} - {None}
     written = 0
     for n, (book, want, h, link) in enumerate(todo):
         if limit is not None and written >= limit:
@@ -365,6 +417,13 @@ def run(user, client, *, dry_run=False, limit=None, now=None, say=lambda line: N
         if entry:
             book_id = entry['book_id']
             eds = place(want, {k: v for k, v in found.items() if v['book_id'] == book_id})[1]
+        titled = None
+        if not book_id:
+            titled = by_title(want, entries, numbered | set(claimed))
+            if titled:
+                book_id = titled['book_id']
+                counts['by title'] += 1
+                say(f'by title  {book.title} → {(titled.get("book") or {}).get("title")}')
         if not book_id:
             counts['unmatched'] += 1
             say(f'no match  {book.title} ({", ".join(v for e in want["editions"] for _, v in e["keys"]) or "no ISBN or ASIN"})')
