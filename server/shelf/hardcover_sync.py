@@ -167,7 +167,7 @@ def wanted(data):
 
 
 def digest(want):
-    return hashlib.sha256(json.dumps(want, sort_keys=True).encode()).hexdigest()[:32]
+    return hashlib.sha256(json.dumps([2, want], sort_keys=True).encode()).hexdigest()[:32]   # 2: reads near a date (2.48.0)
 
 
 # ---------------------------------------------------------------- what to change on Hardcover
@@ -226,36 +226,62 @@ def entry_changes(want, eds, entry):
     return obj
 
 
-def read_changes(want, eds, reads, ours):
-    """The reads to add, fill or remove, against the reads the entry has now (`reads`) and the ids
-    of those the sync made (`ours`). A read of the same day is the same read; an empty read (no
-    dates, as Hardcover may make for a book marked Read) is filled before a new one is added; only
-    the sync's own reads are ever removed or changed.
+def days_apart(a, b):
+    from datetime import date
+    return abs((date.fromisoformat(str(a)[:10]) - date.fromisoformat(str(b)[:10])).days)
+
+
+def read_changes(want, eds, reads, ours, fresh=()):
+    """The reads to add, fill or remove, against the reads the entry has now (`reads`), the ids of
+    those the sync made (`ours`) and those Hardcover made just now because of the sync's own write
+    (`fresh`: marked Read, it adds a read finished today).
+
+    Each of Folio's dates takes one read: one of that day, else one within a month (the same read,
+    dated a little differently by Goodreads), the user's own before the sync's. A read with no
+    date, or a fresh one, is filled before a new one is added. What the sync made and no date
+    took is removed; nothing else ever is, and only the sync's own reads are changed.
     → [('add', read) | ('set', id, read) | ('drop', id)]"""
-    ops = []
-    by_day = {}
-    for r in reads:
-        if r.get('finished_at'):
-            by_day.setdefault(str(r['finished_at'])[:10], r)
-    blank = [r for r in reads if not r.get('finished_at') and not r.get('started_at')]
-    days = set()
+    ours, fresh = set(ours) | set(fresh), set(fresh)
+    ops, used = [], set()
+    dated = [r for r in reads if r.get('finished_at') and r['id'] not in fresh]
+    # Fillable: a read with no dates at all, or one Hardcover just finished today on its own (a
+    # read it just started, for Currently Reading, is the reading now and stays as it is).
+    blank = [r for r in reads if (r['id'] in fresh and r.get('finished_at')) or (not r.get('finished_at') and not r.get('started_at'))]
+    days = []
     for w in want['reads']:
-        if w['date'] in days:
-            continue
-        days.add(w['date'])
-        read = {'finished_at': w['date']}
-        if eds.get(w['ed']):
-            read['edition_id'] = eds[w['ed']]
-        there = by_day.get(w['date'])
-        if there:
-            if there['id'] in ours and read.get('edition_id') and there.get('edition_id') != read['edition_id']:
-                ops.append(('set', there['id'], read))
+        if w['date'] not in days:
+            days.append(w['date'])
+    wanted_ed = {w['date']: eds.get(w['ed']) for w in want['reads']}
+    # The user's own reads first, then the sync's; exact days before near ones, so a near match
+    # never takes a read another date has exactly.
+    took = {}
+    for mine, near in ((False, False), (False, True), (True, False), (True, True)):
+        for day in days:
+            if day in took:
+                continue
+            fits = [r for r in dated if r['id'] not in used and (r['id'] in ours) == mine
+                    and (str(r['finished_at'])[:10] == day if not near else days_apart(r['finished_at'], day) <= 31)]
+            if fits:
+                hit = min(fits, key=lambda r: days_apart(r['finished_at'], day))
+                used.add(hit['id'])
+                took[day] = hit
+    for day in days:
+        read = {'finished_at': day}
+        if wanted_ed.get(day):
+            read['edition_id'] = wanted_ed[day]
+        hit = took.get(day)
+        if hit:
+            if hit['id'] in ours and (str(hit['finished_at'])[:10] != day
+                                      or (read.get('edition_id') and hit.get('edition_id') != read['edition_id'])):
+                ops.append(('set', hit['id'], read))
         elif blank:
-            ops.append(('set', blank.pop(0)['id'], read))
+            b = blank.pop(0)
+            used.add(b['id'])
+            ops.append(('set', b['id'], read))
         else:
             ops.append(('add', read))
     for r in reads:
-        if r['id'] in ours and r.get('finished_at') and str(r['finished_at'])[:10] not in days:
+        if r['id'] in ours and r['id'] not in used and r.get('finished_at'):
             ops.append(('drop', r['id']))
     return ops
 
@@ -466,9 +492,13 @@ def run(user, client, *, dry_run=False, limit=None, now=None, say=lambda line: N
                 ub = checked(client(INSERT, {'o': {'book_id': book_id, **obj}}), 'insert_user_book')
                 created = True
                 reads_now = (client(READS, {'id': ub})['user_books_by_pk'] or {}).get('user_book_reads') or []
-                ops = read_changes(want, eds, reads_now, [])
+                ops = read_changes(want, eds, reads_now, [], fresh=[r['id'] for r in reads_now])
             elif obj:
                 checked(client(UPDATE, {'id': ub, 'o': obj}), 'update_user_book')
+                if 'status_id' in obj:   # Hardcover may add a read of its own for the new status
+                    before = {r['id'] for r in reads_now}
+                    reads_now = (client(READS, {'id': ub})['user_books_by_pk'] or {}).get('user_book_reads') or []
+                    ops = read_changes(want, eds, reads_now, ours, fresh=[r['id'] for r in reads_now if r['id'] not in before])
             for op in ops:
                 if op[0] == 'add':
                     ours.append(checked(client(READ_ADD, {'id': ub, 'r': op[1]}), 'insert_user_book_read'))

@@ -257,3 +257,26 @@ class ByTitle(TestCase):
         fake = Fake([], [mine(9, 5, 'The Mongoliad: Book Three', 'Neal Stephenson'), mine(10, 6, 'Mother Night', 'Kurt Vonnegut')])
         counts = self.sync(fake)
         self.assertEqual((counts['by title'], counts['unmatched']), (1, 1))
+
+
+class Reads(SimpleTestCase):
+    def want(self, *days):
+        return {'reads': [{'date': d, 'ed': 'e1'} for d in days]}
+
+    def test_a_read_within_a_month_is_the_same_read(self):
+        reads = [{'id': 1, 'finished_at': '2007-06-01'}, {'id': 2, 'finished_at': '2007-06-28'}]
+        # the user's own read takes the date before the sync's near duplicate, which goes
+        self.assertEqual(hs.read_changes(self.want('2007-06-29'), {}, reads, [2]), [('drop', 2)])
+        self.assertEqual(hs.read_changes(self.want('2007-06-28'), {}, reads, [2]), [('drop', 2)])   # even on its exact day
+        self.assertEqual(hs.read_changes(self.want('2007-06-20'), {}, [{'id': 1, 'finished_at': '2007-06-01'}], []), [])
+        self.assertEqual(hs.read_changes(self.want('2007-09-15'), {}, [{'id': 1, 'finished_at': '2007-06-01'}], []),
+                         [('add', {'finished_at': '2007-09-15'})])
+
+    def test_the_read_hardcover_adds_for_read_is_filled_or_removed(self):
+        today = [{'id': 5, 'finished_at': '2026-11-27', 'started_at': None}, {'id': 1, 'finished_at': '2014-10-01'}]
+        self.assertEqual(hs.read_changes(self.want('2025-06-13'), {}, today, [], fresh=[5]), [('set', 5, {'finished_at': '2025-06-13'})])
+        self.assertEqual(hs.read_changes(self.want('2014-10-02'), {}, today, [], fresh=[5]), [('drop', 5)])
+
+    def test_a_started_read_for_reading_stays(self):
+        started = [{'id': 5, 'finished_at': None, 'started_at': '2026-11-27'}]
+        self.assertEqual(hs.read_changes(self.want('2001-01-01'), {}, started, [], fresh=[5]), [('add', {'finished_at': '2001-01-01'})])

@@ -267,8 +267,11 @@ It goes one way, and Folio is the record:
   asked about again when its editions change or after a week.
 - **What is already there is adopted.** A book already in the Hardcover library (an old
   Goodreads import) is updated, not added again: its status always, its rating only when Folio
-  has one, its edition when Folio's is on Hardcover. Reads of the same day count as one read,
-  and an empty read is filled before a new one is made. The sync never deletes an adopted book
+  has one, its edition when Folio's is on Hardcover. A read of the same day, or within a month
+  of it (Goodreads dated some a little differently), counts as the same read, your own before
+  one the sync made. An empty read is filled before a new one is made, and so is the read
+  Hardcover adds by itself, finished today, when a book is set to Read; when no date needs it,
+  the sync removes it. The sync never deletes an adopted book
   or a read it did not make. A book it added itself goes again when the book leaves the shelf
   or loses its status.
 - **What was sent** is kept in `HardcoverLink` (in the admin): the Hardcover ids, whether the

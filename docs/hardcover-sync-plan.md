@@ -22,6 +22,13 @@ The dry run then gave 162 to add, 728 to adopt (470 of them by title; 485 with c
 word the same, one is doubtful (*The Books of Magic, vol. 2* → *The Books of Magic*, through an
 edition titled without its number).
 
+The first real run, 20 books with `--limit 20` (backup `db.sqlite3.before-hardcover-sync-20261127-204858`,
+migration 0005 applied by hand from the branch), added 2 and updated 18. Two problems came out of
+it and were fixed the same evening. Setting a book to Read makes Hardcover add a read finished
+today (*Deadhouse Gates*). A Goodreads read a few weeks off Folio's date got a second read beside
+it (*Wizard's First Rule*, 1 and 28 June 2007). Reads within a month now count as one, and the
+read Hardcover adds is filled or removed. A second run with `--limit 2` removed both.
+
 ## What it is for
 
 Michel has accounts on Hardcover, LibraryThing, Goodreads and StoryGraph and wants Folio's data
