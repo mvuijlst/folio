@@ -85,7 +85,7 @@ HTTPS. The sync server is a small Django app in [`server/`](server).
 - Design notes, written before and during the work and kept as a record, not kept up to date:
   [books and their editions](docs/work-edition-plan.md) and
   [its cut-over](docs/cutover-2.0.md), [a public library](docs/public-library-plan.md),
-  [ideas from Shelf](docs/shelf-ideas-plan.md)
+  [ideas from Shelf](docs/shelf-ideas-plan.md), [the Hardcover sync](docs/hardcover-sync-plan.md)
 
 ## Credits
 
@@ -104,7 +104,10 @@ from your device to Open Library and Google Books (for a Dutch, Flemish or Frenc
 KB or the BnF, and Wikidata for a series or an original language), which see what is looked up.
 With an account on the author's server, your shelf and its covers are kept there too, what you
 describe or photograph for the assistant goes through it to OpenAI, what is asked of Hardcover
-(a series, a page count) goes through it as well, and it keeps the usual log of visits.
+(a series, a page count) goes through it as well, and it keeps the usual log of visits. If the
+person who runs the server turns on the Hardcover sync for your account, your reading statuses,
+ratings and reading dates go to your Hardcover library, which shows them as your Hardcover
+settings say.
 
 A public library is off until you turn it on (and the person who runs the server allows it
 for your account). Then anyone with its address can read the books on the lists you chose,

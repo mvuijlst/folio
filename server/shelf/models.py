@@ -117,3 +117,29 @@ class Library(models.Model):
             from .public import free_slug
             self.slug = free_slug(self.user.get_username())
         super().save(*args, **kwargs)
+
+
+class HardcoverLink(models.Model):
+    """Which Hardcover entry a book on the shelf is, and what the sync last sent it
+    (docs/hardcover-sync-plan.md). Kept apart from the book's own `data`, so that the sync
+    neither marks a book changed nor sends it to the devices or the booklog.
+
+    `uid` is the book's. No `user_book_id` means the book matched nothing on Hardcover (yet).
+    `created` says the sync added the entry itself, so it may also take it away again; an entry
+    that was there already is only ever updated. `reads` are the ids of the reads it added.
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='hardcover_links')
+    uid = models.CharField(max_length=64)
+    user_book_id = models.IntegerField(null=True, blank=True)
+    book_id = models.IntegerField(null=True, blank=True, help_text="Hardcover's book")
+    created = models.BooleanField(default=False, help_text='The sync added this entry on Hardcover.')
+    reads = models.JSONField(default=list, blank=True, help_text='Ids of the reads the sync added.')
+    sent = models.CharField(max_length=64, blank=True, help_text='A hash of what was last sent.')
+    error = models.TextField(blank=True)
+    checked = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'uid'], name='unique_hardcover_link_per_user')]
+
+    def __str__(self):
+        return f'{self.uid} → {self.user_book_id or "unmatched"}'

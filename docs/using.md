@@ -633,6 +633,9 @@ which other reading sites import: [StoryGraph](https://app.thestorygraph.com),
 [BookWyrm](https://joinbookwyrm.com) (open source; pick any instance),
 [Hardcover](https://hardcover.app), [LibraryThing](https://www.librarything.com) and Goodreads
 itself, all free. It is the way to give your reading a public page without running a server.
+On Folio's own server, Hardcover needs no file: a nightly sync sends it the books with a
+reading status, their ratings and reads ([server.md](server.md#hardcover-sync)). Goodreads,
+StoryGraph and LibraryThing have no way for a program to write to them, so they take the CSV.
 
 - One row per read, with the edition that was read: its format, publisher, pages, ISBN, the
   date read, that read's rating and review. A book not read yet (or being read again) has a

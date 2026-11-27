@@ -244,6 +244,45 @@ sudo bash /home/django/folio-yusupov/server/setup-series-check.sh mvuijlst
 
 See what it did with `journalctl -u folio-series-check.service`.
 
+## Hardcover sync
+
+`manage.py sync_hardcover --user NAME [--dry-run] [--limit N] [--budget N] [--verbose]` sends the
+books with a reading status to that account's library on Hardcover, with the same token
+(`shelf/hardcover_sync.py`; the reasoning is in [hardcover-sync-plan.md](hardcover-sync-plan.md)).
+It goes one way, and Folio is the record:
+
+- **What goes over.** The status (*To read*, *Reading*, *Read*, *Did not finish* become Want to
+  Read, Currently Reading, Read, Did Not Finish), the rating halved to stars (that of the latest
+  rated read, else the book's), the edition read last or the main one, the date added, and each
+  read with a full date (finished on that day, in its edition). A read with only a year or a
+  month, and a read marked *did not finish*, stay home. Reviews, categories, tags, places and
+  notes never go. Books with no status don't go either: unlogged is not unread.
+- **Matching** is by number only, never by title: ISBN-13, ISBN-10 or ASIN, the edition read
+  last first. A book with no match is counted, and asked about again when its editions change
+  or after a week.
+- **What is already there is adopted.** A book already in the Hardcover library (an old
+  Goodreads import) is updated, not added again: its status always, its rating only when Folio
+  has one, its edition when Folio's is on Hardcover. Reads of the same day count as one read,
+  and an empty read is filled before a new one is made. The sync never deletes an adopted book
+  or a read it did not make. A book it added itself goes again when the book leaves the shelf
+  or loses its status.
+- **What was sent** is kept in `HardcoverLink` (in the admin): the Hardcover ids, whether the
+  sync created the entry, the reads it made, a hash, the last error. An unchanged book costs no
+  request. Two books of the shelf that match one Hardcover book are counted as *shared*, and the
+  second is left out.
+- **Limits.** At most 50 requests a minute, and `--budget` (default 2,000) a run. When the
+  budget runs out the run stops, and the next one carries on. `--dry-run` asks Hardcover but
+  writes nothing, and says what would change.
+
+It runs every night (04:00 UTC) once installed by:
+
+```bash
+sudo bash /home/django/folio-yusupov/server/setup-hardcover-sync.sh mvuijlst
+```
+
+A night with nothing to send logs nothing; a book that fails keeps its error, is tried again the
+next night, and makes the run exit non-zero. See what it did with `journalctl -u folio-hardcover.service`.
+
 ## A list that became a mark
 
 `manage.py list_to_have --user NAME --list ID --have go|gone [--write]` gives the paper copies on

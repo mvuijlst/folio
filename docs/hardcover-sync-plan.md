@@ -1,6 +1,18 @@
 # Folio → Hardcover sync: plan
 
-Status: proposed 2026-11-27, not started. Three questions for Michel are at the end.
+Status: proposed 2026-11-27. The same day Michel took the recommended answer to each of the three
+questions at the end: (1a) only books with a reading status, (2) no reviews, ratings only, and
+(3a) unmatched books left out and counted, with stage 3 to be decided once the counts are in.
+
+Stage 0 and 1 done the same day (2.48.0, on the branch `claude/hardcover-sync`). The schema was
+read by introspection and the plan's names were right; status ids are 1 Want to Read,
+2 Currently Reading, 3 Read, 4 Paused, 5 Did Not Finish, 6 Ignored. His Hardcover library
+already held 2,481 books (2,424 imported in July 2023, 356 with a review, all public). The dry
+run on a copy of production (27 requests): of 1,580 books with a status, 162 would be added,
+258 adopted (233 of them with changes: rating 169, edition 126, status 6, plus reads), and
+1,160 matched nothing, 1,016 of them because no edition has an ISBN or ASIN. About 470 of those
+have a single book of the same title in his own Hardcover library, which a title-and-writer match
+against his library alone (not the whole catalogue) could adopt. Nothing has been written yet.
 
 ## What it is for
 

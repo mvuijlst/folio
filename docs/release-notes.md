@@ -12,6 +12,15 @@ so under Settings and updates itself the next time it is opened. See [server.md]
 
 Add an entry here with each release (see [development.md](development.md#releasing)).
 
+## 2.48.0 · 2026-11-27
+
+- **Hardcover sync.** `manage.py sync_hardcover` sends the books with a reading status to your
+  Hardcover library every night, one way: status, rating, the edition and each dated read.
+  Books are matched by ISBN or ASIN; a book already there (an old Goodreads import) is
+  updated, never deleted, and only what the sync added goes again when it leaves the shelf.
+  Reviews stay home. Goodreads, StoryGraph and LibraryThing can't be written to by a program
+  and keep the CSV export. See [Running Folio](server.md#hardcover-sync).
+
 ## 2.47.2 · 2026-11-25
 
 - **The website's authors A to Z.** The letters at the top of Authors, and the sections under

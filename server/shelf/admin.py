@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import Book, Library, List, Term
+from .models import Book, HardcoverLink, Library, List, Term
 
 
 @admin.register(Book)
@@ -85,3 +85,13 @@ class LibraryAdmin(admin.ModelAdmin):
             return ''
         names = [row.name for row in List.objects.filter(user=obj.user, deleted=False) if row.data.get('public') is True]
         return ', '.join(names) or '—'
+
+
+@admin.register(HardcoverLink)
+class HardcoverLinkAdmin(admin.ModelAdmin):
+    """What the Hardcover sync sent (docs/server.md, "Hardcover sync"). Deleting a row makes the
+    next run look the book up again; editing one by hand is rarely what you want."""
+    list_display = ['uid', 'user_book_id', 'book_id', 'created', 'error', 'checked', 'user']
+    list_filter = ['created', 'user']
+    search_fields = ['uid', 'error']
+    readonly_fields = ['checked']
